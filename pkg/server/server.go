@@ -68,6 +68,8 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // handleHealth handles the /health endpoint
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received health request from %s", r.RemoteAddr)
+
 	// Get health report
 	report, err := s.healthReporter.GetHealthReport(r.Context())
 	if err != nil {
@@ -82,6 +84,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleBusy handles the /busy endpoint
 func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received busy request from %s", r.RemoteAddr)
+
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
 	if err != nil {
@@ -128,18 +132,24 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate HMAC
-	hmac := r.Header.Get("X-Inferoute-HMAC")
+	// Validate HMAC from X-Request-Id header
+	hmac := r.Header.Get("X-Request-Id")
 	if hmac != "" {
-		log.Printf("Validating HMAC: %s", hmac)
+		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
 			log.Printf("HMAC validation failed: %v", err)
-			http.Error(w, fmt.Sprintf("Invalid HMAC: %v", err), http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
 			return
 		}
 		log.Printf("HMAC validation successful")
 	} else {
-		log.Printf("No HMAC provided in request")
+		log.Printf("No X-Request-Id (HMAC) provided in request")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
+		return
 	}
 
 	// Read request body
@@ -208,18 +218,24 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate HMAC
-	hmac := r.Header.Get("X-Inferoute-HMAC")
+	// Validate HMAC from X-Request-Id header
+	hmac := r.Header.Get("X-Request-Id")
 	if hmac != "" {
-		log.Printf("Validating HMAC: %s", hmac)
+		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
 			log.Printf("HMAC validation failed: %v", err)
-			http.Error(w, fmt.Sprintf("Invalid HMAC: %v", err), http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
 			return
 		}
 		log.Printf("HMAC validation successful")
 	} else {
-		log.Printf("No HMAC provided in request")
+		log.Printf("No X-Request-Id (HMAC) provided in request")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
+		return
 	}
 
 	// Read request body

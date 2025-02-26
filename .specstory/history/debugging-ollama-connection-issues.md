@@ -1238,6 +1238,405 @@ Let's also add logging for the request body in the chat completions and completi
 
 _****_
 
+```diff
+  	}
+  	
++ 	// Log request body (limited to 1000 characters to avoid huge logs)
++ 	bodyStr := string(body)
++ 	if len(bodyStr) > 1000 {
++ 		log.Printf("Request body (truncated): %s...", bodyStr[:1000])
++ 	} else {
++ 		log.Printf("Request body: %s", bodyStr)
++ 	}
++ 
+  	// Forward request to Ollama
+  	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/chat/completions", body)
+  		return
+  	}
++ 	
++ 	// Log response (limited to 1000 characters)
++ 	respStr := string(ollamaResp)
++ 	if len(respStr) > 1000 {
++ 		log.Printf("Ollama response (truncated): %s...", respStr[:1000])
++ 	} else {
++ 		log.Printf("Ollama response: %s", respStr)
++ 	}
+  
+  	// Write response
+  		return
+  	}
++ 	
++ 	// Log request body (limited to 1000 characters to avoid huge logs)
++ 	bodyStr := string(body)
++ 	if len(bodyStr) > 1000 {
++ 		log.Printf("Request body (truncated): %s...", bodyStr[:1000])
++ 	} else {
++ 		log.Printf("Request body: %s", bodyStr)
++ 	}
+  
+  	// Forward request to Ollama
+  		return
+  	}
++ 	
++ 	// Log response (limited to 1000 characters)
++ 	respStr := string(ollamaResp)
++ 	if len(respStr) > 1000 {
++ 		log.Printf("Ollama response (truncated): %s...", respStr[:1000])
++ 	} else {
++ 		log.Printf("Ollama response: %s", respStr)
++ 	}
+  
+  	// Write response
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+
+
+
+
+Let's also add logging to the forwardToOllama function to see the URL being used:
+
+---
+
+_****_
+
+```diff
+  	// Create request
+  	url := fmt.Sprintf("%s%s", s.config.Provider.LLMURL, path)
++ 	log.Printf("Forwarding request to Ollama at URL: %s", url)
++ 	
+  	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+  	if err != nil {
+  	resp, err := client.Do(req)
+  	if err != nil {
++ 		log.Printf("Error forwarding request to Ollama: %v", err)
+  		return nil, fmt.Errorf("failed to send request: %w", err)
+  	}
+  	// Check response status
+  	if resp.StatusCode != http.StatusOK {
++ 		log.Printf("Ollama responded with non-OK status code: %d", resp.StatusCode)
+  		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+  	}
+  	}
+  
++ 	log.Printf("Successfully received response from Ollama (%d bytes)", len(respBody))
+  	return respBody, nil
+  }
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+
+
+
+
+Now let's run the client to see the detailed logs:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+in the request headers the HMAC is in the X-Request-Id 
+
+2025/02/26 12:58:02 Received chat completions request from 127.0.0.1:52080
+2025/02/26 12:58:02 Request headers for chat completions:
+2025/02/26 12:58:02   X-Forwarded-For: 2a02:c7c:a0c9:5000:65a8:77ce:4666:3066
+2025/02/26 12:58:02   X-Model-Name: llama3.2
+2025/02/26 12:58:02   User-Agent: Go-http-client/2.0
+2025/02/26 12:58:02   Content-Length: 181
+2025/02/26 12:58:02   Accept-Encoding: gzip
+2025/02/26 12:58:02   Content-Type: application/json
+2025/02/26 12:58:02   X-Forwarded-Host: 74a6-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app
+2025/02/26 12:58:02   X-Forwarded-Proto: https
+2025/02/26 12:58:02   X-Request-Id: 8TzZfKmG7tKWFeqFg_2sflg58vyCLDHnQFro0877Ilg=
+
+So we must vlidate that before going aheadf. If teh HMASC is not valid we should reject the request and send back he reason.
+
+---
+
+_**Assistant**_
+
+I'll update the code to check for the HMAC in the X-Request-Id header instead of X-Inferoute-HMAC, and ensure we validate it properly before proceeding.
+
+---
+
+_****_
+
+```diff
+  	}
+  
+- 	// Validate HMAC
+- 	hmac := r.Header.Get("X-Inferoute-HMAC")
++ 	// Validate HMAC from X-Request-Id header
++ 	hmac := r.Header.Get("X-Request-Id")
+  	if hmac != "" {
+- 		log.Printf("Validating HMAC: %s", hmac)
++ 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
+  		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+  			log.Printf("HMAC validation failed: %v", err)
+- 			http.Error(w, fmt.Sprintf("Invalid HMAC: %v", err), http.StatusUnauthorized)
++ 			w.Header().Set("Content-Type", "application/json")
++ 			w.WriteHeader(http.StatusUnauthorized)
++ 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
+  			return
+  		}
+  		log.Printf("HMAC validation successful")
+  	} else {
+- 		log.Printf("No HMAC provided in request")
++ 		log.Printf("No X-Request-Id (HMAC) provided in request")
++ 		w.Header().Set("Content-Type", "application/json")
++ 		w.WriteHeader(http.StatusUnauthorized)
++ 		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
++ 		return
+  	}
+  
+  	}
+  
+- 	// Validate HMAC
+- 	hmac := r.Header.Get("X-Inferoute-HMAC")
++ 	// Validate HMAC from X-Request-Id header
++ 	hmac := r.Header.Get("X-Request-Id")
+  	if hmac != "" {
+- 		log.Printf("Validating HMAC: %s", hmac)
++ 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
+  		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+  			log.Printf("HMAC validation failed: %v", err)
+- 			http.Error(w, fmt.Sprintf("Invalid HMAC: %v", err), http.StatusUnauthorized)
++ 			w.Header().Set("Content-Type", "application/json")
++ 			w.WriteHeader(http.StatusUnauthorized)
++ 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
+  			return
+  		}
+  		log.Printf("HMAC validation successful")
+  	} else {
+- 		log.Printf("No HMAC provided in request")
++ 		log.Printf("No X-Request-Id (HMAC) provided in request")
++ 		w.Header().Set("Content-Type", "application/json")
++ 		w.WriteHeader(http.StatusUnauthorized)
++ 		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
++ 		return
+  	}
+  
+```
+
+---
+
+_****_
+
+
+
+Now let's also update the health endpoint to check for the HMAC in the X-Request-Id header:
+
+---
+
+_****_
+
+```diff
+  // handleHealth handles the /health endpoint
+  func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
++ 	log.Printf("Received health request from %s", r.RemoteAddr)
++ 	
++ 	// Log request headers
++ 	log.Printf("Request headers for health endpoint:")
++ 	for name, values := range r.Header {
++ 		for _, value := range values {
++ 			log.Printf("  %s: %s", name, value)
++ 		}
++ 	}
++ 	
++ 	// Validate HMAC from X-Request-Id header
++ 	hmac := r.Header.Get("X-Request-Id")
++ 	if hmac != "" {
++ 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
++ 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
++ 			log.Printf("HMAC validation failed: %v", err)
++ 			w.Header().Set("Content-Type", "application/json")
++ 			w.WriteHeader(http.StatusUnauthorized)
++ 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
++ 			return
++ 		}
++ 		log.Printf("HMAC validation successful")
++ 	} else {
++ 		log.Printf("No X-Request-Id (HMAC) provided in health request")
++ 		// For health endpoint, we'll still proceed even without HMAC for backward compatibility
++ 		// but we log the missing HMAC
++ 	}
++ 	
+  	// Get health report
+  	report, err := s.healthReporter.GetHealthReport(r.Context())
+```
+
+---
+
+_****_
+
+
+
+
+
+Let's also update the busy endpoint to check for the HMAC in the X-Request-Id header:
+
+---
+
+_****_
+
+```diff
+  // handleBusy handles the /busy endpoint
+  func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
++ 	log.Printf("Received busy request from %s", r.RemoteAddr)
++ 	
++ 	// Log request headers
++ 	log.Printf("Request headers for busy endpoint:")
++ 	for name, values := range r.Header {
++ 		for _, value := range values {
++ 			log.Printf("  %s: %s", name, value)
++ 		}
++ 	}
++ 	
++ 	// Validate HMAC from X-Request-Id header
++ 	hmac := r.Header.Get("X-Request-Id")
++ 	if hmac != "" {
++ 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
++ 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
++ 			log.Printf("HMAC validation failed: %v", err)
++ 			w.Header().Set("Content-Type", "application/json")
++ 			w.WriteHeader(http.StatusUnauthorized)
++ 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
++ 			return
++ 		}
++ 		log.Printf("HMAC validation successful")
++ 	} else {
++ 		log.Printf("No X-Request-Id (HMAC) provided in busy request")
++ 		// For busy endpoint, we'll still proceed even without HMAC for backward compatibility
++ 		// but we log the missing HMAC
++ 	}
++ 	
+  	// Check if GPU is busy
+  	isBusy, err := s.gpuMonitor.IsBusy()
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+Now let's run the client to test the changes:
+
+---
+
+_**User**_
+
+the health and busy do not require a HMAC
+
+---
+
+_**Assistant**_
+
+I'll update the code to make the health and busy endpoints not require HMAC validation:
+
+---
+
+_****_
+
+```diff
+  	}
+  	
+- 	// Validate HMAC from X-Request-Id header
++ 	// Log HMAC if present, but don't validate for health endpoint
+  	hmac := r.Header.Get("X-Request-Id")
+  	if hmac != "" {
+- 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
+- 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+- 			log.Printf("HMAC validation failed: %v", err)
+- 			w.Header().Set("Content-Type", "application/json")
+- 			w.WriteHeader(http.StatusUnauthorized)
+- 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
+- 			return
+- 		}
+- 		log.Printf("HMAC validation successful")
++ 		log.Printf("X-Request-Id present in health request: %s (not validating for health endpoint)", hmac)
+  	} else {
+- 		log.Printf("No X-Request-Id (HMAC) provided in health request")
+- 		// For health endpoint, we'll still proceed even without HMAC for backward compatibility
+- 		// but we log the missing HMAC
++ 		log.Printf("No X-Request-Id present in health request (not required for health endpoint)")
+  	}
+  	
+  	}
+  	
+- 	// Validate HMAC from X-Request-Id header
++ 	// Log HMAC if present, but don't validate for busy endpoint
+  	hmac := r.Header.Get("X-Request-Id")
+  	if hmac != "" {
+- 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
+- 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+- 			log.Printf("HMAC validation failed: %v", err)
+- 			w.Header().Set("Content-Type", "application/json")
+- 			w.WriteHeader(http.StatusUnauthorized)
+- 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
+- 			return
+- 		}
+- 		log.Printf("HMAC validation successful")
++ 		log.Printf("X-Request-Id present in busy request: %s (not validating for busy endpoint)", hmac)
+  	} else {
+- 		log.Printf("No X-Request-Id (HMAC) provided in busy request")
+- 		// For busy endpoint, we'll still proceed even without HMAC for backward compatibility
+- 		// but we log the missing HMAC
++ 		log.Printf("No X-Request-Id present in busy request (not required for busy endpoint)")
+  	}
+  	
+```
+
+---
+
+_****_
+
+
+
+Now let's run the client to test the changes:
+
+---
+
+_****_
+
 
 
 ---
