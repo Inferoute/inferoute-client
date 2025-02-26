@@ -141,9 +141,17 @@ func (s *Server) consoleUpdater() {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
+	// Debug counter to track update cycles
+	debugCounter := 0
+
 	for {
 		select {
 		case <-ticker.C:
+			debugCounter++
+
+			// Log to a file for debugging
+			log.Printf("DEBUG [%d]: Starting console update cycle", debugCounter)
+
 			// Update the last health update time in the banner
 			lastUpdate := s.healthReporter.GetLastUpdateTime()
 			lastUpdateStr := "Never"
@@ -151,17 +159,30 @@ func (s *Server) consoleUpdater() {
 				lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
 			}
 
+			log.Printf("DEBUG [%d]: About to update health timestamp to: %s", debugCounter, lastUpdateStr)
+
+			// Try a different approach - save the current position, move to update the timestamp, then restore position
+			fmt.Print("\033[s") // Save cursor position
+
 			// Move cursor to the last health update line (4th line)
 			fmt.Print("\033[4;1H")
 			fmt.Print("\033[K")                                                            // Clear the line
-			fmt.Printf("\033[1;35mLast Health Update            \033[0m%s", lastUpdateStr) // No newline here
+			fmt.Printf("\033[1;35mLast Health Update            \033[0m%s", lastUpdateStr) // No newline
 
-			// Move cursor directly to position after the GPU information section (25 lines down from top)
-			// without printing a newline after the health update
+			log.Printf("DEBUG [%d]: Updated health timestamp, about to restore cursor", debugCounter)
+
+			// Restore cursor position
+			fmt.Print("\033[u")
+
+			log.Printf("DEBUG [%d]: Restored cursor position, now moving to line 25", debugCounter)
+
+			// Now explicitly move to the position for Recent Requests
 			fmt.Print("\033[25;1H")
 
 			// Clear from cursor to end of screen
 			fmt.Print("\033[J")
+
+			log.Printf("DEBUG [%d]: Cleared screen from line 25, about to print Recent Requests", debugCounter)
 
 			// Print last 10 requests
 			fmt.Println("\033[1;33mRecent Requests:\033[0m")
@@ -175,6 +196,8 @@ func (s *Server) consoleUpdater() {
 			}
 			s.requestStats.mutex.Unlock()
 
+			log.Printf("DEBUG [%d]: Printed Recent Requests, about to print Errors", debugCounter)
+
 			// Print errors section if there are any
 			s.errorLogMutex.Lock()
 			if len(s.errorLog) > 0 {
@@ -184,6 +207,11 @@ func (s *Server) consoleUpdater() {
 				}
 			}
 			s.errorLogMutex.Unlock()
+
+			log.Printf("DEBUG [%d]: Completed console update cycle", debugCounter)
+
+			// Force flush stdout to ensure all content is displayed
+			fmt.Print("\033[0m") // Reset formatting
 		}
 	}
 }
