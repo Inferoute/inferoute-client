@@ -1889,6 +1889,692 @@ I'll create a custom console output for the server startup and request logging. 
 
 _****_
 
+```diff
+  	"log"
+  	"net/http"
++ 	"os"
++ 	"strings"
++ 	"sync"
+  	"time"
+  
+  	ollamaClient   *ollama.Client
+  	server         *http.Server
++ 	errorLog       []string
++ 	errorLogMutex  sync.Mutex
++ 	requestStats   struct {
++ 		Total       int
++ 		Success     int
++ 		Errors      int
++ 		Unauthorized int
++ 		LastRequests []string
++ 		mutex       sync.Mutex
++ 	}
+  }
+  
+  		healthReporter: healthReporter,
+  		ollamaClient:   ollama.NewClient(cfg.Provider.LLMURL),
++ 		errorLog:       make([]string, 0, 100),
+  	}
+  }
+  		IdleTimeout:  120 * time.Second,
+  	}
++ 
++ 	// Print startup banner with GPU info
++ 	s.printStartupBanner()
++ 
++ 	// Start a goroutine to periodically update the console
++ 	go s.consoleUpdater()
+  
+  	// Start server
+- 	log.Printf("Starting server on %s:%d", s.config.Server.Host, s.config.Server.Port)
+  	return s.server.ListenAndServe()
+  }
+  	return s.server.Shutdown(ctx)
+  }
++ 
++ // printStartupBanner prints a nice startup banner with GPU info
++ func (s *Server) printStartupBanner() {
++ 	// Get GPU info
++ 	gpuInfo, err := s.gpuMonitor.GetGPUInfo(context.Background())
++ 	if err != nil {
++ 		s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
++ 		gpuInfo = &gpu.GPUInfo{
++ 			ProductName: "Unknown",
++ 			DriverVersion: "Unknown",
++ 			CUDAVersion: "Unknown",
++ 			GPUCount: 0,
++ 		}
++ 	}
++ 
++ 	// Get health report for models
++ 	report, err := s.healthReporter.GetHealthReport(context.Background())
++ 	if err != nil {
++ 		s.logError(fmt.Sprintf("Failed to get health report: %v", err))
++ 		report = &health.Report{}
++ 	}
++ 
++ 	// Count models
++ 	modelCount := 0
++ 	if report.Models != nil {
++ 		modelCount = len(report.Models)
++ 	}
++ 
++ 	// Clear screen
++ 	fmt.Print("\033[H\033[2J")
++ 
++ 	// Print banner
++ 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
++ 	fmt.Println("║                     INFEROUTE PROVIDER CLIENT                    ║")
++ 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 	
++ 	fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
++ 	fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.Type)
++ 	fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
++ 	fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
++ 	fmt.Printf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL)
++ 	
++ 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
++ 	fmt.Println("║                          GPU INFORMATION                         ║")
++ 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 	
++ 	fmt.Printf("\033[1;35mGPU                          \033[0m%s\n", gpuInfo.ProductName)
++ 	fmt.Printf("\033[1;35mDriver Version               \033[0m%s\n", gpuInfo.DriverVersion)
++ 	fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
++ 	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
++ 	fmt.Printf("\033[1;35mModels Available             \033[0m%d\n", modelCount)
++ 	
++ 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
++ 	fmt.Println("║                            NETWORKING                            ║")
++ 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 	
++ 	fmt.Printf("\033[1;35mWeb Interface                \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
++ 	if s.config.NGROK.URL != "" {
++ 		fmt.Printf("\033[1;35mForwarding                   \033[0m%s -> http://%s:%d\n", 
++ 			s.config.NGROK.URL, s.config.Server.Host, s.config.Server.Port)
++ 	}
++ 	
++ 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
++ 	fmt.Println("║                         HTTP REQUESTS                            ║")
++ 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ }
++ 
++ // consoleUpdater periodically updates the console with request stats and errors
++ func (s *Server) consoleUpdater() {
++ 	ticker := time.NewTicker(1 * time.Second)
++ 	defer ticker.Stop()
++ 
++ 	for {
++ 		select {
++ 		case <-ticker.C:
++ 			// Move cursor to the right position (after the HTTP REQUESTS section)
++ 			fmt.Print("\033[14B") // Move down 14 lines from the HTTP REQUESTS header
++ 			
++ 			// Clear the rest of the screen
++ 			fmt.Print("\033[J")
++ 			
++ 			// Print request stats
++ 			s.requestStats.mutex.Lock()
++ 			fmt.Printf("\033[1;35mTotal Requests               \033[0m%d\n", s.requestStats.Total)
++ 			fmt.Printf("\033[1;35mSuccessful Requests          \033[0m%d\n", s.requestStats.Success)
++ 			fmt.Printf("\033[1;35mUnauthorized Requests        \033[0m%d\n", s.requestStats.Unauthorized)
++ 			fmt.Printf("\033[1;35mError Requests               \033[0m%d\n", s.requestStats.Errors)
++ 			
++ 			// Print last 10 requests
++ 			fmt.Println("\n\033[1;33mRecent Requests:\033[0m")
++ 			if len(s.requestStats.LastRequests) == 0 {
++ 				fmt.Println("No requests yet")
++ 			} else {
++ 				for _, req := range s.requestStats.LastRequests {
++ 					fmt.Println(req)
++ 				}
++ 			}
++ 			s.requestStats.mutex.Unlock()
++ 			
++ 			// Print errors section if there are any
++ 			s.errorLogMutex.Lock()
++ 			if len(s.errorLog) > 0 {
++ 				fmt.Println("\n\033[1;31mErrors:\033[0m")
++ 				for _, err := range s.errorLog {
++ 					fmt.Println(err)
++ 				}
++ 			}
++ 			s.errorLogMutex.Unlock()
++ 			
++ 			// Move cursor back to the top
++ 			fmt.Print("\033[H")
++ 		}
++ 	}
++ }
++ 
++ // logRequest logs a request to the console
++ func (s *Server) logRequest(method, path string, statusCode int, startTime time.Time) {
++ 	duration := time.Since(startTime)
++ 	
++ 	// Format the log entry
++ 	var statusColor string
++ 	switch {
++ 	case statusCode >= 200 && statusCode < 300:
++ 		statusColor = "\033[1;32m" // Green
++ 		s.requestStats.mutex.Lock()
++ 		s.requestStats.Success++
++ 		s.requestStats.mutex.Unlock()
++ 	case statusCode == 401:
++ 		statusColor = "\033[1;33m" // Yellow
++ 		s.requestStats.mutex.Lock()
++ 		s.requestStats.Unauthorized++
++ 		s.requestStats.mutex.Unlock()
++ 	default:
++ 		statusColor = "\033[1;31m" // Red
++ 		s.requestStats.mutex.Lock()
++ 		s.requestStats.Errors++
++ 		s.requestStats.mutex.Unlock()
++ 	}
++ 	
++ 	timestamp := time.Now().Format("15:04:05.000")
++ 	logEntry := fmt.Sprintf("%s UTC %s %s %s%d\033[0m %s", 
++ 		timestamp, method, path, statusColor, statusCode, duration)
++ 	
++ 	// Add to request stats
++ 	s.requestStats.mutex.Lock()
++ 	s.requestStats.Total++
++ 	s.requestStats.LastRequests = append(s.requestStats.LastRequests, logEntry)
++ 	if len(s.requestStats.LastRequests) > 10 {
++ 		s.requestStats.LastRequests = s.requestStats.LastRequests[1:]
++ 	}
++ 	s.requestStats.mutex.Unlock()
++ }
++ 
++ // logError logs an error to the error log
++ func (s *Server) logError(errMsg string) {
++ 	timestamp := time.Now().Format("15:04:05.000")
++ 	logEntry := fmt.Sprintf("%s ERROR: %s", timestamp, errMsg)
++ 	
++ 	s.errorLogMutex.Lock()
++ 	s.errorLog = append(s.errorLog, logEntry)
++ 	if len(s.errorLog) > 10 {
++ 		s.errorLog = s.errorLog[1:]
++ 	}
++ 	s.errorLogMutex.Unlock()
++ 	
++ 	// Also log to standard logger for file logging if configured
++ 	log.Printf("ERROR: %s", errMsg)
++ }
+  
+  // handleHealth handles the /health endpoint
+  func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+- 	log.Printf("Received health request from %s", r.RemoteAddr)
++ 	startTime := time.Now()
+  	
+  	// Get health report
+  	report, err := s.healthReporter.GetHealthReport(r.Context())
+  	if err != nil {
++ 		s.logError(fmt.Sprintf("Failed to get health report: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to get health report: %v", err), http.StatusInternalServerError)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+  		return
+  	}
+  	w.Header().Set("Content-Type", "application/json")
+  	json.NewEncoder(w).Encode(report)
++ 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+  }
+  
+  // handleBusy handles the /busy endpoint
+  func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
+- 	log.Printf("Received busy request from %s", r.RemoteAddr)
++ 	startTime := time.Now()
+  	
+  	// Check if GPU is busy
+  	isBusy, err := s.gpuMonitor.IsBusy()
+  	if err != nil {
+- 		log.Printf("Error checking if GPU is busy: %v", err)
++ 		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+  		return
+  	}
+- 
+- 	log.Printf("GPU busy check: %v", isBusy)
+  
+  	// Write response
+  	w.Header().Set("Content-Type", "application/json")
+  	json.NewEncoder(w).Encode(map[string]bool{"busy": isBusy})
++ 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+  }
+  
+  // handleChatCompletions handles the /v1/chat/completions endpoint
+  func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+- 	log.Printf("Received chat completions request from %s", r.RemoteAddr)
++ 	startTime := time.Now()
+  	
+  	// Check if GPU is busy
+  	isBusy, err := s.gpuMonitor.IsBusy()
+  	if err != nil {
+- 		log.Printf("Error checking if GPU is busy: %v", err)
++ 		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+  		return
+  	}
+- 
+- 	log.Printf("GPU busy check for chat completions: %v", isBusy)
+  
+  	// If GPU is busy, return error
+  	if isBusy {
+- 		log.Printf("Rejecting chat completions request because GPU is busy")
+  		w.Header().Set("Content-Type", "application/json")
+  		w.WriteHeader(http.StatusServiceUnavailable)
+  		json.NewEncoder(w).Encode(map[string]string{"error": "GPU is busy"})
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
+  		return
+  	}
+  	hmac := r.Header.Get("X-Request-Id")
+  	if hmac != "" {
+- 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
+  		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+- 			log.Printf("HMAC validation failed: %v", err)
++ 			s.logError(fmt.Sprintf("HMAC validation failed: %v", err))
+  			w.Header().Set("Content-Type", "application/json")
+  			w.WriteHeader(http.StatusUnauthorized)
+  			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
++ 			s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
+  			return
+  		}
+- 		log.Printf("HMAC validation successful")
+  	} else {
+- 		log.Printf("No X-Request-Id (HMAC) provided in request")
+  		w.Header().Set("Content-Type", "application/json")
+  		w.WriteHeader(http.StatusUnauthorized)
+  		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
+  		return
+  	}
+  	body, err := io.ReadAll(r.Body)
+  	if err != nil {
++ 		s.logError(fmt.Sprintf("Failed to read request body: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusBadRequest, startTime)
+  		return
+  	}
+- 
+- 	// Log request body (limited to 1000 characters to avoid huge logs)
+- 	bodyStr := string(body)
+- 	if len(bodyStr) > 1000 {
+- 		log.Printf("Request body (truncated): %s...", bodyStr[:1000])
+- 	} else {
+- 		log.Printf("Request body: %s", bodyStr)
+- 	}
+  
+  	// Forward request to Ollama
+  	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/chat/completions", body)
+  	if err != nil {
++ 		s.logError(fmt.Sprintf("Failed to forward request to Ollama: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+  		return
+  	}
+- 
+- 	// Log response (limited to 1000 characters)
+- 	respStr := string(ollamaResp)
+- 	if len(respStr) > 1000 {
+- 		log.Printf("Ollama response (truncated): %s...", respStr[:1000])
+- 	} else {
+- 		log.Printf("Ollama response: %s", respStr)
+- 	}
+  
+  	// Write response
+  	w.Header().Set("Content-Type", "application/json")
+  	w.Write(ollamaResp)
++ 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+  }
+  
+  // handleCompletions handles the /v1/completions endpoint
+  func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
+- 	log.Printf("Received completions request from %s", r.RemoteAddr)
++ 	startTime := time.Now()
+  	
+  	// Check if GPU is busy
+  	isBusy, err := s.gpuMonitor.IsBusy()
+  	if err != nil {
+- 		log.Printf("Error checking if GPU is busy: %v", err)
++ 		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+  		return
+  	}
+- 
+- 	log.Printf("GPU busy check for completions: %v", isBusy)
+  
+  	// If GPU is busy, return error
+  	if isBusy {
+- 		log.Printf("Rejecting completions request because GPU is busy")
+  		w.Header().Set("Content-Type", "application/json")
+  		w.WriteHeader(http.StatusServiceUnavailable)
+  		json.NewEncoder(w).Encode(map[string]string{"error": "GPU is busy"})
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
+  		return
+  	}
+  	hmac := r.Header.Get("X-Request-Id")
+  	if hmac != "" {
+- 		log.Printf("Validating HMAC from X-Request-Id: %s", hmac)
+  		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+- 			log.Printf("HMAC validation failed: %v", err)
++ 			s.logError(fmt.Sprintf("HMAC validation failed: %v", err))
+  			w.Header().Set("Content-Type", "application/json")
+  			w.WriteHeader(http.StatusUnauthorized)
+  			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
++ 			s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
+  			return
+  		}
+- 		log.Printf("HMAC validation successful")
+  	} else {
+- 		log.Printf("No X-Request-Id (HMAC) provided in request")
+  		w.Header().Set("Content-Type", "application/json")
+  		w.WriteHeader(http.StatusUnauthorized)
+  		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
+  		return
+  	}
+  	body, err := io.ReadAll(r.Body)
+  	if err != nil {
++ 		s.logError(fmt.Sprintf("Failed to read request body: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusBadRequest, startTime)
+  		return
+  	}
+  	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/completions", body)
+  	if err != nil {
++ 		s.logError(fmt.Sprintf("Failed to forward request to Ollama: %v", err))
+  		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
++ 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+  		return
+  	}
+  	w.Header().Set("Content-Type", "application/json")
+  	w.Write(ollamaResp)
++ 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+  }
+  
+  	// Create request
+  	url := fmt.Sprintf("%s/api/provider/validate_hmac", s.config.Provider.URL)
+- 	log.Printf("Sending HMAC validation request to %s", url)
+  	
+  	reqBody, err := json.Marshal(map[string]string{"hmac": hmac})
+  	resp, err := client.Do(req)
+  	if err != nil {
+- 		log.Printf("HMAC validation request failed: %v", err)
+  		return fmt.Errorf("failed to send request: %w", err)
+  	}
+  		respBody, readErr := io.ReadAll(resp.Body)
+  		if readErr == nil {
+- 			log.Printf("HMAC validation error response body: %s", string(respBody))
++ 			s.logError(fmt.Sprintf("HMAC validation error response: %s", string(respBody)))
+  		}
+- 		log.Printf("HMAC validation failed with status code: %d", resp.StatusCode)
+  		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+  	}
+  	respBody, err := io.ReadAll(resp.Body)
+  	if err != nil {
+- 		log.Printf("Failed to read HMAC validation response body: %v", err)
+  		return fmt.Errorf("failed to read response body: %w", err)
+  	}
+  
+  	if err := json.Unmarshal(respBody, &response); err != nil {
+- 		log.Printf("Failed to parse HMAC validation response: %v", err)
+  		return fmt.Errorf("failed to parse response: %w", err)
+  	}
+  
+  	// Check if HMAC is valid
+  	if !response.Valid {
+- 		log.Printf("HMAC is invalid according to central system")
+  		return fmt.Errorf("invalid HMAC")
+  	}
+  	// Create request
+  	url := fmt.Sprintf("%s%s", s.config.Provider.LLMURL, path)
+- 	log.Printf("Forwarding request to Ollama at URL: %s", url)
+  	
+  	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+  	resp, err := client.Do(req)
+  	if err != nil {
+- 		log.Printf("Error forwarding request to Ollama: %v", err)
+  		return nil, fmt.Errorf("failed to send request: %w", err)
+  	}
+  	// Check response status
+  	if resp.StatusCode != http.StatusOK {
+- 		log.Printf("Ollama responded with non-OK status code: %d", resp.StatusCode)
+  		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+  	}
+  	}
+  
+- 	log.Printf("Successfully received response from Ollama (%d bytes)", len(respBody))
+  	return respBody, nil
+  }
++ 
++ // Helper function to mask sensitive strings
++ func maskString(s string) string {
++ 	if len(s) <= 8 {
++ 		return "****"
++ 	}
++ 	return s[:4] + "..." + s[len(s)-4:]
++ }
+  
+```
+
+---
+
+_****_
+
+
+
+Let's fix the linter errors in the server.go file:
+
+---
+
+_****_
+
+Read file: pkg/gpu/monitor.go
+
+---
+
+_****_
+
+Read file: pkg/gpu/monitor.go
+
+---
+
+_****_
+
+Read file: pkg/health/reporter.go
+
+---
+
+_****_
+
+Read file: pkg/config/config.go
+
+---
+
+_****_
+
+```diff
+  func (s *Server) printStartupBanner() {
+  	// Get GPU info
+- 	gpuInfo, err := s.gpuMonitor.GetGPUInfo(context.Background())
++ 	gpuInfo, err := s.gpuMonitor.GetGPUInfo()
+  	if err != nil {
+  		s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
+  	if err != nil {
+  		s.logError(fmt.Sprintf("Failed to get health report: %v", err))
+- 		report = &health.Report{}
++ 		report = &health.HealthReport{}
+  	}
+  
+  	// Count models
+  	modelCount := 0
+- 	if report.Models != nil {
+- 		modelCount = len(report.Models)
++ 	if report.Data != nil {
++ 		modelCount = len(report.Data)
+  	}
+  
+  
+  	fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
+- 	fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.Type)
++ 	fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType)
+  	fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
+  	fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
+```
+
+---
+
+_****_
+
+
+
+
+
+Now let's run the client to see our new console interface:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+can you rvmoe the networking section and just add the NGROK URL to the INFEROUTE PROPVIDER CLIENT SECTION.
+
+---
+
+_**Assistant**_
+
+I'll update the server.go file to remove the networking section and add the NGROK URL to the Inferoute Provider Client section.
+
+---
+
+_****_
+
+```diff
+  	fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
+  	fmt.Printf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL)
++ 	fmt.Printf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
++ 	if s.config.NGROK.URL != "" {
++ 		fmt.Printf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL)
++ 	}
+  
+  	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+  	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
+  	fmt.Printf("\033[1;35mModels Available             \033[0m%d\n", modelCount)
+- 
+- 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+- 	fmt.Println("║                            NETWORKING                            ║")
+- 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
+- 
+- 	fmt.Printf("\033[1;35mWeb Interface                \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
+- 	if s.config.NGROK.URL != "" {
+- 		fmt.Printf("\033[1;35mForwarding                   \033[0m%s -> http://%s:%d\n",
+- 			s.config.NGROK.URL, s.config.Server.Host, s.config.Server.Port)
+- 	}
+  
+  	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+  		case <-ticker.C:
+  			// Move cursor to the right position (after the HTTP REQUESTS section)
+- 			fmt.Print("\033[14B") // Move down 14 lines from the HTTP REQUESTS header
++ 			fmt.Print("\033[11B") // Move down 11 lines from the HTTP REQUESTS header
+  
+  			// Clear the rest of the screen
+```
+
+---
+
+_****_
+
+
+
+Now let's run the client to see the updated console interface:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+Also after a request comes in this added ontop of INFEROUTE PRPVIDER CLIENT, 
+
+GPU Utilization: 0.00%, Memory Usage: 3702/24564 MiB (15.07%), Busy: false
+
+See screenshot -0 we dfont need this,
+
+
+
+---
+
+_**Assistant**_
+
+I'll remove the GPU utilization information that's being displayed at the top of the console after a request comes in.
+
+---
+
+_****_
+
+Read file: pkg/gpu/monitor.go
+
+---
+
+_****_
+
+
+
+Now I'll edit the `IsBusy` method in the GPU monitor to remove the utilization information that's being printed to the console:
+
+---
+
+_****_
+
+```diff
+  	}
+  
+- 	// Log GPU utilization and memory usage
+- 	fmt.Printf("GPU Utilization: %.2f%%, Memory Usage: %d/%d MiB (%.2f%%), Busy: %v\n",
+- 		info.Utilization,
+- 		info.MemoryUsed,
+- 		info.MemoryTotal,
+- 		float64(info.MemoryUsed)/float64(info.MemoryTotal)*100,
+- 		info.IsBusy)
+- 
+  	return info.IsBusy, nil
+  }
+```
+
+---
+
+_****_
+
+
+
+Now let's run the client to see the updated console interface without the GPU utilization information at the top:
+
+---
+
+_****_
+
 
 
 ---

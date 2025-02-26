@@ -123,6 +123,10 @@ func (s *Server) printStartupBanner() {
 	fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
 	fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
 	fmt.Printf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL)
+	fmt.Printf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
+	if s.config.NGROK.URL != "" {
+		fmt.Printf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL)
+	}
 
 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
 	fmt.Println("║                          GPU INFORMATION                         ║")
@@ -133,16 +137,6 @@ func (s *Server) printStartupBanner() {
 	fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
 	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
 	fmt.Printf("\033[1;35mModels Available             \033[0m%d\n", modelCount)
-
-	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                            NETWORKING                            ║")
-	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
-
-	fmt.Printf("\033[1;35mWeb Interface                \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
-	if s.config.NGROK.URL != "" {
-		fmt.Printf("\033[1;35mForwarding                   \033[0m%s -> http://%s:%d\n",
-			s.config.NGROK.URL, s.config.Server.Host, s.config.Server.Port)
-	}
 
 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
 	fmt.Println("║                         HTTP REQUESTS                            ║")
@@ -158,7 +152,7 @@ func (s *Server) consoleUpdater() {
 		select {
 		case <-ticker.C:
 			// Move cursor to the right position (after the HTTP REQUESTS section)
-			fmt.Print("\033[14B") // Move down 14 lines from the HTTP REQUESTS header
+			fmt.Print("\033[11B") // Move down 11 lines from the HTTP REQUESTS header
 
 			// Clear the rest of the screen
 			fmt.Print("\033[J")

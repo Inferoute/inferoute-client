@@ -128,14 +128,6 @@ func (m *Monitor) IsBusy() (bool, error) {
 		return false, err
 	}
 
-	// Log GPU utilization and memory usage
-	fmt.Printf("GPU Utilization: %.2f%%, Memory Usage: %d/%d MiB (%.2f%%), Busy: %v\n",
-		info.Utilization,
-		info.MemoryUsed,
-		info.MemoryTotal,
-		float64(info.MemoryUsed)/float64(info.MemoryTotal)*100,
-		info.IsBusy)
-
 	return info.IsBusy, nil
 }
 
