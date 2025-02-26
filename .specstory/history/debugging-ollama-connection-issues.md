@@ -889,6 +889,65 @@ Let's update the server.go file to use the new configuration structure:
 
 _****_
 
+```diff
+  		gpuMonitor:     gpuMonitor,
+  		healthReporter: healthReporter,
+- 		ollamaClient:   ollama.NewClient(cfg.Ollama.URL),
++ 		ollamaClient:   ollama.NewClient(cfg.Provider.LLMURL),
+  	}
+  }
+  func (s *Server) forwardToOllama(ctx context.Context, path string, body []byte) ([]byte, error) {
+  	// Create request
+- 	url := fmt.Sprintf("%s%s", s.config.Ollama.URL, path)
++ 	url := fmt.Sprintf("%s%s", s.config.Provider.LLMURL, path)
+  	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+  	if err != nil {
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+
+
+Now let's run the client to see if all the fixes work:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+can we add some loggintg as I would like to see the client check whether it's busy or not and see when it validates the HMAC.
+
+---
+
+_**Assistant**_
+
+I'll add logging to help you track the client's operations, particularly for checking GPU busy status and HMAC validation. Let's update the server.go file to include these logs:
+
+---
+
+_****_
+
 
 
 ---

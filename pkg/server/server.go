@@ -85,9 +85,12 @@ func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
 	if err != nil {
+		log.Printf("Error checking if GPU is busy: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("GPU busy check: %v", isBusy)
 
 	// Write response
 	w.Header().Set("Content-Type", "application/json")
@@ -96,15 +99,21 @@ func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
 
 // handleChatCompletions handles the /v1/chat/completions endpoint
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received chat completions request from %s", r.RemoteAddr)
+
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
 	if err != nil {
+		log.Printf("Error checking if GPU is busy: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("GPU busy check for chat completions: %v", isBusy)
+
 	// If GPU is busy, return error
 	if isBusy {
+		log.Printf("Rejecting chat completions request because GPU is busy")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"error": "GPU is busy"})
@@ -114,10 +123,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Validate HMAC
 	hmac := r.Header.Get("X-Inferoute-HMAC")
 	if hmac != "" {
+		log.Printf("Validating HMAC: %s", hmac)
 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+			log.Printf("HMAC validation failed: %v", err)
 			http.Error(w, fmt.Sprintf("Invalid HMAC: %v", err), http.StatusUnauthorized)
 			return
 		}
+		log.Printf("HMAC validation successful")
+	} else {
+		log.Printf("No HMAC provided in request")
 	}
 
 	// Read request body
@@ -141,15 +155,21 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 // handleCompletions handles the /v1/completions endpoint
 func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received completions request from %s", r.RemoteAddr)
+
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
 	if err != nil {
+		log.Printf("Error checking if GPU is busy: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("GPU busy check for completions: %v", isBusy)
+
 	// If GPU is busy, return error
 	if isBusy {
+		log.Printf("Rejecting completions request because GPU is busy")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"error": "GPU is busy"})
@@ -159,10 +179,15 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	// Validate HMAC
 	hmac := r.Header.Get("X-Inferoute-HMAC")
 	if hmac != "" {
+		log.Printf("Validating HMAC: %s", hmac)
 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
+			log.Printf("HMAC validation failed: %v", err)
 			http.Error(w, fmt.Sprintf("Invalid HMAC: %v", err), http.StatusUnauthorized)
 			return
 		}
+		log.Printf("HMAC validation successful")
+	} else {
+		log.Printf("No HMAC provided in request")
 	}
 
 	// Read request body
@@ -188,6 +213,8 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/validate_hmac", s.config.Provider.URL)
+	log.Printf("Sending HMAC validation request to %s", url)
+
 	reqBody, err := json.Marshal(map[string]string{"hmac": hmac})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
@@ -206,12 +233,14 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("HMAC validation request failed: %v", err)
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("HMAC validation failed with status code: %d", resp.StatusCode)
 		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
 
@@ -220,11 +249,13 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 		Valid bool `json:"valid"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		log.Printf("Failed to parse HMAC validation response: %v", err)
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Check if HMAC is valid
 	if !response.Valid {
+		log.Printf("HMAC is invalid according to central system")
 		return fmt.Errorf("invalid HMAC")
 	}
 
