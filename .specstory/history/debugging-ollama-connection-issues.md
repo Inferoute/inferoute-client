@@ -3023,6 +3023,100 @@ _****_
 
 ---
 
+_**User**_
+
+okay also we do not need to resraw the GPU stuff
+
+---
+
+_**Assistant**_
+
+You're right. We don't need to redraw the GPU information section either since it's already displayed in the initial banner. Let's optimize this further by only updating the dynamic parts that actually change - the recent requests and errors.
+
+---
+
+_****_
+
+```diff
+  		select {
+  		case <-ticker.C:
+- 			// Get current GPU info for display
+- 			gpuInfo, err := s.gpuMonitor.GetGPUInfo()
+- 			if err != nil {
+- 				s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
+- 				gpuInfo = &gpu.GPUInfo{
+- 					ProductName:   "Unknown",
+- 					DriverVersion: "Unknown",
+- 					CUDAVersion:   "Unknown",
+- 					GPUCount:      0,
+- 				}
+- 			}
+- 
+- 			// Instead of clearing the entire screen, use cursor movement to update only the dynamic parts
+- 			// Move cursor to position after the static banner (16 lines down from top)
+- 			fmt.Print("\033[16;1H")
++ 			// Move cursor to position after the GPU information section (25 lines down from top)
++ 			fmt.Print("\033[25;1H")
+  			
+  			// Clear from cursor to end of screen
+  			fmt.Print("\033[J")
+- 
+- 			// Only redraw the GPU information section
+- 			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+- 			fmt.Println("║                          GPU INFORMATION                         ║")
+- 			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
+- 
+- 			fmt.Printf("\033[1;35mGPU                          \033[0m%s\n", gpuInfo.ProductName)
+- 			fmt.Printf("\033[1;35mDriver Version               \033[0m%s\n", gpuInfo.DriverVersion)
+- 			fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
+- 			fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
+  
+  			// Print last 10 requests
+- 			fmt.Println("\n\033[1;33mRecent Requests:\033[0m")
++ 			fmt.Println("\033[1;33mRecent Requests:\033[0m")
+  			s.requestStats.mutex.Lock()
+  			if len(s.requestStats.LastRequests) == 0 {
+```
+
+---
+
+_****_
+
+
+
+Let's run the client to see the improved console interface with minimal flickering:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+OI am seeing this in the console, please remove this.
+
+Sending health report JSON: {"object":"list","data":[{"id":"deepseek-r1:8b","object":"model","created":1737981121,"owned_by":"library"},{"id":"deepseek-r1:32b","object":"model","created":1737496831,"owned_by":"library"},{"id":"llama3.2:latest","object":"model","created":1737486178,"owned_by":"library"},{"id":"research-phi3:latest","object":"model","created":1732538838,"owned_by":"library"},{"id":"phi3:3.8b-mini-128k-instruct-fp16","object":"model","created":1732535952,"owned_by":"library"}],"gpu":{"product_name":"NVIDIA GeForce RTX 4090","driver_version":"560.35.03","cuda_version":"12.6","gpu_count":1,"uuid":"GPU-9a6ac143-8f1e-3dee-f68f-f8096c3e69cf","utilization":0,"memory_total":24564,"memory_used":4,"memory_free":24108,"is_busy":false},"ngrok":{"url":"https://74a6-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"},"provider_type":"ollama"}
+Sending health report to URL: http://192.168.0.36:80/api/provider/health
+
+Instead can we log when the last health update was send in the banner under  INFEROUTE PROVIDER CLIENT 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
 
 
 ---

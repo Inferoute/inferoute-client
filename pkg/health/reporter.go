@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/config"
@@ -16,9 +17,11 @@ import (
 
 // Reporter handles health reporting to the central system
 type Reporter struct {
-	config     *config.Config
-	gpuMonitor *gpu.Monitor
-	client     *http.Client
+	config          *config.Config
+	gpuMonitor      *gpu.Monitor
+	client          *http.Client
+	lastUpdateTime  time.Time
+	lastUpdateMutex sync.Mutex
 }
 
 // HealthReport represents a health report to be sent to the central system
@@ -71,13 +74,8 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal health report: %w", err)
 	}
 
-	// Log the JSON payload
-	fmt.Printf("Sending health report JSON: %s\n", string(reportJSON))
-
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
-	fmt.Printf("Sending health report to URL: %s\n", url)
-	fmt.Printf("Using API key: %s\n", r.config.Provider.APIKey)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
 	if err != nil {
@@ -101,6 +99,11 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("health report failed with status code: %d, response: %s", resp.StatusCode, string(body))
 	}
+
+	// Update the last update time
+	r.lastUpdateMutex.Lock()
+	r.lastUpdateTime = time.Now()
+	r.lastUpdateMutex.Unlock()
 
 	return nil
 }
@@ -132,4 +135,11 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	}
 
 	return report, nil
+}
+
+// GetLastUpdateTime returns the time of the last successful health report
+func (r *Reporter) GetLastUpdateTime() time.Time {
+	r.lastUpdateMutex.Lock()
+	defer r.lastUpdateMutex.Unlock()
+	return r.lastUpdateTime
 }

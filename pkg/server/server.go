@@ -105,6 +105,13 @@ func (s *Server) printStartupBanner() {
 	fmt.Println("║                     INFEROUTE PROVIDER CLIENT                    ║")
 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
 
+	// Get last health update time
+	lastUpdate := s.healthReporter.GetLastUpdateTime()
+	lastUpdateStr := "Never"
+	if !lastUpdate.IsZero() {
+		lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
+	}
+	fmt.Printf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr)
 	fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
 	fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType)
 	fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
@@ -137,6 +144,18 @@ func (s *Server) consoleUpdater() {
 	for {
 		select {
 		case <-ticker.C:
+			// Update the last health update time in the banner
+			lastUpdate := s.healthReporter.GetLastUpdateTime()
+			lastUpdateStr := "Never"
+			if !lastUpdate.IsZero() {
+				lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
+			}
+
+			// Move cursor to the last health update line (4th line)
+			fmt.Print("\033[4;1H")
+			fmt.Print("\033[K") // Clear the line
+			fmt.Printf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr)
+
 			// Move cursor to position after the GPU information section (25 lines down from top)
 			fmt.Print("\033[25;1H")
 
