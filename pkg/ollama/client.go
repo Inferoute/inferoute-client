@@ -26,7 +26,7 @@ type OllamaModel struct {
 // ListModelsResponse represents the response from the Ollama API for listing models
 type ListModelsResponse struct {
 	Object string        `json:"object"`
-	Models []OllamaModel `json:"data"`
+	Data   []OllamaModel `json:"data"`
 }
 
 // ChatMessage represents a message in a chat conversation

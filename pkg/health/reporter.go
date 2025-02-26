@@ -56,7 +56,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Create health report
 	report := HealthReport{
 		Object: "list",
-		Data:   models.Models,
+		Data:   models.Data,
 		GPU:    gpuInfo,
 		NGROK: map[string]interface{}{
 			"url": r.config.NGROK.URL,
@@ -121,7 +121,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	// Create health report
 	report := &HealthReport{
 		Object: "list",
-		Data:   models.Models,
+		Data:   models.Data,
 		GPU:    gpuInfo,
 		NGROK: map[string]interface{}{
 			"url": r.config.NGROK.URL,

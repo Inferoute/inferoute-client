@@ -280,6 +280,84 @@ _****_
 
 ---
 
+_**User**_
+
+also can you add some loggin so I can see the JSON it's trying to send to the health API 
+
+---
+
+_**Assistant**_
+
+I'll add logging to show the JSON being sent to the health API. Let's modify the health reporter to log the JSON payload:
+
+---
+
+_****_
+
+```diff
+  	"encoding/json"
+  	"fmt"
++ 	"io"
+  	"net/http"
+  	"time"
+  		return fmt.Errorf("failed to marshal health report: %w", err)
+  	}
++ 
++ 	// Log the JSON payload
++ 	fmt.Printf("Sending health report JSON: %s\n", string(reportJSON))
+  
+  	// Create request
+  	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
++ 	fmt.Printf("Sending health report to URL: %s\n", url)
++ 	fmt.Printf("Using API key: %s\n", r.config.Provider.APIKey)
++ 	
+  	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
+  	if err != nil {
+  	// Check response status
+  	if resp.StatusCode != http.StatusOK {
+- 		return fmt.Errorf("health report failed with status code: %d", resp.StatusCode)
++ 		// Read response body for error details
++ 		body, _ := io.ReadAll(resp.Body)
++ 		return fmt.Errorf("health report failed with status code: %d, response: %s", resp.StatusCode, string(body))
+  	}
+  
+```
+
+---
+
+_****_
+
+
+
+
+
+Now let's also fix the JSON structure to match what the API expects. Looking at the Ollama API response from your curl command, I notice that the models are in a "data" array, but our client might be expecting a different structure. Let's update the ListModels function to correctly parse the Ollama API response:
+
+---
+
+_****_
+
+```diff
+  type ListModelsResponse struct {
+  	Object string        `json:"object"`
+- 	Models []OllamaModel `json:"data"`
++ 	Data   []OllamaModel `json:"data"`
+  }
+  
+```
+
+---
+
+_****_
+
+
+
+
+
+Now we need to update the health reporter
+
+---
+
 
 
 ---

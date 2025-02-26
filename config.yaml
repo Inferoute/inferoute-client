@@ -12,8 +12,8 @@ provider:
   # Your provider API key from the Inferoute platform
   api_key: "test_key_tier2b"
   # URL of the central Inferoute system
-  url: "http://localhost:80"
+  url: "http://192.168.0.36:80"
 
 # NGROK configuration (will be overridden by code for now)
 ngrok:
-  url: "https://your-ngrok-url.ngrok-free.app" 
+  url: "https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"
