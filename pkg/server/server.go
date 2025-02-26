@@ -279,10 +279,24 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	url := fmt.Sprintf("%s/api/provider/validate_hmac", s.config.Provider.URL)
 	log.Printf("Sending HMAC validation request to %s", url)
 
+	// Log the HMAC being validated
+	log.Printf("HMAC being validated: %s", hmac)
+
+	// Log the API key being used (partially masked for security)
+	apiKey := s.config.Provider.APIKey
+	maskedKey := apiKey
+	if len(apiKey) > 8 {
+		maskedKey = apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
+	}
+	log.Printf("Using API key for validation: %s", maskedKey)
+
 	reqBody, err := json.Marshal(map[string]string{"hmac": hmac})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
+
+	// Log the request body
+	log.Printf("HMAC validation request body: %s", string(reqBody))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reqBody))
 	if err != nil {
@@ -291,7 +305,19 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 
 	// Add headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.config.Provider.APIKey))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+
+	// Log all request headers
+	log.Printf("HMAC validation request headers:")
+	for name, values := range req.Header {
+		for _, value := range values {
+			if name == "Authorization" {
+				log.Printf("  %s: Bearer %s", name, maskedKey)
+			} else {
+				log.Printf("  %s: %s", name, value)
+			}
+		}
+	}
 
 	// Send request
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -304,6 +330,11 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
+		// Read and log response body for debugging
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr == nil {
+			log.Printf("HMAC validation error response body: %s", string(respBody))
+		}
 		log.Printf("HMAC validation failed with status code: %d", resp.StatusCode)
 		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
@@ -312,7 +343,16 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	var response struct {
 		Valid bool `json:"valid"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read HMAC validation response body: %v", err)
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log the response body
+	log.Printf("HMAC validation response body: %s", string(respBody))
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
 		log.Printf("Failed to parse HMAC validation response: %v", err)
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
