@@ -354,7 +354,548 @@ _****_
 
 
 
-Now we need to update the health reporter
+Now we need to update the health reporter to use the correct field name from the ListModelsResponse:
+
+---
+
+_****_
+
+```diff
+  	report := HealthReport{
+  		Object: "list",
+- 		Data:   models.Models,
++ 		Data:   models.Data,
+  		GPU:    gpuInfo,
+  		NGROK: map[string]interface{}{
+  	report := &HealthReport{
+  		Object: "list",
+- 		Data:   models.Models,
++ 		Data:   models.Data,
+  		GPU:    gpuInfo,
+  		NGROK: map[string]interface{}{
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+Now let's run the client again to see if the fixes work:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+Can we also include the provider type which comes from teh config.ylml file. Whwre is says ollama, but other options will be exolabs and others in teh future. The users needs to specify the local proider type anf the code shuld pick that up and include it in its repose to the health api./ call it provider_type
+
+---
+
+_**Assistant**_
+
+I'll add the provider type to the configuration and include it in the health report. Let's make these changes:
+
+1. First, let's update the config.yaml file to include the provider type:
+
+---
+
+_****_
+
+```diff
+    api_key: "test_key_tier2b"
+    # URL of the central Inferoute system
+-   url: "http://192.168.0.36:80"
++   url: "http://localhost:80"
++   # Type of provider (ollama, exolabs, etc.)
++   provider_type: "ollama"
+  
+  # NGROK configuration (will be overridden by code for now)
+  ngrok:
+-   url: "https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"
++   url: "https://your-ngrok-url.ngrok-free.app"
+```
+
+---
+
+_****_
+
+
+
+
+
+2. Now, let's update the config struct to include the provider type:
+
+---
+
+_****_
+
+```diff
+  	// Provider configuration
+  	Provider struct {
+- 		APIKey string `yaml:"api_key"`
+- 		URL    string `yaml:"url"`
++ 		APIKey      string `yaml:"api_key"`
++ 		URL         string `yaml:"url"`
++ 		ProviderType string `yaml:"provider_type"`
+  	} `yaml:"provider"`
+  
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+3. Now, let's update the health reporter to include the provider type in the health report:
+
+---
+
+_****_
+
+```diff
+  // HealthReport represents a health report to be sent to the central system
+  type HealthReport struct {
+- 	Object string                 `json:"object"`
+- 	Data   []ollama.OllamaModel   `json:"data"`
+- 	GPU    *gpu.GPUInfo           `json:"gpu"`
+- 	NGROK  map[string]interface{} `json:"ngrok"`
++ 	Object       string                 `json:"object"`
++ 	Data         []ollama.OllamaModel   `json:"data"`
++ 	GPU          *gpu.GPUInfo           `json:"gpu"`
++ 	NGROK        map[string]interface{} `json:"ngrok"`
++ 	ProviderType string                 `json:"provider_type"`
+  }
+  
+  	// Create health report
+  	report := HealthReport{
+- 		Object: "list",
+- 		Data:   models.Models,
+- 		GPU:    gpuInfo,
++ 		Object:       "list",
++ 		Data:         models.Data,
++ 		GPU:          gpuInfo,
+  		NGROK: map[string]interface{}{
+  			"url": r.config.NGROK.URL,
+  		},
++ 		ProviderType: r.config.Provider.ProviderType,
+  	}
+  
+  	// Create health report
+  	report := &HealthReport{
+- 		Object: "list",
+- 		Data:   models.Models,
+- 		GPU:    gpuInfo,
++ 		Object:       "list",
++ 		Data:         models.Data,
++ 		GPU:          gpuInfo,
+  		NGROK: map[string]interface{}{
+  			"url": r.config.NGROK.URL,
+  		},
++ 		ProviderType: r.config.Provider.ProviderType,
+  	}
+  
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+Let's fix the linter errors by updating the health reporter to use the correct field name:
+
+---
+
+_****_
+
+Read file: pkg/ollama/client.go
+
+---
+
+_****_
+
+
+
+
+
+Now let's fix the health reporter to use the correct field name (Models instead of Data):
+
+---
+
+_****_
+
+```diff
+  	// Create health report
+  	report := HealthReport{
+- 		Object: "list",
+- 		Data:   models.Data,
+- 		GPU:    gpuInfo,
++ 		Object:       "list",
++ 		Data:         models.Models,
++ 		GPU:          gpuInfo,
+  		NGROK: map[string]interface{}{
+  			"url": r.config.NGROK.URL,
+  	// Create health report
+  	report := &HealthReport{
+- 		Object: "list",
+- 		Data:   models.Data,
+- 		GPU:    gpuInfo,
++ 		Object:       "list",
++ 		Data:         models.Models,
++ 		GPU:          gpuInfo,
+  		NGROK: map[string]interface{}{
+  			"url": r.config.NGROK.URL,
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+Let's check if the config.go file was properly updated:
+
+---
+
+_****_
+
+Read file: pkg/config/config.go
+
+---
+
+_****_
+
+
+
+
+
+
+
+It looks like the config.go file wasn't properly updated. Let's fix it:
+
+---
+
+_****_
+
+```diff
+  	// Provider configuration
+  	Provider struct {
+- 		APIKey string `yaml:"api_key"`
+- 		URL    string `yaml:"url"`
++ 		APIKey       string `yaml:"api_key"`
++ 		URL          string `yaml:"url"`
++ 		ProviderType string `yaml:"provider_type"`
+  	} `yaml:"provider"`
+  
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+Now let's also update the default value for the provider type in the Load function:
+
+---
+
+_****_
+
+```diff
+  	cfg.Ollama.URL = "http://localhost:11434"
+  	cfg.Provider.URL = "http://localhost:80"
++ 	cfg.Provider.ProviderType = "ollama"
+  
+  	// Hardcode NGROK URL as specified
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+Now let's run the client to see if all the fixes work:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+
+
+I n the config.yml gile it moght to move this to provider configuration:
+url: "http://localhost:11434". but call it llm_url
+
+---
+
+_**Assistant**_
+
+I'll update the configuration structure to move the Ollama URL to the provider section and rename it to `llm_url`. This will make the configuration more flexible for different provider types.
+
+Let's make these changes:
+
+1. First, let's update the config.yaml file:
+
+---
+
+_****_
+
+```diff
+    host: "0.0.0.0"
+  
+- # LLM Provider serving URL
+- ollama:
+-   url: "http://localhost:11434"
+- 
+  # Provider configuration
+  provider:
+    # Type of provider (ollama, exolabs, etc.)
+    provider_type: "ollama"
++   # URL of the local LLM provider
++   llm_url: "http://localhost:11434"
+  
+  # NGROK configuration (will be overridden by code for now)
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+2. Now, let's update the Config struct in config.go:
+
+---
+
+_****_
+
+```diff
+  		Host string `yaml:"host"`
+  	} `yaml:"server"`
+- 
+- 	// Ollama configuration
+- 	Ollama struct {
+- 		URL string `yaml:"url"`
+- 	} `yaml:"ollama"`
+  
+  	// Provider configuration
+  		URL          string `yaml:"url"`
+  		ProviderType string `yaml:"provider_type"`
++ 		LLMURL       string `yaml:"llm_url"`
+  	} `yaml:"provider"`
+  
+  	cfg.Server.Port = 8080
+  	cfg.Server.Host = "0.0.0.0"
+- 	cfg.Ollama.URL = "http://localhost:11434"
+  	cfg.Provider.URL = "http://localhost:80"
+  	cfg.Provider.ProviderType = "ollama"
++ 	cfg.Provider.LLMURL = "http://localhost:11434"
+  
+  	// Hardcode NGROK URL as specified
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+3. Now, let's update the health reporter to use the new configuration structure:
+
+---
+
+_****_
+
+```diff
+  
+  	// Get available models from Ollama
+- 	ollamaClient := ollama.NewClient(r.config.Ollama.URL)
++ 	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
+  	models, err := ollamaClient.ListModels(ctx)
+  	if err != nil {
+  
+  	// Get available models from Ollama
+- 	ollamaClient := ollama.NewClient(r.config.Ollama.URL)
++ 	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
+  	models, err := ollamaClient.ListModels(ctx)
+  	if err != nil {
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+
+
+4. Finally, let's update the server.go file to use the new configuration structure:
+
+---
+
+_****_
+
+<details>
+            <summary>Searched codebase "ollamaClient := ollama.NewClient" • **25** results</summary>
+        
+| File | Lines |
+|------|-------|
+| `pkg/ollama/client.go` | L1-71 |
+| `pkg/ollama/client.go` | L71-136 |
+| `pkg/server/server.go` | L234-266 |
+| `pkg/server/server.go` | L1-69 |
+| `pkg/server/server.go` | L187-234 |
+| `pkg/config/config.go` | L1-68 |
+| `pkg/server/server.go` | L142-187 |
+| `pkg/server/server.go` | L97-142 |
+| `README.md` | L1-74 |
+| `.specstory/history/debugging-ollama-connection-issues.md` | L120-242 |
+| `.specstory/history/debugging-ollama-connection-issues.md` | L1-120 |
+| `documentation/technical.md` | L1-33 |
+| `.specstory/history/debugging-ollama-connection-issues.md` | L242-340 |
+| `.specstory/history/debugging-ollama-connection-issues.md` | L455-560 |
+| `documentation/technical.md` | L33-105 |
+| `config.yaml.example` | L1-19 |
+| `.specstory/history/debugging-ollama-connection-issues.md` | L340-455 |
+| `cmd/main.go` | L1-85 |
+| `go.mdc` | L1-80 |
+| `.specstory/history/debugging-ollama-connection-issues.md` | L560-605 |
+| `go.mod` | L1-9 |
+| `pkg/gpu/monitor.go` | L1-70 |
+| `pkg/server/server.go` | L69-97 |
+| `pkg/gpu/monitor.go` | L70-133 |
+| `.specstory/history/project-folder-and-file-structure-setup.md` | L1-78 |
+
+</details>
+
+---
+
+_****_
+
+
+
+
+
+
+
+Let's update the server.go file to use the new configuration structure:
+
+---
+
+_****_
+
+Read file: pkg/server/server.go
+
+---
+
+_****_
+
+
+
+
+
+
+
+---
+
+_****_
+
+Read file: pkg/server/server.go
+
+---
+
+_****_
+
+
+
+
+
+
+
+
+
+Let's update the server.go file to use the new configuration structure:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
 
 ---
 

@@ -23,10 +23,11 @@ type Reporter struct {
 
 // HealthReport represents a health report to be sent to the central system
 type HealthReport struct {
-	Object string                 `json:"object"`
-	Data   []ollama.OllamaModel   `json:"data"`
-	GPU    *gpu.GPUInfo           `json:"gpu"`
-	NGROK  map[string]interface{} `json:"ngrok"`
+	Object       string                 `json:"object"`
+	Data         []ollama.OllamaModel   `json:"data"`
+	GPU          *gpu.GPUInfo           `json:"gpu"`
+	NGROK        map[string]interface{} `json:"ngrok"`
+	ProviderType string                 `json:"provider_type"`
 }
 
 // NewReporter creates a new health reporter
@@ -47,7 +48,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	}
 
 	// Get available models from Ollama
-	ollamaClient := ollama.NewClient(r.config.Ollama.URL)
+	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
 	models, err := ollamaClient.ListModels(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get models from Ollama: %w", err)
@@ -56,11 +57,12 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Create health report
 	report := HealthReport{
 		Object: "list",
-		Data:   models.Data,
+		Data:   models.Models,
 		GPU:    gpuInfo,
 		NGROK: map[string]interface{}{
 			"url": r.config.NGROK.URL,
 		},
+		ProviderType: r.config.Provider.ProviderType,
 	}
 
 	// Marshal report to JSON
@@ -112,7 +114,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	}
 
 	// Get available models from Ollama
-	ollamaClient := ollama.NewClient(r.config.Ollama.URL)
+	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
 	models, err := ollamaClient.ListModels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get models from Ollama: %w", err)
@@ -121,11 +123,12 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	// Create health report
 	report := &HealthReport{
 		Object: "list",
-		Data:   models.Data,
+		Data:   models.Models,
 		GPU:    gpuInfo,
 		NGROK: map[string]interface{}{
 			"url": r.config.NGROK.URL,
 		},
+		ProviderType: r.config.Provider.ProviderType,
 	}
 
 	return report, nil

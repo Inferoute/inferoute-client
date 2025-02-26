@@ -15,15 +15,12 @@ type Config struct {
 		Host string `yaml:"host"`
 	} `yaml:"server"`
 
-	// Ollama configuration
-	Ollama struct {
-		URL string `yaml:"url"`
-	} `yaml:"ollama"`
-
 	// Provider configuration
 	Provider struct {
-		APIKey string `yaml:"api_key"`
-		URL    string `yaml:"url"`
+		APIKey       string `yaml:"api_key"`
+		URL          string `yaml:"url"`
+		ProviderType string `yaml:"provider_type"`
+		LLMURL       string `yaml:"llm_url"`
 	} `yaml:"provider"`
 
 	// NGROK configuration (hardcoded for now)
@@ -40,8 +37,9 @@ func Load(path string) (*Config, error) {
 	// Set default values
 	cfg.Server.Port = 8080
 	cfg.Server.Host = "0.0.0.0"
-	cfg.Ollama.URL = "http://localhost:11434"
 	cfg.Provider.URL = "http://localhost:80"
+	cfg.Provider.ProviderType = "ollama"
+	cfg.Provider.LLMURL = "http://localhost:11434"
 
 	// Hardcode NGROK URL as specified
 	cfg.NGROK.URL = "https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"

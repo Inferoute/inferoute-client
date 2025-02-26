@@ -32,7 +32,7 @@ func NewServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *heal
 		config:         cfg,
 		gpuMonitor:     gpuMonitor,
 		healthReporter: healthReporter,
-		ollamaClient:   ollama.NewClient(cfg.Ollama.URL),
+		ollamaClient:   ollama.NewClient(cfg.Provider.LLMURL),
 	}
 }
 
@@ -234,7 +234,7 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 // forwardToOllama forwards a request to Ollama
 func (s *Server) forwardToOllama(ctx context.Context, path string, body []byte) ([]byte, error) {
 	// Create request
-	url := fmt.Sprintf("%s%s", s.config.Ollama.URL, path)
+	url := fmt.Sprintf("%s%s", s.config.Provider.LLMURL, path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
