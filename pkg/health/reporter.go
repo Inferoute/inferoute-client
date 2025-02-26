@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -68,8 +69,14 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal health report: %w", err)
 	}
 
+	// Log the JSON payload
+	fmt.Printf("Sending health report JSON: %s\n", string(reportJSON))
+
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
+	fmt.Printf("Sending health report to URL: %s\n", url)
+	fmt.Printf("Using API key: %s\n", r.config.Provider.APIKey)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -88,7 +95,9 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health report failed with status code: %d", resp.StatusCode)
+		// Read response body for error details
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("health report failed with status code: %d, response: %s", resp.StatusCode, string(body))
 	}
 
 	return nil

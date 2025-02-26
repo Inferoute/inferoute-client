@@ -10,7 +10,7 @@ ollama:
 # Provider configuration
 provider:
   # Your provider API key from the Inferoute platform
-  api_key: "your-provider-api-key"
+  api_key: "test_key_tier2b"
   # URL of the central Inferoute system
   url: "http://localhost:80"
 
