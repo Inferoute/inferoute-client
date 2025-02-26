@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // Logger wraps zap logger
@@ -77,23 +78,21 @@ func New(cfg *Config) (*Logger, error) {
 	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
 	fileEncoder := zapcore.NewJSONEncoder(encoderConfig)
 
-	// Create log files
-	logFile, err := os.OpenFile(
-		filepath.Join(logDir, "inferoute.log"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0644,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open log file: %w", err)
+	// Setup log rotation using lumberjack
+	mainLogFile := &lumberjack.Logger{
+		Filename:   filepath.Join(logDir, "inferoute.log"),
+		MaxSize:    cfg.MaxSize,    // megabytes
+		MaxBackups: cfg.MaxBackups, // number of backups
+		MaxAge:     cfg.MaxAge,     // days
+		Compress:   true,           // compress old logs
 	}
 
-	errorLogFile, err := os.OpenFile(
-		filepath.Join(logDir, "error.log"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0644,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open error log file: %w", err)
+	errorLogFile := &lumberjack.Logger{
+		Filename:   filepath.Join(logDir, "error.log"),
+		MaxSize:    cfg.MaxSize,
+		MaxBackups: cfg.MaxBackups,
+		MaxAge:     cfg.MaxAge,
+		Compress:   true,
 	}
 
 	// Create cores
@@ -105,7 +104,7 @@ func New(cfg *Config) (*Logger, error) {
 
 	fileCore := zapcore.NewCore(
 		fileEncoder,
-		zapcore.AddSync(logFile),
+		zapcore.AddSync(mainLogFile),
 		level,
 	)
 
@@ -130,7 +129,10 @@ func GetDefaultLogger() *Logger {
 	if defaultLogger == nil {
 		// Create default logger
 		cfg := &Config{
-			Level: "info",
+			Level:      "info",
+			MaxSize:    100,
+			MaxBackups: 5,
+			MaxAge:     30,
 		}
 		var err error
 		defaultLogger, err = New(cfg)

@@ -4874,6 +4874,164 @@ The performance benefits of having good observability almost always outweigh the
 
 ---
 
+_**User**_
+
+does our @server.go use zap?
+
+---
+
+_**Assistant**_
+
+Yes, your `pkg/server/server.go` file does use Zap for logging. I can see that it has been updated to use the Zap logger throughout the file. Here are the key places where Zap logging is implemented:
+
+1. The file imports both the custom logger package and Zap:
+```go
+import (
+    // other imports
+    "github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+    "go.uber.org/zap"
+)
+```
+
+2. In the `Start` method:
+```go
+logger.Info("Starting HTTP server",
+    zap.String("address", s.server.Addr),
+    zap.String("provider_type", s.config.Provider.ProviderType),
+    zap.String("llm_url", s.config.Provider.LLMURL))
+```
+
+3. In the `Stop` method:
+```go
+logger.Info("Stopping HTTP server")
+```
+
+4. In the `consoleUpdater` method:
+```go
+logger.Error("Failed to open debug log file", zap.Error(err))
+```
+
+5. In the `logError` method:
+```go
+// Also log to zap logger
+logger.Error(errMsg)
+```
+
+6. In the `logRequest` method:
+```go
+// Log to zap logger
+logger.Info("Request processed",
+    zap.String("method", method),
+    zap.String("path", path),
+    zap.Int("status", statusCode),
+    zap.Duration("duration", duration))
+```
+
+7. Throughout the request handlers (like `handleHealth`, `handleBusy`, etc.), errors are logged using both the console display and Zap logger.
+
+The implementation properly uses structured logging with fields like `zap.String()`, `zap.Int()`, `zap.Error()`, and `zap.Duration()`, which is one of the key benefits of using Zap over traditional logging.
+
+---
+
+_**User**_
+
+will zap auto rotate our logs?
+
+---
+
+_**Assistant**_
+
+No, Zap itself doesn't handle log rotation automatically. However, your implementation in `pkg/logger/logger.go` is set up to use log rotation through a separate mechanism.
+
+Looking at your logger configuration in `config.yaml.example`, you have these rotation-related settings:
+
+```yaml
+logging:
+  # Maximum size of log files in megabytes before rotation
+  max_size: 100
+  # Maximum number of old log files to retain
+  max_backups: 5
+  # Maximum number of days to retain old log files
+  max_age: 30
+```
+
+These settings suggest you're using a log rotation package, but I don't see the actual rotation implementation in the `logger.go` file you shared. Typically, this would be implemented using a package like `gopkg.in/natefinch/lumberjack.v2` which handles log rotation.
+
+To properly implement log rotation with Zap, you would need to:
+
+1. Add the lumberjack package to your dependencies:
+```
+go get gopkg.in/natefinch/lumberjack.v2
+```
+
+2. Update your `logger.go` file to use lumberjack for rotation:
+
+```go
+// In your imports
+import (
+    "gopkg.in/natefinch/lumberjack.v2"
+    // other imports
+)
+
+// Then in your New() function where you create the file core
+fileWriter := zapcore.AddSync(&lumberjack.Logger{
+    Filename:   filepath.Join(logDir, "inferoute.log"),
+    MaxSize:    cfg.MaxSize,    // megabytes
+    MaxBackups: cfg.MaxBackups, // number of backups
+    MaxAge:     cfg.MaxAge,     // days
+    Compress:   true,           // compress old logs
+})
+
+fileCore := zapcore.NewCore(
+    fileEncoder,
+    fileWriter,
+    level,
+)
+
+// Same for error log
+errorWriter := zapcore.AddSync(&lumberjack.Logger{
+    Filename:   filepath.Join(logDir, "error.log"),
+    MaxSize:    cfg.MaxSize,
+    MaxBackups: cfg.MaxBackups,
+    MaxAge:     cfg.MaxAge,
+    Compress:   true,
+})
+
+errorCore := zapcore.NewCore(
+    fileEncoder,
+    errorWriter,
+    zapcore.ErrorLevel,
+)
+```
+
+If you want to add log rotation to your implementation, I'd recommend adding the lumberjack package and updating your logger initialization as shown above.
+
+---
+
+_**User**_
+
+okay I have installed luberjack, can you add the neseccary code to my logger to make it work 
+
+---
+
+_**Assistant**_
+
+I'll update your `logger.go` file to implement log rotation using the lumberjack package:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
 
 
 ---
