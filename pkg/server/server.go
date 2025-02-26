@@ -101,6 +101,14 @@ func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received chat completions request from %s", r.RemoteAddr)
 
+	// Log request headers
+	log.Printf("Request headers for chat completions:")
+	for name, values := range r.Header {
+		for _, value := range values {
+			log.Printf("  %s: %s", name, value)
+		}
+	}
+
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
 	if err != nil {
@@ -141,11 +149,27 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log request body (limited to 1000 characters to avoid huge logs)
+	bodyStr := string(body)
+	if len(bodyStr) > 1000 {
+		log.Printf("Request body (truncated): %s...", bodyStr[:1000])
+	} else {
+		log.Printf("Request body: %s", bodyStr)
+	}
+
 	// Forward request to Ollama
 	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/chat/completions", body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Log response (limited to 1000 characters)
+	respStr := string(ollamaResp)
+	if len(respStr) > 1000 {
+		log.Printf("Ollama response (truncated): %s...", respStr[:1000])
+	} else {
+		log.Printf("Ollama response: %s", respStr)
 	}
 
 	// Write response
@@ -156,6 +180,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 // handleCompletions handles the /v1/completions endpoint
 func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received completions request from %s", r.RemoteAddr)
+
+	// Log request headers
+	log.Printf("Request headers for completions:")
+	for name, values := range r.Header {
+		for _, value := range values {
+			log.Printf("  %s: %s", name, value)
+		}
+	}
 
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
@@ -197,11 +229,27 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log request body (limited to 1000 characters to avoid huge logs)
+	bodyStr := string(body)
+	if len(bodyStr) > 1000 {
+		log.Printf("Request body (truncated): %s...", bodyStr[:1000])
+	} else {
+		log.Printf("Request body: %s", bodyStr)
+	}
+
 	// Forward request to Ollama
 	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/completions", body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Log response (limited to 1000 characters)
+	respStr := string(ollamaResp)
+	if len(respStr) > 1000 {
+		log.Printf("Ollama response (truncated): %s...", respStr[:1000])
+	} else {
+		log.Printf("Ollama response: %s", respStr)
 	}
 
 	// Write response
@@ -266,6 +314,8 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 func (s *Server) forwardToOllama(ctx context.Context, path string, body []byte) ([]byte, error) {
 	// Create request
 	url := fmt.Sprintf("%s%s", s.config.Provider.LLMURL, path)
+	log.Printf("Forwarding request to Ollama at URL: %s", url)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -278,12 +328,14 @@ func (s *Server) forwardToOllama(ctx context.Context, path string, body []byte) 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("Error forwarding request to Ollama: %v", err)
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("Ollama responded with non-OK status code: %d", resp.StatusCode)
 		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
 
@@ -293,5 +345,6 @@ func (s *Server) forwardToOllama(ctx context.Context, path string, body []byte) 
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	log.Printf("Successfully received response from Ollama (%d bytes)", len(respBody))
 	return respBody, nil
 }
