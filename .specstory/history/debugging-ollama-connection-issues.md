@@ -2583,6 +2583,38 @@ _****_
 
 
 
+The changes have been made successfully. I've removed the `fmt.Printf` statement from the `IsBusy` method in the `pkg/gpu/monitor.go` file that was printing the GPU utilization information to the console.
+
+Now when requests come in, you won't see the "GPU Utilization: 0.00%, Memory Usage: 3702/24564 MiB (15.07%), Busy: false" message at the top of the console anymore.
+
+The GPU utilization information will still be tracked internally for determining if the GPU is busy (based on the 20% threshold), but it won't be displayed in the console output. The console will maintain its clean appearance with just the Inferoute Provider Client banner and sections.
+
+---
+
+_**User**_
+
+HTTP requests looks fine at the start but when it refreshes, it does this.
+
+seee screenshot
+
+---
+
+_**Assistant**_
+
+I see the issue. The console updater is refreshing the display and causing the HTTP REQUESTS section to be displayed incorrectly. Let's fix the console updater to properly display the HTTP REQUESTS section.
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
 ---
 
 
