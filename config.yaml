@@ -16,4 +16,4 @@ provider:
 
 # NGROK configuration (will be overridden by code for now)
 ngrok:
-  url: "https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"
+  url: "https://74a6-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"
