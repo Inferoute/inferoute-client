@@ -3546,6 +3546,292 @@ Let's fix this by:
 
 _****_
 
+```diff
+  	"log"
+  	"net/http"
++ 	"os"
+  	"sync"
+  	"time"
+  }
+  
+- // printStartupBanner prints a nice startup banner with GPU info
+- func (s *Server) printStartupBanner() {
++ // consoleUpdater periodically updates the console with request stats and errors
++ func (s *Server) consoleUpdater() {
++ 	ticker := time.NewTicker(3 * time.Second)
++ 	defer ticker.Stop()
++ 
++ 	// Create a debug log file
++ 	debugFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
++ 	if err != nil {
++ 		log.Printf("Failed to open debug log file: %v", err)
++ 	} else {
++ 		// Set log output to the file
++ 		log.SetOutput(debugFile)
++ 		defer debugFile.Close()
++ 	}
++ 
++ 	for {
++ 		select {
++ 		case <-ticker.C:
++ 			// Instead of trying to update parts of the screen, redraw the entire screen
++ 			// This avoids cursor positioning issues
++ 			s.redrawConsole()
++ 		}
++ 	}
++ }
++ 
++ // redrawConsole completely redraws the console
++ func (s *Server) redrawConsole() {
+  	// Get GPU info
+  	gpuInfo, err := s.gpuMonitor.GetGPUInfo()
+  		}
+  	}
++ 
++ 	// Create a buffer to build the output
++ 	var buf bytes.Buffer
+  
+  	// Clear screen
+- 	fmt.Print("\033[H\033[2J")
++ 	buf.WriteString("\033[H\033[2J")
+  
+  	// Print banner
+- 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+- 	fmt.Println("║                     INFEROUTE PROVIDER CLIENT                    ║")
+- 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
++ 	buf.WriteString("║                     INFEROUTE PROVIDER CLIENT                    ║\n")
++ 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
+  
+  	// Get last health update time
+  		lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
+  	}
+- 	fmt.Printf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr)
+- 	fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
+- 	fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType)
+- 	fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
+- 	fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
+- 	fmt.Printf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL)
+- 	fmt.Printf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr))
++ 	buf.WriteString("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m\n")
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType))
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey)))
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL))
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL))
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port))
+  	if s.config.NGROK.URL != "" {
+- 		fmt.Printf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL)
++ 		buf.WriteString(fmt.Sprintf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL))
+  	}
+  
+- 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+- 	fmt.Println("║                          GPU INFORMATION                         ║")
+- 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
++ 	buf.WriteString("║                          GPU INFORMATION                         ║\n")
++ 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
+  
+- 	fmt.Printf("\033[1;35mGPU                          \033[0m%s\n", gpuInfo.ProductName)
+- 	fmt.Printf("\033[1;35mDriver Version               \033[0m%s\n", gpuInfo.DriverVersion)
+- 	fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
+- 	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mGPU                          \033[0m%s\n", gpuInfo.ProductName))
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mDriver Version               \033[0m%s\n", gpuInfo.DriverVersion))
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion))
++ 	buf.WriteString(fmt.Sprintf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount))
+  
+  	// Print last 10 requests
+- 	fmt.Println("\n\033[1;33mRecent Requests:\033[0m")
+- 	fmt.Println("No requests yet")
+- }
+- 
+- // consoleUpdater periodically updates the console with request stats and errors
+- func (s *Server) consoleUpdater() {
+- 	ticker := time.NewTicker(3 * time.Second)
+- 	defer ticker.Stop()
+- 
+- 	// Debug counter to track update cycles
+- 	debugCounter := 0
+- 
+- 	for {
+- 		select {
+- 		case <-ticker.C:
+- 			debugCounter++
+- 
+- 			// Log to a file for debugging
+- 			log.Printf("DEBUG [%d]: Starting console update cycle", debugCounter)
+- 
+- 			// Update the last health update time in the banner
+- 			lastUpdate := s.healthReporter.GetLastUpdateTime()
+- 			lastUpdateStr := "Never"
+- 			if !lastUpdate.IsZero() {
+- 				lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
+- 			}
+- 
+- 			log.Printf("DEBUG [%d]: About to update health timestamp to: %s", debugCounter, lastUpdateStr)
+- 
+- 			// Try a different approach - save the current position, move to update the timestamp, then restore position
+- 			fmt.Print("\033[s") // Save cursor position
+- 
+- 			// Move cursor to the last health update line (4th line)
+- 			fmt.Print("\033[4;1H")
+- 			fmt.Print("\033[K")                                                            // Clear the line
+- 			fmt.Printf("\033[1;35mLast Health Update            \033[0m%s", lastUpdateStr) // No newline
+- 
+- 			log.Printf("DEBUG [%d]: Updated health timestamp, about to restore cursor", debugCounter)
+- 
+- 			// Restore cursor position
+- 			fmt.Print("\033[u")
+- 
+- 			log.Printf("DEBUG [%d]: Restored cursor position, now moving to line 25", debugCounter)
+- 
+- 			// Now explicitly move to the position for Recent Requests
+- 			fmt.Print("\033[25;1H")
+- 
+- 			// Clear from cursor to end of screen
+- 			fmt.Print("\033[J")
+- 
+- 			log.Printf("DEBUG [%d]: Cleared screen from line 25, about to print Recent Requests", debugCounter)
+- 
+- 			// Print last 10 requests
+- 			fmt.Println("\033[1;33mRecent Requests:\033[0m")
++ 	buf.WriteString("\n\033[1;33mRecent Requests:\033[0m\n")
+  	s.requestStats.mutex.Lock()
+  	if len(s.requestStats.LastRequests) == 0 {
+- 				fmt.Println("No requests yet")
++ 		buf.WriteString("No requests yet\n")
+  	} else {
+  		for _, req := range s.requestStats.LastRequests {
+- 					fmt.Println(req)
++ 			buf.WriteString(req + "\n")
+  		}
+  	}
+  	s.requestStats.mutex.Unlock()
+- 
+- 			log.Printf("DEBUG [%d]: Printed Recent Requests, about to print Errors", debugCounter)
+  
+  	// Print errors section if there are any
+  	s.errorLogMutex.Lock()
+  	if len(s.errorLog) > 0 {
+- 				fmt.Println("\n\033[1;31mErrors:\033[0m")
++ 		buf.WriteString("\n\033[1;31mErrors:\033[0m\n")
+  		for _, err := range s.errorLog {
+- 					fmt.Println(err)
++ 			buf.WriteString(err + "\n")
+  		}
+  	}
+  	s.errorLogMutex.Unlock()
+  
+- 			log.Printf("DEBUG [%d]: Completed console update cycle", debugCounter)
+- 
+- 			// Force flush stdout to ensure all content is displayed
+- 			fmt.Print("\033[0m") // Reset formatting
+- 		}
+- 	}
++ 	// Write the entire buffer to stdout at once
++ 	fmt.Print(buf.String())
++ }
++ 
++ // printStartupBanner prints a nice startup banner with GPU info
++ func (s *Server) printStartupBanner() {
++ 	// Just use the redrawConsole method to avoid duplication
++ 	s.redrawConsole()
+  }
+  
+```
+
+---
+
+_****_
+
+
+
+Now let's run the client to see if the issue is fixed:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+well done that woked operfectky. One more thing, the Online text is a litle more to the right can it be inline with the others.
+
+seee screnshot
+
+---
+
+_**Assistant**_
+
+I see the issue - the "online" text is not aligned with the other values. Let's fix the alignment by adjusting the spacing in the status line:
+
+---
+
+_****_
+
+```diff
+  	}
+  	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr))
+- 	buf.WriteString("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m\n")
++ 	buf.WriteString("\033[1;35mSession Status                \033[0m\033[1;32monline\033[0m\n")
+  	buf.WriteString(fmt.Sprintf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType))
+  	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey)))
+```
+
+---
+
+_****_
+
+
+
+Let's run the client to see if the alignment is fixed:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+Can you now help me incorporate a logging system using zap. It should be configurable via the config.yml to allow users to specifcy the  log level AND where normal and error logs files are located. By default, lets save the log files to ~/.local/state/inferoute/log 
+
+We will also need to ensure that directory exists when we startup.
+
+Can we updte the code to ensure that the logging of stuff uses zap and then allow for the usual logging levels.
+
+---
+
+_**Assistant**_
+
+I'll help you incorporate the Zap logging system with configurable log levels and file locations. Let's implement this in several steps:
+
+1. First, let's add the Zap dependency and create a logger package
+2. Update the config structure to include logging settings
+3. Modify the server code to use Zap for logging
+
+---
+
+_****_
+
 
 
 ---
