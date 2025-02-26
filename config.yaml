@@ -1,0 +1,19 @@
+# Server configuration
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+# Ollama configuration
+ollama:
+  url: "http://localhost:11434"
+
+# Provider configuration
+provider:
+  # Your provider API key from the Inferoute platform
+  api_key: "your-provider-api-key"
+  # URL of the central Inferoute system
+  url: "http://localhost:80"
+
+# NGROK configuration (will be overridden by code for now)
+ngrok:
+  url: "https://your-ngrok-url.ngrok-free.app" 

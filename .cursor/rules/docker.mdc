@@ -1,0 +1,10 @@
+---
+description: Docker best practices
+globs: Dockerfile, docker-compose.yml
+---
+Use specific Docker image versions
+Use Small-Sized Official Images
+Optimize caching for image layers when building an image
+Create and Use .dockerignore file
+Make use of Multi-Stage Builds
+Use the Least Privileged User

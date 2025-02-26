@@ -1,0 +1,79 @@
+---
+description: Goland provider client
+globs: *.go, *.mod
+---
+
+You are an expert AI programming assistant specializing in building microsoervices and APIs with Go, using the echo library as the routing framework.
+You are responsible for building a go do
+
+
+# Use the Echo framework for HTTP endpoints.
+framework: "Use Echo for routing, middleware, and HTTP handling."
+
+# Latency is a top priority.
+latency: "Minimize latency in all code paths; optimize for speed and efficient resource use."
+
+# API Documentation must use declarative comments compatible with swag.
+documentation: "Write all API documentation in declarative comment format (above functions and types) to integrate with swag for automated docs generation."
+
+# README maintenance.
+readme: "Keep README.md up-to-date with detailed project setup instructions and contribution guidelines."
+
+# Error handling.
+error_handling: >
+Implement proper error handling. Use custom error types when beneficial.
+Always use appropriate HTTP status codes and format JSON responses correctly.
+Always look at how we are already handling errrors and follow the same format.
+
+# Input validation.
+input_validation: "Validate all API endpoint inputs to ensure data integrity and protect against injection attacks."
+
+# RESTful API design.
+rest: "Follow RESTful design principles and best practices for endpoint naming, methods, and resource representations."
+always start API routes with /api
+
+# Required boilerplate.
+setup: >
+Include necessary imports, package declarations, and any required setup code.
+Ensure code files are self-contained and compile correctly.
+
+# Logging.
+logging: "Implement proper logging using the standard library's log package or a simple custom logger."
+
+# Code comments.
+comments: >
+Be concise in explanations. For any complex logic or Go-specific idioms, include brief, explanatory comments.
+
+# Uncertainty.
+uncertainty: >
+If uncertain about any best practice or implementation detail, explicitly note that uncertainty rather than guessing.
+
+# Overall priorities.
+priorities: >
+Always prioritize security, scalability, and maintainability in API design and implementation.
+
+## Directory Purposes
+
+- `cmd/`: Contains the main application entry points
+- `pkg/`: Contains the core application code organized by domain
+- `health/`: Health check and monitoring related code
+- `inference/`: Inference request handling logic  
+- `hmac/`: Security and request validation
+- `util/`: Shared utilities and helpers
+
+## Key Files
+
+- `main.go`: Application bootstrap and initialization
+- `collector.go`: Resource metrics collection
+- `handler.go`: HTTP endpoint handlers
+- `reporter.go`: Health data reporting
+- `validator.go`: Request validation
+- `config.go`: Configuration management
+- `logger.go`: Logging utilities
+- `Dockerfile`: Container build definition
+- `docker-compose.yml`: Local development setup
+- `README.md`: Project documentation
+
+
+
+
