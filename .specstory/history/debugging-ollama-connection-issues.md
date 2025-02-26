@@ -2607,6 +2607,412 @@ I see the issue. The console updater is refreshing the display and causing the H
 
 _****_
 
+```diff
+  		select {
+  		case <-ticker.C:
+- 			// Move cursor to the right position (after the HTTP REQUESTS section)
+- 			fmt.Print("\033[11B") // Move down 11 lines from the HTTP REQUESTS header
+- 
+- 			// Clear the rest of the screen
+- 			fmt.Print("\033[J")
++ 			// Get current GPU info for display in the HTTP REQUESTS section
++ 			gpuInfo, err := s.gpuMonitor.GetGPUInfo()
++ 			if err != nil {
++ 				s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
++ 				gpuInfo = &gpu.GPUInfo{
++ 					ProductName:   "Unknown",
++ 					DriverVersion: "Unknown",
++ 					CUDAVersion:   "Unknown",
++ 					GPUCount:      0,
++ 				}
++ 			}
++ 
++ 			// Clear screen and redraw everything
++ 			fmt.Print("\033[H\033[2J")
++ 
++ 			// Print banner
++ 			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
++ 			fmt.Println("║                     INFEROUTE PROVIDER CLIENT                    ║")
++ 			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 
++ 			fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
++ 			fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType)
++ 			fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
++ 			fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
++ 			fmt.Printf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL)
++ 			fmt.Printf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
++ 			if s.config.NGROK.URL != "" {
++ 				fmt.Printf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL)
++ 			}
++ 
++ 			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
++ 			fmt.Println("║                          GPU INFORMATION                         ║")
++ 			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 
++ 			fmt.Printf("\033[1;35mGPU                          \033[0m%s\n", gpuInfo.ProductName)
++ 			fmt.Printf("\033[1;35mDriver Version               \033[0m%s\n", gpuInfo.DriverVersion)
++ 			fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
++ 			fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
++ 			
++ 			// Print HTTP REQUESTS section
++ 			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
++ 			fmt.Println("║                         HTTP REQUESTS                            ║")
++ 			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
+  
+  			// Print request stats
+  			}
+  			s.errorLogMutex.Unlock()
+- 
+- 			// Move cursor back to the top
+- 			fmt.Print("\033[H")
+  		}
+  	}
+```
+
+---
+
+_****_
+
+
+
+Now let's also update the `printStartupBanner` method to remove the models available line since we're not using it in the console updater:
+
+---
+
+_****_
+
+```diff
+  		}
+  	}
+- 
+- 	// Get health report for models
+- 	report, err := s.healthReporter.GetHealthReport(context.Background())
+- 	if err != nil {
+- 		s.logError(fmt.Sprintf("Failed to get health report: %v", err))
+- 		report = &health.HealthReport{}
+- 	}
+- 
+- 	// Count models
+- 	modelCount := 0
+- 	if report.Data != nil {
+- 		modelCount = len(report.Data)
+- 	}
+  
+  	// Clear screen
+  	fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
+  	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
+- 	fmt.Printf("\033[1;35mModels Available             \033[0m%d\n", modelCount)
+  
+  	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+```
+
+---
+
+_****_
+
+
+
+
+
+Now let's run the client to see the updated console interface:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+I've made significant improvements to the console display:
+
+1. Completely redesigned the console updater to redraw the entire screen every second, which will prevent the display issues you were seeing with the HTTP REQUESTS section.
+
+2. Removed the GPU utilization information that was being printed at the top of the console after a request.
+
+3. Simplified the display by removing the "Models Available" line since it wasn't being used in the console updater.
+
+4. Made the display consistent between the initial startup banner and the periodic updates.
+
+The changes ensure that:
+- The console display remains clean and consistent
+- The HTTP REQUESTS section is properly displayed at all times
+- No GPU utilization information is printed at the top of the console
+- The display is refreshed completely every second to prevent any display artifacts
+
+These changes should resolve the issue you were seeing with the HTTP REQUESTS section being displayed incorrectly when the console refreshes.
+
+---
+
+_**User**_
+
+I dont likje how the whole thing flickers, which I presume is when the display refreshges, lets rmove HTTP requests
+
+---
+
+_**Assistant**_
+
+I'll update the code to remove the HTTP REQUESTS section header and simplify the display to reduce flickering.
+
+---
+
+_****_
+
+```diff
+  	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
+  
+- 	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+- 	fmt.Println("║                         HTTP REQUESTS                            ║")
+- 	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
++ 	// Print request stats
++ 	s.requestStats.mutex.Lock()
++ 	fmt.Printf("\033[1;35mTotal Requests               \033[0m%d\n", s.requestStats.Total)
++ 	fmt.Printf("\033[1;35mSuccessful Requests          \033[0m%d\n", s.requestStats.Success)
++ 	fmt.Printf("\033[1;35mUnauthorized Requests        \033[0m%d\n", s.requestStats.Unauthorized)
++ 	fmt.Printf("\033[1;35mError Requests               \033[0m%d\n", s.requestStats.Errors)
++ 	s.requestStats.mutex.Unlock()
+  }
+  
+  // consoleUpdater periodically updates the console with request stats and errors
+  func (s *Server) consoleUpdater() {
+- 	ticker := time.NewTicker(1 * time.Second)
++ 	ticker := time.NewTicker(3 * time.Second)
+  	defer ticker.Stop()
+  
+  	for {
+  		select {
+  		case <-ticker.C:
+- 			// Get current GPU info for display in the HTTP REQUESTS section
++ 			// Get current GPU info for display
+  			gpuInfo, err := s.gpuMonitor.GetGPUInfo()
+  			if err != nil {
+  			fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
+  			fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
+- 
+- 			// Print HTTP REQUESTS section
+- 			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+- 			fmt.Println("║                         HTTP REQUESTS                            ║")
+- 			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
+  
+  			// Print request stats
+  			fmt.Printf("\033[1;35mUnauthorized Requests        \033[0m%d\n", s.requestStats.Unauthorized)
+  			fmt.Printf("\033[1;35mError Requests               \033[0m%d\n", s.requestStats.Errors)
++ 			s.requestStats.mutex.Unlock()
+  
+  			// Print last 10 requests
+  			fmt.Println("\n\033[1;33mRecent Requests:\033[0m")
++ 			s.requestStats.mutex.Lock()
+  			if len(s.requestStats.LastRequests) == 0 {
+  				fmt.Println("No requests yet")
+```
+
+---
+
+_****_
+
+
+
+
+
+Now let's run the client to see the updated console interface:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+I've made several improvements to reduce the flickering and simplify the display:
+
+1. Removed the HTTP REQUESTS section header completely, making the display more compact and reducing visual clutter.
+
+2. Increased the refresh rate from 1 second to 3 seconds, which will significantly reduce the flickering effect while still keeping the information reasonably up-to-date.
+
+3. Integrated the request statistics directly after the GPU information section, creating a more streamlined display.
+
+4. Fixed a potential race condition by properly locking and unlocking the request stats mutex when accessing the LastRequests slice.
+
+5. Added the request statistics to the initial startup banner so they're visible from the beginning.
+
+These changes should make the console display much more pleasant to look at with less flickering while still providing all the important information. The reduced refresh rate (3 seconds instead of 1) will be particularly helpful in reducing the visual distraction of constant screen refreshes.
+
+---
+
+_**User**_
+
+ I mean remove the request stats also 
+
+---
+
+_**Assistant**_
+
+I'll update the code to remove the request stats from the display completely, keeping only the recent requests and errors sections.
+
+---
+
+_****_
+
+```diff
+  	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
+  
+- 	// Print request stats
+- 	s.requestStats.mutex.Lock()
+- 	fmt.Printf("\033[1;35mTotal Requests               \033[0m%d\n", s.requestStats.Total)
+- 	fmt.Printf("\033[1;35mSuccessful Requests          \033[0m%d\n", s.requestStats.Success)
+- 	fmt.Printf("\033[1;35mUnauthorized Requests        \033[0m%d\n", s.requestStats.Unauthorized)
+- 	fmt.Printf("\033[1;35mError Requests               \033[0m%d\n", s.requestStats.Errors)
+- 	s.requestStats.mutex.Unlock()
++ 	// Print last 10 requests
++ 	fmt.Println("\n\033[1;33mRecent Requests:\033[0m")
++ 	fmt.Println("No requests yet")
+  }
+  
+  			fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
+  			fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
+- 
+- 			// Print request stats
+- 			s.requestStats.mutex.Lock()
+- 			fmt.Printf("\033[1;35mTotal Requests               \033[0m%d\n", s.requestStats.Total)
+- 			fmt.Printf("\033[1;35mSuccessful Requests          \033[0m%d\n", s.requestStats.Success)
+- 			fmt.Printf("\033[1;35mUnauthorized Requests        \033[0m%d\n", s.requestStats.Unauthorized)
+- 			fmt.Printf("\033[1;35mError Requests               \033[0m%d\n", s.requestStats.Errors)
+- 			s.requestStats.mutex.Unlock()
+  
+  			// Print last 10 requests
+```
+
+---
+
+_****_
+
+
+
+
+
+
+
+Now let's run the client to see the updated console interface:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+okay but why do we still have to redraw the original banner now we have removed those stats?
+
+---
+
+_**Assistant**_
+
+I see your point. We're still redrawing the entire console including the banner on every refresh, which is unnecessary and likely contributing to the flickering. Let's optimize this by only updating the dynamic parts (GPU info, recent requests, and errors) while keeping the static banner and configuration information drawn just once at startup.
+
+---
+
+_****_
+
+```diff
+  			}
+  
+- 			// Clear screen and redraw everything
+- 			fmt.Print("\033[H\033[2J")
+- 
+- 			// Print banner
+- 			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+- 			fmt.Println("║                     INFEROUTE PROVIDER CLIENT                    ║")
+- 			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
+- 
+- 			fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
+- 			fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType)
+- 			fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
+- 			fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
+- 			fmt.Printf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL)
+- 			fmt.Printf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
+- 			if s.config.NGROK.URL != "" {
+- 				fmt.Printf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL)
+- 			}
+- 
++ 			// Instead of clearing the entire screen, use cursor movement to update only the dynamic parts
++ 			// Move cursor to position after the static banner (25 lines down from top)
++ 			fmt.Print("\033[25;1H")
++ 
++ 			// Clear from cursor to end of screen
++ 			fmt.Print("\033[J")
++ 
++ 			// Only redraw the GPU information section
+  			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
+  			fmt.Println("║                          GPU INFORMATION                         ║")
+```
+
+---
+
+_****_
+
+
+
+Now let's adjust the line number for cursor positioning to make sure it's accurate based on the banner size:
+
+---
+
+_****_
+
+Read file: pkg/server/server.go
+
+---
+
+_****_
+
+
+
+Let's adjust the cursor position to match the actual banner size:
+
+---
+
+_****_
+
+```diff
+  
+  			// Instead of clearing the entire screen, use cursor movement to update only the dynamic parts
+- 			// Move cursor to position after the static banner (25 lines down from top)
+- 			fmt.Print("\033[25;1H")
++ 			// Move cursor to position after the static banner (16 lines down from top)
++ 			fmt.Print("\033[16;1H")
+  			
+  			// Clear from cursor to end of screen
+```
+
+---
+
+_****_
+
+
+
+Now let's run the client to see the improved console interface with reduced flickering:
+
+---
+
+_****_
+
 
 
 ---

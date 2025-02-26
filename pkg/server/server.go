@@ -124,72 +124,28 @@ func (s *Server) printStartupBanner() {
 	fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
 	fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
 
-	fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                         HTTP REQUESTS                            ║")
-	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
+	// Print last 10 requests
+	fmt.Println("\n\033[1;33mRecent Requests:\033[0m")
+	fmt.Println("No requests yet")
 }
 
 // consoleUpdater periodically updates the console with request stats and errors
 func (s *Server) consoleUpdater() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			// Get current GPU info for display in the HTTP REQUESTS section
-			gpuInfo, err := s.gpuMonitor.GetGPUInfo()
-			if err != nil {
-				s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
-				gpuInfo = &gpu.GPUInfo{
-					ProductName:   "Unknown",
-					DriverVersion: "Unknown",
-					CUDAVersion:   "Unknown",
-					GPUCount:      0,
-				}
-			}
+			// Move cursor to position after the GPU information section (25 lines down from top)
+			fmt.Print("\033[25;1H")
 
-			// Clear screen and redraw everything
-			fmt.Print("\033[H\033[2J")
-
-			// Print banner
-			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
-			fmt.Println("║                     INFEROUTE PROVIDER CLIENT                    ║")
-			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
-
-			fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
-			fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType)
-			fmt.Printf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey))
-			fmt.Printf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL)
-			fmt.Printf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL)
-			fmt.Printf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port)
-			if s.config.NGROK.URL != "" {
-				fmt.Printf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL)
-			}
-
-			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
-			fmt.Println("║                          GPU INFORMATION                         ║")
-			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
-
-			fmt.Printf("\033[1;35mGPU                          \033[0m%s\n", gpuInfo.ProductName)
-			fmt.Printf("\033[1;35mDriver Version               \033[0m%s\n", gpuInfo.DriverVersion)
-			fmt.Printf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion)
-			fmt.Printf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount)
-
-			// Print HTTP REQUESTS section
-			fmt.Println("\033[1;36m╔════════════════════════════════════════════════════════════════╗")
-			fmt.Println("║                         HTTP REQUESTS                            ║")
-			fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
-
-			// Print request stats
-			s.requestStats.mutex.Lock()
-			fmt.Printf("\033[1;35mTotal Requests               \033[0m%d\n", s.requestStats.Total)
-			fmt.Printf("\033[1;35mSuccessful Requests          \033[0m%d\n", s.requestStats.Success)
-			fmt.Printf("\033[1;35mUnauthorized Requests        \033[0m%d\n", s.requestStats.Unauthorized)
-			fmt.Printf("\033[1;35mError Requests               \033[0m%d\n", s.requestStats.Errors)
+			// Clear from cursor to end of screen
+			fmt.Print("\033[J")
 
 			// Print last 10 requests
-			fmt.Println("\n\033[1;33mRecent Requests:\033[0m")
+			fmt.Println("\033[1;33mRecent Requests:\033[0m")
+			s.requestStats.mutex.Lock()
 			if len(s.requestStats.LastRequests) == 0 {
 				fmt.Println("No requests yet")
 			} else {
