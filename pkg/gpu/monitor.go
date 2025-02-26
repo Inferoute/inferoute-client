@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // Monitor provides GPU monitoring functionality
@@ -61,35 +64,43 @@ func NewMonitor() (*Monitor, error) {
 	// Check if nvidia-smi is available
 	_, err := exec.LookPath("nvidia-smi")
 	if err != nil {
+		logger.Error("nvidia-smi not found", zap.Error(err))
 		return nil, fmt.Errorf("nvidia-smi not found: %w", err)
 	}
 
+	logger.Debug("GPU monitor initialized successfully")
 	return &Monitor{}, nil
 }
 
 // GetGPUInfo returns information about the GPU
 func (m *Monitor) GetGPUInfo() (*GPUInfo, error) {
+	logger.Debug("Getting GPU information")
+
 	// Run nvidia-smi command
 	cmd := exec.Command("nvidia-smi", "-x", "-q")
 	output, err := cmd.Output()
 	if err != nil {
+		logger.Error("Failed to run nvidia-smi", zap.Error(err))
 		return nil, fmt.Errorf("failed to run nvidia-smi: %w", err)
 	}
 
 	// Parse XML output
 	var nvidiaSMI NvidiaSMI
 	if err := xml.Unmarshal(output, &nvidiaSMI); err != nil {
+		logger.Error("Failed to parse nvidia-smi output", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse nvidia-smi output: %w", err)
 	}
 
 	// Extract GPU count
 	gpuCount, err := strconv.Atoi(nvidiaSMI.AttachedGPUs)
 	if err != nil {
+		logger.Error("Failed to parse GPU count", zap.Error(err), zap.String("attached_gpus", nvidiaSMI.AttachedGPUs))
 		return nil, fmt.Errorf("failed to parse GPU count: %w", err)
 	}
 
 	// If no GPUs are found, return an error
 	if gpuCount == 0 || len(nvidiaSMI.GPUs) == 0 {
+		logger.Error("No GPUs found", zap.Int("gpu_count", gpuCount), zap.Int("gpus_length", len(nvidiaSMI.GPUs)))
 		return nil, fmt.Errorf("no GPUs found")
 	}
 
@@ -97,17 +108,31 @@ func (m *Monitor) GetGPUInfo() (*GPUInfo, error) {
 	gpu := nvidiaSMI.GPUs[0]
 
 	// Parse memory values
-	memTotal, _ := parseMemoryValue(gpu.FBMemoryUsage.Total)
-	memUsed, _ := parseMemoryValue(gpu.FBMemoryUsage.Used)
-	memFree, _ := parseMemoryValue(gpu.FBMemoryUsage.Free)
+	memTotal, err := parseMemoryValue(gpu.FBMemoryUsage.Total)
+	if err != nil {
+		logger.Warn("Failed to parse memory total", zap.Error(err), zap.String("memory_total", gpu.FBMemoryUsage.Total))
+	}
+
+	memUsed, err := parseMemoryValue(gpu.FBMemoryUsage.Used)
+	if err != nil {
+		logger.Warn("Failed to parse memory used", zap.Error(err), zap.String("memory_used", gpu.FBMemoryUsage.Used))
+	}
+
+	memFree, err := parseMemoryValue(gpu.FBMemoryUsage.Free)
+	if err != nil {
+		logger.Warn("Failed to parse memory free", zap.Error(err), zap.String("memory_free", gpu.FBMemoryUsage.Free))
+	}
 
 	// Parse utilization
-	utilization, _ := parseUtilization(gpu.Utilization.GPUUtil)
+	utilization, err := parseUtilization(gpu.Utilization.GPUUtil)
+	if err != nil {
+		logger.Warn("Failed to parse GPU utilization", zap.Error(err), zap.String("gpu_util", gpu.Utilization.GPUUtil))
+	}
 
 	// Determine if GPU is busy (utilization > 20%)
 	isBusy := utilization > 20.0
 
-	return &GPUInfo{
+	gpuInfo := &GPUInfo{
 		ProductName:   gpu.ProductName,
 		DriverVersion: nvidiaSMI.DriverVersion,
 		CUDAVersion:   nvidiaSMI.CUDAVersion,
@@ -118,16 +143,28 @@ func (m *Monitor) GetGPUInfo() (*GPUInfo, error) {
 		MemoryUsed:    memUsed,
 		MemoryFree:    memFree,
 		IsBusy:        isBusy,
-	}, nil
+	}
+
+	logger.Debug("GPU information retrieved successfully",
+		zap.String("product_name", gpuInfo.ProductName),
+		zap.String("driver_version", gpuInfo.DriverVersion),
+		zap.Float64("utilization", gpuInfo.Utilization),
+		zap.Bool("is_busy", gpuInfo.IsBusy))
+
+	return gpuInfo, nil
 }
 
 // IsBusy returns true if the GPU is busy
 func (m *Monitor) IsBusy() (bool, error) {
+	logger.Debug("Checking if GPU is busy")
+
 	info, err := m.GetGPUInfo()
 	if err != nil {
+		logger.Error("Failed to check if GPU is busy", zap.Error(err))
 		return false, err
 	}
 
+	logger.Debug("GPU busy status", zap.Bool("is_busy", info.IsBusy), zap.Float64("utilization", info.Utilization))
 	return info.IsBusy, nil
 }
 

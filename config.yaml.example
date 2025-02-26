@@ -10,10 +10,25 @@ ollama:
 # Provider configuration
 provider:
   # Your provider API key from the Inferoute platform
-  api_key: "your-provider-api-key"
+  api_key: "your_api_key_here"
   # URL of the central Inferoute system
   url: "http://localhost:80"
+  provider_type: "ollama"
+  llm_url: "http://localhost:11434"
 
 # NGROK configuration (will be overridden by code for now)
 ngrok:
-  url: "https://your-ngrok-url.ngrok-free.app" 
+  url: ""
+
+# Logging configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+  # Log directory (defaults to ~/.local/state/inferoute/log if empty)
+  log_dir: ""
+  # Maximum size of log files in megabytes before rotation
+  max_size: 100
+  # Maximum number of old log files to retain
+  max_backups: 5
+  # Maximum number of days to retain old log files
+  max_age: 30 

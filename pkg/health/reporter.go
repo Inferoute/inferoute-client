@@ -12,7 +12,9 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
+	"go.uber.org/zap"
 )
 
 // Reporter handles health reporting to the central system
@@ -44,9 +46,12 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor) *Reporter {
 
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
+	logger.Debug("Preparing health report")
+
 	// Get GPU information
 	gpuInfo, err := r.gpuMonitor.GetGPUInfo()
 	if err != nil {
+		logger.Error("Failed to get GPU information", zap.Error(err))
 		return fmt.Errorf("failed to get GPU information: %w", err)
 	}
 
@@ -54,6 +59,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
 	models, err := ollamaClient.ListModels(ctx)
 	if err != nil {
+		logger.Error("Failed to get models from Ollama", zap.Error(err))
 		return fmt.Errorf("failed to get models from Ollama: %w", err)
 	}
 
@@ -71,14 +77,20 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Marshal report to JSON
 	reportJSON, err := json.Marshal(report)
 	if err != nil {
+		logger.Error("Failed to marshal health report", zap.Error(err))
 		return fmt.Errorf("failed to marshal health report: %w", err)
 	}
 
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
+	logger.Debug("Sending health report",
+		zap.String("url", url),
+		zap.Int("models_count", len(models.Models)),
+		zap.String("gpu", gpuInfo.ProductName))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
 	if err != nil {
+		logger.Error("Failed to create request", zap.Error(err))
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -89,6 +101,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Send request
 	resp, err := r.client.Do(req)
 	if err != nil {
+		logger.Error("Failed to send health report", zap.Error(err))
 		return fmt.Errorf("failed to send health report: %w", err)
 	}
 	defer resp.Body.Close()
@@ -97,6 +110,9 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		// Read response body for error details
 		body, _ := io.ReadAll(resp.Body)
+		logger.Error("Health report failed",
+			zap.Int("status_code", resp.StatusCode),
+			zap.String("response", string(body)))
 		return fmt.Errorf("health report failed with status code: %d, response: %s", resp.StatusCode, string(body))
 	}
 
@@ -105,14 +121,21 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	r.lastUpdateTime = time.Now()
 	r.lastUpdateMutex.Unlock()
 
+	logger.Info("Health report sent successfully",
+		zap.Time("timestamp", r.lastUpdateTime),
+		zap.Int("models_count", len(models.Models)))
+
 	return nil
 }
 
 // GetHealthReport returns the current health report
 func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
+	logger.Debug("Getting health report")
+
 	// Get GPU information
 	gpuInfo, err := r.gpuMonitor.GetGPUInfo()
 	if err != nil {
+		logger.Error("Failed to get GPU information", zap.Error(err))
 		return nil, fmt.Errorf("failed to get GPU information: %w", err)
 	}
 
@@ -120,6 +143,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
 	models, err := ollamaClient.ListModels(ctx)
 	if err != nil {
+		logger.Error("Failed to get models from Ollama", zap.Error(err))
 		return nil, fmt.Errorf("failed to get models from Ollama: %w", err)
 	}
 
@@ -133,6 +157,10 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		},
 		ProviderType: r.config.Provider.ProviderType,
 	}
+
+	logger.Debug("Health report generated",
+		zap.Int("models_count", len(models.Models)),
+		zap.String("gpu", gpuInfo.ProductName))
 
 	return report, nil
 }

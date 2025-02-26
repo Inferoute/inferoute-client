@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -16,7 +15,9 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
+	"go.uber.org/zap"
 )
 
 // Server represents the HTTP server
@@ -75,12 +76,19 @@ func (s *Server) Start() error {
 	// Start a goroutine to periodically update the console
 	go s.consoleUpdater()
 
+	// Log server start
+	logger.Info("Starting HTTP server",
+		zap.String("address", s.server.Addr),
+		zap.String("provider_type", s.config.Provider.ProviderType),
+		zap.String("llm_url", s.config.Provider.LLMURL))
+
 	// Start server
 	return s.server.ListenAndServe()
 }
 
 // Stop stops the server
 func (s *Server) Stop(ctx context.Context) error {
+	logger.Info("Stopping HTTP server")
 	return s.server.Shutdown(ctx)
 }
 
@@ -92,10 +100,8 @@ func (s *Server) consoleUpdater() {
 	// Create a debug log file
 	debugFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		log.Printf("Failed to open debug log file: %v", err)
+		logger.Error("Failed to open debug log file", zap.Error(err))
 	} else {
-		// Set log output to the file
-		log.SetOutput(debugFile)
 		defer debugFile.Close()
 	}
 
@@ -228,6 +234,13 @@ func (s *Server) logRequest(method, path string, statusCode int, startTime time.
 		s.requestStats.LastRequests = s.requestStats.LastRequests[1:]
 	}
 	s.requestStats.mutex.Unlock()
+
+	// Log to zap logger
+	logger.Info("Request processed",
+		zap.String("method", method),
+		zap.String("path", path),
+		zap.Int("status", statusCode),
+		zap.Duration("duration", duration))
 }
 
 // logError logs an error to the error log
@@ -242,8 +255,8 @@ func (s *Server) logError(errMsg string) {
 	}
 	s.errorLogMutex.Unlock()
 
-	// Also log to standard logger for file logging if configured
-	log.Printf("ERROR: %s", errMsg)
+	// Also log to zap logger
+	logger.Error(errMsg)
 }
 
 // handleHealth handles the /health endpoint

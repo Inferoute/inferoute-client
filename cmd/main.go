@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,7 +12,9 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -24,8 +25,23 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		fmt.Printf("Failed to load configuration: %v\n", err)
+		os.Exit(1)
 	}
+
+	// Initialize logger
+	log, err := logger.New(&cfg.Logging)
+	if err != nil {
+		fmt.Printf("Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	logger.SetDefaultLogger(log)
+	defer log.Logger.Sync()
+
+	logger.Info("Starting Inferoute Provider Client",
+		zap.String("config_path", *configPath),
+		zap.String("log_level", cfg.Logging.Level),
+		zap.String("log_dir", cfg.Logging.LogDir))
 
 	// Create context that can be canceled
 	ctx, cancel := context.WithCancel(context.Background())
@@ -34,7 +50,7 @@ func main() {
 	// Initialize GPU monitor
 	gpuMonitor, err := gpu.NewMonitor()
 	if err != nil {
-		log.Fatalf("Failed to initialize GPU monitor: %v", err)
+		logger.Fatal("Failed to initialize GPU monitor", zap.Error(err))
 	}
 
 	// Initialize health reporter
@@ -47,14 +63,14 @@ func main() {
 
 		// Send initial health report
 		if err := healthReporter.SendHealthReport(ctx); err != nil {
-			log.Printf("Failed to send initial health report: %v", err)
+			logger.Error("Failed to send initial health report", zap.Error(err))
 		}
 
 		for {
 			select {
 			case <-ticker.C:
 				if err := healthReporter.SendHealthReport(ctx); err != nil {
-					log.Printf("Failed to send health report: %v", err)
+					logger.Error("Failed to send health report", zap.Error(err))
 				}
 			case <-ctx.Done():
 				return
@@ -66,7 +82,7 @@ func main() {
 	srv := server.NewServer(cfg, gpuMonitor, healthReporter)
 	go func() {
 		if err := srv.Start(); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+			logger.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
 
@@ -76,10 +92,10 @@ func main() {
 	<-quit
 
 	// Shutdown gracefully
-	fmt.Println("Shutting down gracefully...")
+	logger.Info("Shutting down gracefully...")
 
 	// Stop the server
 	if err := srv.Stop(ctx); err != nil {
-		log.Fatalf("Server shutdown failed: %v", err)
+		logger.Fatal("Server shutdown failed", zap.Error(err))
 	}
 }

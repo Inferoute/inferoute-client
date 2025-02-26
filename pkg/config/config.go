@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +29,9 @@ type Config struct {
 	NGROK struct {
 		URL string `yaml:"url"`
 	} `yaml:"ngrok"`
+
+	// Logging configuration
+	Logging logger.Config `yaml:"logging"`
 }
 
 // Load loads the configuration from a YAML file
@@ -43,6 +48,16 @@ func Load(path string) (*Config, error) {
 
 	// Hardcode NGROK URL as specified
 	cfg.NGROK.URL = "https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"
+
+	// Set default logging configuration
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		cfg.Logging.LogDir = filepath.Join(homeDir, ".local", "state", "inferoute", "log")
+	}
+	cfg.Logging.Level = "info"
+	cfg.Logging.MaxSize = 100
+	cfg.Logging.MaxBackups = 5
+	cfg.Logging.MaxAge = 30
 
 	// Read configuration file
 	data, err := os.ReadFile(path)
