@@ -141,7 +141,7 @@ func (s *Server) redrawConsole() {
 		lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
 	}
 	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr))
-	buf.WriteString("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m\n")
+	buf.WriteString("\033[1;35mSession Status                \033[0m\033[1;32monline\033[0m\n")
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType))
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey)))
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL))
