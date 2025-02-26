@@ -105,14 +105,6 @@ func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received chat completions request from %s", r.RemoteAddr)
 
-	// Log request headers
-	log.Printf("Request headers for chat completions:")
-	for name, values := range r.Header {
-		for _, value := range values {
-			log.Printf("  %s: %s", name, value)
-		}
-	}
-
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
 	if err != nil {
@@ -191,14 +183,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Received completions request from %s", r.RemoteAddr)
 
-	// Log request headers
-	log.Printf("Request headers for completions:")
-	for name, values := range r.Header {
-		for _, value := range values {
-			log.Printf("  %s: %s", name, value)
-		}
-	}
-
 	// Check if GPU is busy
 	isBusy, err := s.gpuMonitor.IsBusy()
 	if err != nil {
@@ -245,27 +229,11 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Log request body (limited to 1000 characters to avoid huge logs)
-	bodyStr := string(body)
-	if len(bodyStr) > 1000 {
-		log.Printf("Request body (truncated): %s...", bodyStr[:1000])
-	} else {
-		log.Printf("Request body: %s", bodyStr)
-	}
-
 	// Forward request to Ollama
 	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/completions", body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
 		return
-	}
-
-	// Log response (limited to 1000 characters)
-	respStr := string(ollamaResp)
-	if len(respStr) > 1000 {
-		log.Printf("Ollama response (truncated): %s...", respStr[:1000])
-	} else {
-		log.Printf("Ollama response: %s", respStr)
 	}
 
 	// Write response
@@ -279,24 +247,10 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	url := fmt.Sprintf("%s/api/provider/validate_hmac", s.config.Provider.URL)
 	log.Printf("Sending HMAC validation request to %s", url)
 
-	// Log the HMAC being validated
-	log.Printf("HMAC being validated: %s", hmac)
-
-	// Log the API key being used (partially masked for security)
-	apiKey := s.config.Provider.APIKey
-	maskedKey := apiKey
-	if len(apiKey) > 8 {
-		maskedKey = apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
-	}
-	log.Printf("Using API key for validation: %s", maskedKey)
-
 	reqBody, err := json.Marshal(map[string]string{"hmac": hmac})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
-
-	// Log the request body
-	log.Printf("HMAC validation request body: %s", string(reqBody))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reqBody))
 	if err != nil {
@@ -305,19 +259,7 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 
 	// Add headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-
-	// Log all request headers
-	log.Printf("HMAC validation request headers:")
-	for name, values := range req.Header {
-		for _, value := range values {
-			if name == "Authorization" {
-				log.Printf("  %s: Bearer %s", name, maskedKey)
-			} else {
-				log.Printf("  %s: %s", name, value)
-			}
-		}
-	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.config.Provider.APIKey))
 
 	// Send request
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -348,9 +290,6 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 		log.Printf("Failed to read HMAC validation response body: %v", err)
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
-
-	// Log the response body
-	log.Printf("HMAC validation response body: %s", string(respBody))
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
 		log.Printf("Failed to parse HMAC validation response: %v", err)

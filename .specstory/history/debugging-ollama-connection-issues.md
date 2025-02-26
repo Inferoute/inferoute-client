@@ -1761,6 +1761,30 @@ _****_
 
 ---
 
+_**User**_
+
+can you remove the logging for the headers
+
+---
+
+_**Assistant**_
+
+I'll remove the header logging from all the handler functions to clean up the logs:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
 
 
 ---
