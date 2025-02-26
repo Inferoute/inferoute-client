@@ -3113,6 +3113,178 @@ Instead can we log when the last health update was send in the banner under  INF
 
 _**Assistant**_
 
+I'll remove the health report logging from the console output and add a "Last Health Update" timestamp to the banner instead.
+
+---
+
+_****_
+
+<details>
+            <summary>Grep search for "Sending health report" • **4** files</summary>
+        
+| File | Line | Match |
+|------|------|-------|
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/README.md` | L52 | `2. The client will start a server on the configured port (default: 8080) and begin sending health reports to the central system.` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/pkg/health/reporter.go` | L74 | `fmt.Printf("Sending health report JSON: %s\n", string(reportJSON))` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/pkg/health/reporter.go` | L78 | `fmt.Printf("Sending health report to URL: %s\n", url)` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/.specstory/history/debugging-ollama-connection-issues.md` | L306 | `+ 	fmt.Printf("Sending health report JSON: %s\n", string(reportJSON))` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/.specstory/history/debugging-ollama-connection-issues.md` | L310 | `+ 	fmt.Printf("Sending health report to URL: %s\n", url)` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/.specstory/history/debugging-ollama-connection-issues.md` | L3106 | `Sending health report JSON: {"object":"list","data":[{"id":"deepseek-r1:8b","object":"model","created":1737981121,"owned_by":"library"},{"id":"deepseek-r1:32b","object":"model","created":1737496831,"o` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/.specstory/history/debugging-ollama-connection-issues.md` | L3107 | `Sending health report to URL: http://192.168.0.36:80/api/provider/health` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/pkg/health/reporter.go` | L74 | `fmt.Printf("Sending health report JSON: %s\n", string(reportJSON))` |
+| `file:///Users/charlesholtzkampf/sentnl/inferoute-client/pkg/health/reporter.go` | L78 | `fmt.Printf("Sending health report to URL: %s\n", url)` |
+
+</details>
+
+---
+
+_****_
+
+Read file: pkg/health/reporter.go
+
+---
+
+_****_
+
+
+
+Now I'll make the necessary changes to remove the health report logging and add a "Last Health Update" timestamp to the banner:
+
+---
+
+_****_
+
+```diff
+  	"io"
+  	"net/http"
++ 	"sync"
+  	"time"
+  
+  // Reporter handles health reporting to the central system
+  type Reporter struct {
+- 	config     *config.Config
+- 	gpuMonitor *gpu.Monitor
+- 	client     *http.Client
++ 	config          *config.Config
++ 	gpuMonitor      *gpu.Monitor
++ 	client          *http.Client
++ 	lastUpdateTime  time.Time
++ 	lastUpdateMutex sync.Mutex
+  }
+  
+  		return fmt.Errorf("failed to marshal health report: %w", err)
+  	}
+- 
+- 	// Log the JSON payload
+- 	fmt.Printf("Sending health report JSON: %s\n", string(reportJSON))
+  
+  	// Create request
+  	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
+- 	fmt.Printf("Sending health report to URL: %s\n", url)
+- 	fmt.Printf("Using API key: %s\n", r.config.Provider.APIKey)
+  
+  	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
+  		return fmt.Errorf("health report failed with status code: %d, response: %s", resp.StatusCode, string(body))
+  	}
++ 
++ 	// Update the last update time
++ 	r.lastUpdateMutex.Lock()
++ 	r.lastUpdateTime = time.Now()
++ 	r.lastUpdateMutex.Unlock()
+  
+  	return nil
+  	return report, nil
+  }
++ 
++ // GetLastUpdateTime returns the time of the last successful health report
++ func (r *Reporter) GetLastUpdateTime() time.Time {
++ 	r.lastUpdateMutex.Lock()
++ 	defer r.lastUpdateMutex.Unlock()
++ 	return r.lastUpdateTime
++ }
+  
+```
+
+---
+
+_****_
+
+
+
+
+
+Now let's update the server code to display the last health update time in the banner:
+
+---
+
+_****_
+
+```diff
+  	fmt.Println("╚════════════════════════════════════════════════════════════════╝\033[0m")
+  
++ 	// Get last health update time
++ 	lastUpdate := s.healthReporter.GetLastUpdateTime()
++ 	lastUpdateStr := "Never"
++ 	if !lastUpdate.IsZero() {
++ 		lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
++ 	}
++ 	fmt.Printf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr)
+  	fmt.Println("\033[1;35mSession Status                 \033[0m\033[1;32monline\033[0m")
+  	fmt.Printf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType)
+  		select {
+  		case <-ticker.C:
++ 			// Update the last health update time in the banner
++ 			lastUpdate := s.healthReporter.GetLastUpdateTime()
++ 			lastUpdateStr := "Never"
++ 			if !lastUpdate.IsZero() {
++ 				lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
++ 			}
++ 			
++ 			// Move cursor to the last health update line (4th line)
++ 			fmt.Print("\033[4;1H")
++ 			fmt.Print("\033[K") // Clear the line
++ 			fmt.Printf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr)
++ 			
+  			// Move cursor to position after the GPU information section (25 lines down from top)
+  			fmt.Print("\033[25;1H")
+```
+
+---
+
+_****_
+
+
+
+
+
+Let's run the client to see the updated console interface with the last health update timestamp:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+after the health update date is changed it creates another recent requests
+
+se screenshot
+
+
+
+---
+
+_**Assistant**_
+
 
 
 ---

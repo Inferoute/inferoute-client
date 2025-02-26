@@ -153,10 +153,11 @@ func (s *Server) consoleUpdater() {
 
 			// Move cursor to the last health update line (4th line)
 			fmt.Print("\033[4;1H")
-			fmt.Print("\033[K") // Clear the line
-			fmt.Printf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr)
+			fmt.Print("\033[K")                                                            // Clear the line
+			fmt.Printf("\033[1;35mLast Health Update            \033[0m%s", lastUpdateStr) // No newline here
 
-			// Move cursor to position after the GPU information section (25 lines down from top)
+			// Move cursor directly to position after the GPU information section (25 lines down from top)
+			// without printing a newline after the health update
 			fmt.Print("\033[25;1H")
 
 			// Clear from cursor to end of screen
