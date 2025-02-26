@@ -71,7 +71,7 @@ func NewClient(baseURL string) *Client {
 // ListModels lists all available models
 func (c *Client) ListModels(ctx context.Context) (*ListModelsResponse, error) {
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/models", c.baseURL), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/models", c.baseURL), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
