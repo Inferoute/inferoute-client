@@ -1775,6 +1775,120 @@ I'll remove the header logging from all the handler functions to clean up the lo
 
 _****_
 
+```diff
+  func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+  	log.Printf("Received health request from %s", r.RemoteAddr)
++ 	
++ 	// Log HMAC if present, but don't validate for health endpoint
++ 	hmac := r.Header.Get("X-Request-Id")
++ 	if hmac != "" {
++ 		log.Printf("X-Request-Id present in health request: %s (not validating for health endpoint)", hmac)
++ 	}
+  	
+  	// Get health report
+  func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
+  	log.Printf("Received busy request from %s", r.RemoteAddr)
++ 	
++ 	// Log HMAC if present, but don't validate for busy endpoint
++ 	hmac := r.Header.Get("X-Request-Id")
++ 	if hmac != "" {
++ 		log.Printf("X-Request-Id present in busy request: %s (not validating for busy endpoint)", hmac)
++ 	}
+  	
+  	// Check if GPU is busy
+  func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+  	log.Printf("Received chat completions request from %s", r.RemoteAddr)
+- 
+- 	// Log request headers
+- 	log.Printf("Request headers for chat completions:")
+- 	for name, values := range r.Header {
+- 		for _, value := range values {
+- 			log.Printf("  %s: %s", name, value)
+- 		}
+- 	}
+  	
+  	// Check if GPU is busy
+  func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
+  	log.Printf("Received completions request from %s", r.RemoteAddr)
+- 
+- 	// Log request headers
+- 	log.Printf("Request headers for completions:")
+- 	for name, values := range r.Header {
+- 		for _, value := range values {
+- 			log.Printf("  %s: %s", name, value)
+- 		}
+- 	}
+  	
+  	// Check if GPU is busy
+  	req.Header.Set("Content-Type", "application/json")
+  	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+- 
+- 	// Log all request headers
+- 	log.Printf("HMAC validation request headers:")
+- 	for name, values := range req.Header {
+- 		for _, value := range values {
+- 			if name == "Authorization" {
+- 				log.Printf("  %s: Bearer %s", name, maskedKey)
+- 			} else {
+- 				log.Printf("  %s: %s", name, value)
+- 			}
+- 		}
+- 	}
+  
+  	// Send request
+```
+
+---
+
+_****_
+
+
+
+
+
+Now let's run the client to test the changes:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+Can we change it so when our client starts it shows somethingh similar to this.
+
+Add the GPU details, called it inferoute instead of ngrok.
+
+Then also the requests coming and get rid of the logging info. Insted show another section below requests that show errrors if any. 
+
+
+So we need to design our system to capture errors and log in that section. 
+
+And also have thew new startup console like in the image that logs incoming requests. This logs shold not slow doen requests so it should apear aftyer the request has ben completed so we dont slow teh requests down by adding unecessary latency.
+
+
+
+
+
+---
+
+_**Assistant**_
+
+I'll create a custom console output for the server startup and request logging. Let's implement a more structured console display with GPU details, request tracking, and a dedicated error section.
+
+---
+
+_****_
+
 
 
 ---
