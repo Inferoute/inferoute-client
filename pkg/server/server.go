@@ -222,9 +222,17 @@ func (s *Server) logRequest(method, path string, statusCode int, startTime time.
 		s.requestStats.mutex.Unlock()
 	}
 
+	// Format duration with only 2 decimal places
+	var durationStr string
+	if duration.Seconds() >= 1 {
+		durationStr = fmt.Sprintf("%.2fs", duration.Seconds())
+	} else {
+		durationStr = fmt.Sprintf("%.2fms", float64(duration.Microseconds())/1000)
+	}
+
 	timestamp := time.Now().Format("15:04:05.000")
 	logEntry := fmt.Sprintf("%s UTC %s %s %s%d\033[0m %s",
-		timestamp, method, path, statusColor, statusCode, duration)
+		timestamp, method, path, statusColor, statusCode, durationStr)
 
 	// Add to request stats
 	s.requestStats.mutex.Lock()
