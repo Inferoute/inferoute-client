@@ -48,11 +48,18 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor) *Reporter {
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	logger.Debug("Preparing health report")
 
-	// Get GPU information
-	gpuInfo, err := r.gpuMonitor.GetGPUInfo()
-	if err != nil {
-		logger.Error("Failed to get GPU information", zap.Error(err))
-		return fmt.Errorf("failed to get GPU information: %w", err)
+	// Get GPU information if available
+	var gpuInfo *gpu.GPUInfo
+	var err error
+	if r.gpuMonitor != nil {
+		gpuInfo, err = r.gpuMonitor.GetGPUInfo()
+		if err != nil {
+			logger.Error("Failed to get GPU information", zap.Error(err))
+			// Continue with nil GPU info
+			gpuInfo = nil
+		}
+	} else {
+		logger.Debug("GPU monitor not available, skipping GPU information")
 	}
 
 	// Get available models from Ollama
@@ -86,7 +93,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	logger.Debug("Sending health report",
 		zap.String("url", url),
 		zap.Int("models_count", len(models.Models)),
-		zap.String("gpu", gpuInfo.ProductName))
+		zap.String("gpu", fmt.Sprintf("%v", gpuInfo)))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
 	if err != nil {
@@ -121,9 +128,16 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	r.lastUpdateTime = time.Now()
 	r.lastUpdateMutex.Unlock()
 
-	logger.Info("Health report sent successfully",
-		zap.Time("timestamp", r.lastUpdateTime),
-		zap.Int("models_count", len(models.Models)))
+	if gpuInfo != nil {
+		logger.Info("Health report sent successfully",
+			zap.Time("timestamp", r.lastUpdateTime),
+			zap.Int("models_count", len(models.Models)),
+			zap.String("gpu", gpuInfo.ProductName))
+	} else {
+		logger.Info("Health report sent successfully without GPU information",
+			zap.Time("timestamp", r.lastUpdateTime),
+			zap.Int("models_count", len(models.Models)))
+	}
 
 	return nil
 }
@@ -132,11 +146,18 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	logger.Debug("Getting health report")
 
-	// Get GPU information
-	gpuInfo, err := r.gpuMonitor.GetGPUInfo()
-	if err != nil {
-		logger.Error("Failed to get GPU information", zap.Error(err))
-		return nil, fmt.Errorf("failed to get GPU information: %w", err)
+	// Get GPU information if available
+	var gpuInfo *gpu.GPUInfo
+	var err error
+	if r.gpuMonitor != nil {
+		gpuInfo, err = r.gpuMonitor.GetGPUInfo()
+		if err != nil {
+			logger.Error("Failed to get GPU information", zap.Error(err))
+			// Continue with nil GPU info
+			gpuInfo = nil
+		}
+	} else {
+		logger.Debug("GPU monitor not available, skipping GPU information")
 	}
 
 	// Get available models from Ollama
@@ -158,9 +179,14 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		ProviderType: r.config.Provider.ProviderType,
 	}
 
-	logger.Debug("Health report generated",
-		zap.Int("models_count", len(models.Models)),
-		zap.String("gpu", gpuInfo.ProductName))
+	if gpuInfo != nil {
+		logger.Debug("Health report generated",
+			zap.Int("models_count", len(models.Models)),
+			zap.String("gpu", gpuInfo.ProductName))
+	} else {
+		logger.Debug("Health report generated without GPU information",
+			zap.Int("models_count", len(models.Models)))
+	}
 
 	return report, nil
 }

@@ -117,10 +117,19 @@ func (s *Server) consoleUpdater() {
 
 // redrawConsole completely redraws the console
 func (s *Server) redrawConsole() {
-	// Get GPU info
-	gpuInfo, err := s.gpuMonitor.GetGPUInfo()
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
+	// Get GPU info if available
+	var gpuInfo *gpu.GPUInfo
+	if s.gpuMonitor != nil {
+		var err error
+		gpuInfo, err = s.gpuMonitor.GetGPUInfo()
+		if err != nil {
+			s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
+			gpuInfo = nil
+		}
+	}
+
+	// If GPU info is nil, use a default
+	if gpuInfo == nil {
 		gpuInfo = &gpu.GPUInfo{
 			ProductName:   "Unknown",
 			DriverVersion: "Unknown",
@@ -291,12 +300,20 @@ func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
 	// Check if GPU is busy
-	isBusy, err := s.gpuMonitor.IsBusy()
-	if err != nil {
-		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-		return
+	var isBusy bool
+	var err error
+
+	if s.gpuMonitor != nil {
+		isBusy, err = s.gpuMonitor.IsBusy()
+		if err != nil {
+			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
+			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+			return
+		}
+	} else {
+		// If GPU monitor is not available, assume not busy
+		isBusy = false
 	}
 
 	// Write response
@@ -310,12 +327,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
 	// Check if GPU is busy
-	isBusy, err := s.gpuMonitor.IsBusy()
-	if err != nil {
-		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-		return
+	var isBusy bool
+	var err error
+
+	if s.gpuMonitor != nil {
+		isBusy, err = s.gpuMonitor.IsBusy()
+		if err != nil {
+			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
+			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+			return
+		}
+	} else {
+		// If GPU monitor is not available, assume not busy
+		isBusy = false
 	}
 
 	// If GPU is busy, return error
@@ -375,12 +400,20 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
 	// Check if GPU is busy
-	isBusy, err := s.gpuMonitor.IsBusy()
-	if err != nil {
-		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-		return
+	var isBusy bool
+	var err error
+
+	if s.gpuMonitor != nil {
+		isBusy, err = s.gpuMonitor.IsBusy()
+		if err != nil {
+			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
+			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+			return
+		}
+	} else {
+		// If GPU monitor is not available, assume not busy
+		isBusy = false
 	}
 
 	// If GPU is busy, return error

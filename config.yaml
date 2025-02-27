@@ -17,3 +17,16 @@ provider:
 # NGROK configuration (will be overridden by code for now)
 ngrok:
   url: "https://74a6-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"
+
+# Logging configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+  # Log directory (defaults to ~/.local/state/inferoute/log if empty)
+  log_dir: ""
+  # Maximum size of log files in megabytes before rotation
+  max_size: 100
+  # Maximum number of old log files to retain
+  max_backups: 5
+  # Maximum number of days to retain old log files
+  max_age: 30 

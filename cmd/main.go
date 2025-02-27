@@ -50,7 +50,9 @@ func main() {
 	// Initialize GPU monitor
 	gpuMonitor, err := gpu.NewMonitor()
 	if err != nil {
-		logger.Fatal("Failed to initialize GPU monitor", zap.Error(err))
+		logger.Error("Failed to initialize GPU monitor", zap.Error(err))
+		// Continue without GPU monitoring instead of exiting
+		logger.Warn("Continuing without GPU monitoring")
 	}
 
 	// Initialize health reporter

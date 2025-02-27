@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -12,7 +13,9 @@ import (
 )
 
 // Monitor provides GPU monitoring functionality
-type Monitor struct{}
+type Monitor struct {
+	isMacOS bool
+}
 
 // GPUInfo represents information about the GPU
 type GPUInfo struct {
@@ -61,22 +64,37 @@ type Utilization struct {
 
 // NewMonitor creates a new GPU monitor
 func NewMonitor() (*Monitor, error) {
-	// Check if nvidia-smi is available
-	_, err := exec.LookPath("nvidia-smi")
-	if err != nil {
-		logger.Error("nvidia-smi not found", zap.Error(err))
-		return nil, fmt.Errorf("nvidia-smi not found: %w", err)
+	isMacOS := runtime.GOOS == "darwin"
+
+	if !isMacOS {
+		// Check if nvidia-smi is available on non-macOS systems
+		_, err := exec.LookPath("nvidia-smi")
+		if err != nil {
+			logger.Error("nvidia-smi not found", zap.Error(err))
+			return nil, fmt.Errorf("nvidia-smi not found: %w", err)
+		}
+	} else {
+		// Check if system_profiler is available on macOS
+		_, err := exec.LookPath("system_profiler")
+		if err != nil {
+			logger.Error("system_profiler not found", zap.Error(err))
+			return nil, fmt.Errorf("system_profiler not found: %w", err)
+		}
 	}
 
-	logger.Debug("GPU monitor initialized successfully")
-	return &Monitor{}, nil
+	logger.Debug("GPU monitor initialized successfully", zap.Bool("is_macos", isMacOS))
+	return &Monitor{isMacOS: isMacOS}, nil
 }
 
 // GetGPUInfo returns information about the GPU
 func (m *Monitor) GetGPUInfo() (*GPUInfo, error) {
 	logger.Debug("Getting GPU information")
 
-	// Run nvidia-smi command
+	if m.isMacOS {
+		return m.getMacGPUInfo()
+	}
+
+	// Run nvidia-smi command for non-macOS systems
 	cmd := exec.Command("nvidia-smi", "-x", "-q")
 	output, err := cmd.Output()
 	if err != nil {
@@ -154,9 +172,96 @@ func (m *Monitor) GetGPUInfo() (*GPUInfo, error) {
 	return gpuInfo, nil
 }
 
+// getMacGPUInfo returns information about the GPU on macOS
+func (m *Monitor) getMacGPUInfo() (*GPUInfo, error) {
+	logger.Debug("Getting macOS GPU information")
+
+	// Run system_profiler command
+	cmd := exec.Command("system_profiler", "SPDisplaysDataType")
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Error("Failed to run system_profiler", zap.Error(err))
+		return nil, fmt.Errorf("failed to run system_profiler: %w", err)
+	}
+
+	// Parse the output
+	outputStr := string(output)
+	lines := strings.Split(outputStr, "\n")
+
+	var productName string
+	var coreCount int
+
+	// Parse the output to extract GPU information
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Look for the GPU model line (usually starts with "Chipset Model:")
+		if strings.Contains(line, "Chipset Model:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				productName = strings.TrimSpace(parts[1])
+			}
+		}
+
+		// Look for the core count line (usually "Total Number of Cores:")
+		if strings.Contains(line, "Total Number of Cores:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				countStr := strings.TrimSpace(parts[1])
+				count, err := strconv.Atoi(countStr)
+				if err == nil {
+					coreCount = count
+				}
+			}
+		}
+
+		// If we found a GPU name but didn't find it in the previous iteration,
+		// look at the previous line to get the GPU name from the section header
+		if productName == "" && i > 0 && strings.HasSuffix(lines[i-1], ":") {
+			productName = strings.TrimSuffix(strings.TrimSpace(lines[i-1]), ":")
+		}
+	}
+
+	// If we couldn't find a product name, use a default
+	if productName == "" {
+		productName = "Unknown macOS GPU"
+	}
+
+	// For macOS, we'll set some default values for fields we can't get
+	gpuInfo := &GPUInfo{
+		ProductName:   productName,
+		DriverVersion: "macOS Native",
+		CUDAVersion:   "N/A",
+		GPUCount:      1,
+		UUID:          "mac-gpu",
+		Utilization:   0.0,
+		MemoryTotal:   0,
+		MemoryUsed:    0,
+		MemoryFree:    0,
+		IsBusy:        false, // Always false for macOS as requested
+	}
+
+	// If we found core count, add it to the product name
+	if coreCount > 0 {
+		gpuInfo.ProductName = fmt.Sprintf("%s (%d cores)", productName, coreCount)
+	}
+
+	logger.Debug("macOS GPU information retrieved successfully",
+		zap.String("product_name", gpuInfo.ProductName),
+		zap.Bool("is_busy", gpuInfo.IsBusy))
+
+	return gpuInfo, nil
+}
+
 // IsBusy returns true if the GPU is busy
 func (m *Monitor) IsBusy() (bool, error) {
 	logger.Debug("Checking if GPU is busy")
+
+	// For macOS, always return false as requested
+	if m.isMacOS {
+		logger.Debug("macOS GPU busy status", zap.Bool("is_busy", false))
+		return false, nil
+	}
 
 	info, err := m.GetGPUInfo()
 	if err != nil {
