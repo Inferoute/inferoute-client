@@ -5022,6 +5022,75 @@ I'll update your `logger.go` file to implement log rotation using the lumberjack
 
 _****_
 
+```diff
+  	"go.uber.org/zap"
+  	"go.uber.org/zap/zapcore"
++ 	"gopkg.in/natefinch/lumberjack.v2"
+  )
+  
+  	fileEncoder := zapcore.NewJSONEncoder(encoderConfig)
+  
+- 	// Create log files
+- 	logFile, err := os.OpenFile(
+- 		filepath.Join(logDir, "inferoute.log"),
+- 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+- 		0644,
+- 	)
+- 	if err != nil {
+- 		return nil, fmt.Errorf("failed to open log file: %w", err)
++ 	// Setup log rotation using lumberjack
++ 	mainLogFile := &lumberjack.Logger{
++ 		Filename:   filepath.Join(logDir, "inferoute.log"),
++ 		MaxSize:    cfg.MaxSize,    // megabytes
++ 		MaxBackups: cfg.MaxBackups, // number of backups
++ 		MaxAge:     cfg.MaxAge,     // days
++ 		Compress:   true,           // compress old logs
+  	}
+  
+- 	errorLogFile, err := os.OpenFile(
+- 		filepath.Join(logDir, "error.log"),
+- 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+- 		0644,
+- 	)
+- 	if err != nil {
+- 		return nil, fmt.Errorf("failed to open error log file: %w", err)
++ 	errorLogFile := &lumberjack.Logger{
++ 		Filename:   filepath.Join(logDir, "error.log"),
++ 		MaxSize:    cfg.MaxSize,
++ 		MaxBackups: cfg.MaxBackups,
++ 		MaxAge:     cfg.MaxAge,
++ 		Compress:   true,
+  	}
+  
+  	fileCore := zapcore.NewCore(
+  		fileEncoder,
+- 		zapcore.AddSync(logFile),
++ 		zapcore.AddSync(mainLogFile),
+  		level,
+  	)
+  		// Create default logger
+  		cfg := &Config{
+- 			Level: "info",
++ 			Level:      "info",
++ 			MaxSize:    100,
++ 			MaxBackups: 5,
++ 			MaxAge:     30,
+  		}
+  		var err error
+```
+
+---
+
+_****_
+
+
+
+Now let's run the client to test the log rotation:
+
+---
+
+_****_
+
 
 
 ---
@@ -5029,6 +5098,265 @@ _****_
 _****_
 
 
+
+---
+
+_**User**_
+
+in our consolse can we limit the numbers after the deicaml to 2
+
+19:46:34.222 UTC POST /v1/chat/completions 200 2.013229081s
+19:47:46.045 UTC POST /v1/chat/completions 200 246.416201ms
+19:47:47.408 UTC POST /v1/chat/completions 200 177.767828ms
+19:47:48.851 UTC POST /v1/chat/completions 200 175.92506ms
+
+---
+
+_**Assistant**_
+
+Let's update the `logRequest` method in `server.go` to format the duration with only 2 decimal places:
+
+---
+
+_****_
+
+```diff
+  		s.requestStats.mutex.Unlock()
+  	}
++ 
++ 	// Format duration with only 2 decimal places
++ 	var durationStr string
++ 	if duration.Seconds() >= 1 {
++ 		durationStr = fmt.Sprintf("%.2fs", duration.Seconds())
++ 	} else {
++ 		durationStr = fmt.Sprintf("%.2fms", float64(duration.Microseconds())/1000)
++ 	}
+  
+  	timestamp := time.Now().Format("15:04:05.000")
+  	logEntry := fmt.Sprintf("%s UTC %s %s %s%d\033[0m %s",
+- 		timestamp, method, path, statusColor, statusCode, duration)
++ 		timestamp, method, path, statusColor, statusCode, durationStr)
+  
+  	// Add to request stats
+```
+
+---
+
+_****_
+
+
+
+
+
+Now let's run the client to test the formatted duration:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+Can we update @technical.md with our current setup
+
+---
+
+_**Assistant**_
+
+Let's update the technical documentation to include our current setup with Zap logging and log rotation:
+
+---
+
+_****_
+
+```diff
+  - Ollama API client (`pkg/ollama`)
+  - HTTP server (`pkg/server`)
++ - Structured logging (`pkg/logger`)
+  
+  ### Health Monitoring & Reporting:
+       It proceeds to the next step.
+  
+- 2. Validates the HMAC if present in the request header (`X-Inferoute-HMAC`).
++ 2. Validates the HMAC if present in the request header (`X-Request-Id`).
+     - The HMAC is validated by sending a request to `/api/provider/validate_hmac` on the central system.
+     - If validation fails, the request is rejected with a 401 Unauthorized status.
+     - The client supports both `/v1/chat/completions` and `/v1/completions` endpoints, making it compatible with the OpenAI API.
+  
++ ### Logging System:
++ 
++ The provider client implements a comprehensive logging system using Zap, a high-performance structured logging library:
++ 
++ 1. **Structured Logging**: All logs include structured fields (method, path, status, duration, etc.) for better filtering and analysis.
++ 
++ 2. **Log Levels**: Supports multiple log levels (debug, info, warn, error) configurable via the configuration file.
++ 
++ 3. **Log Rotation**: Uses lumberjack for automatic log rotation based on:
++    - Maximum file size (default: 100MB)
++    - Maximum number of backups (default: 5)
++    - Maximum age of log files (default: 30 days)
++    - Compression of old log files
++ 
++ 4. **Multiple Outputs**:
++    - Console output for real-time monitoring
++    - JSON-formatted file logs for machine parsing
++    - Separate error log file for critical issues
++ 
++ 5. **Performance Optimized**: Zap is designed for high-throughput services with minimal overhead, ensuring logging doesn't impact request latency.
++ 
++ ### Console Interface:
++ 
++ The provider client features a real-time console interface that displays:
++ 
++ 1. **System Information**:
++    - Last health update timestamp
++    - Session status
++    - Provider configuration details
++    - NGROK URL (if configured)
++ 
++ 2. **GPU Information**:
++    - GPU model
++    - Driver version
++    - CUDA version
++    - GPU count
++ 
++ 3. **Request Monitoring**:
++    - Recent requests with timestamp, method, path, status code, and formatted duration
++    - Error logs
++ 
++ The console interface refreshes every 3 seconds to provide up-to-date information without excessive flickering.
++ 
+  ### NGROK Integration:
+  
+  
+  - `server`: Server configuration (port, host)
+- - `ollama`: Ollama configuration (URL, defaults to `http://localhost:11434`)
+- - `provider`: Provider configuration (API key, central system URL)
++ - `provider`: Provider configuration (API key, central system URL, provider type, LLM URL)
+  - `ngrok`: NGROK configuration (URL)
++ - `logging`: Logging configuration (level, directory, rotation settings)
+  
+  A default configuration is provided if the file is not found, and the NGROK URL is currently hardcoded as specified in the requirements.
+  - Retrieves GPU information including product name, driver version, CUDA version, memory usage, and utilization
+  - Determines if the GPU is busy based on utilization threshold (20%)
++ - Logs GPU status and errors using structured logging
+  
+  ### 2. Health Reporter (`pkg/health/reporter.go`)
+  - Creates and sends health reports to the central system
+  - Provides an endpoint to retrieve the current health report
++ - Tracks the last successful health update time
++ - Logs health reporting activities and errors
+  
+  ### 3. Ollama Client (`pkg/ollama/client.go`)
+  - Lists available models
+  - Sends chat and completion requests
++ - Logs API interactions with detailed request/response information
+  
+  ### 4. HTTP Server (`pkg/server/server.go`)
+  - Handles HMAC validation
+  - Forwards requests to Ollama after validation
++ - Provides a real-time console interface
++ - Logs requests with formatted durations and status codes
+  
+  ### 5. Configuration (`pkg/config/config.go`)
+  
+  - Loads configuration from YAML file
+  - Provides default values if configuration is not found
++ - Includes logging configuration options
++ 
++ ### 6. Logger (`pkg/logger/logger.go`)
++ 
++ - Implements structured logging using Zap
++ - Configures log rotation using lumberjack
++ - Provides helper methods for different log levels
++ - Supports multiple output destinations
+  
+  ## API Endpoints
+  
+  The provider client is built in Go and can be packaged in a Docker container for easy deployment. It is designed to be as small and efficient as possible, with minimal dependencies.
++ 
++ ## Logging Configuration
++ 
++ The logging system can be configured in the `config.yaml` file:
++ 
++ ```yaml
++ logging:
++   # Log level: debug, info, warn, error
++   level: "info"
++   # Log directory (defaults to ~/.local/state/inferoute/log if empty)
++   log_dir: ""
++   # Maximum size of log files in megabytes before rotation
++   max_size: 100
++   # Maximum number of old log files to retain
++   max_backups: 5
++   # Maximum number of days to retain old log files
++   max_age: 30
++ ```
+  
+  
+```
+
+---
+
+_****_
+
+
+
+
+
+Let's run the client to test all our changes:
+
+---
+
+_****_
+
+
+
+---
+
+_****_
+
+
+
+---
+
+_**User**_
+
+If the provider is currently busy what does it respond with?
+
+---
+
+_**Assistant**_
+
+If the provider is busy (GPU utilization > 20%), it responds with:
+
+- HTTP Status Code: `503 Service Unavailable`
+- Content-Type: `application/json`
+- Response Body: `{"error": "GPU is busy"}`
+
+This happens in both the `/v1/chat/completions` and `/v1/completions` endpoints. The code that handles this is in the `handleChatCompletions` and `handleCompletions` methods in `pkg/server/server.go`:
+
+```go
+// If GPU is busy, return error
+if isBusy {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusServiceUnavailable)
+    json.NewEncoder(w).Encode(map[string]string{"error": "GPU is busy"})
+    s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
+    return
+}
+```
+
+This allows the central orchestrator to quickly determine that this provider can't handle the request right now and try another provider instead. The 503 status code is the standard HTTP response for a service that's temporarily unavailable but will be available later.
 
 ---
 

@@ -7,6 +7,7 @@ The Provider Client is a lightweight Go service that runs on Ollama provider mac
 - Health reporting (`pkg/health`)
 - Ollama API client (`pkg/ollama`)
 - HTTP server (`pkg/server`)
+- Structured logging (`pkg/logger`)
 
 ### Health Monitoring & Reporting:
 
@@ -30,12 +31,55 @@ When an inference request is received from the central orchestrator, the provide
    - If the GPU is available:
      It proceeds to the next step.
 
-2. Validates the HMAC if present in the request header (`X-Inferoute-HMAC`).
+2. Validates the HMAC if present in the request header (`X-Request-Id`).
    - The HMAC is validated by sending a request to `/api/provider/validate_hmac` on the central system.
    - If validation fails, the request is rejected with a 401 Unauthorized status.
 
 3. If validation succeeds, the request is forwarded to the local Ollama instance and the response is returned to the client.
    - The client supports both `/v1/chat/completions` and `/v1/completions` endpoints, making it compatible with the OpenAI API.
+
+### Logging System:
+
+The provider client implements a comprehensive logging system using Zap, a high-performance structured logging library:
+
+1. **Structured Logging**: All logs include structured fields (method, path, status, duration, etc.) for better filtering and analysis.
+
+2. **Log Levels**: Supports multiple log levels (debug, info, warn, error) configurable via the configuration file.
+
+3. **Log Rotation**: Uses lumberjack for automatic log rotation based on:
+   - Maximum file size (default: 100MB)
+   - Maximum number of backups (default: 5)
+   - Maximum age of log files (default: 30 days)
+   - Compression of old log files
+
+4. **Multiple Outputs**:
+   - Console output for real-time monitoring
+   - JSON-formatted file logs for machine parsing
+   - Separate error log file for critical issues
+
+5. **Performance Optimized**: Zap is designed for high-throughput services with minimal overhead, ensuring logging doesn't impact request latency.
+
+### Console Interface:
+
+The provider client features a real-time console interface that displays:
+
+1. **System Information**:
+   - Last health update timestamp
+   - Session status
+   - Provider configuration details
+   - NGROK URL (if configured)
+
+2. **GPU Information**:
+   - GPU model
+   - Driver version
+   - CUDA version
+   - GPU count
+
+3. **Request Monitoring**:
+   - Recent requests with timestamp, method, path, status code, and formatted duration
+   - Error logs
+
+The console interface refreshes every 3 seconds to provide up-to-date information without excessive flickering.
 
 ### NGROK Integration:
 
@@ -46,9 +90,9 @@ The provider client includes NGROK URL configuration to create a secure tunnel b
 The application reads from a YAML configuration file with the following sections:
 
 - `server`: Server configuration (port, host)
-- `ollama`: Ollama configuration (URL, defaults to `http://localhost:11434`)
-- `provider`: Provider configuration (API key, central system URL)
+- `provider`: Provider configuration (API key, central system URL, provider type, LLM URL)
 - `ngrok`: NGROK configuration (URL)
+- `logging`: Logging configuration (level, directory, rotation settings)
 
 A default configuration is provided if the file is not found, and the NGROK URL is currently hardcoded as specified in the requirements.
 
@@ -59,29 +103,43 @@ A default configuration is provided if the file is not found, and the NGROK URL 
 - Checks for the availability of `nvidia-smi` on startup
 - Retrieves GPU information including product name, driver version, CUDA version, memory usage, and utilization
 - Determines if the GPU is busy based on utilization threshold (20%)
+- Logs GPU status and errors using structured logging
 
 ### 2. Health Reporter (`pkg/health/reporter.go`)
 
 - Collects GPU information and available models
 - Creates and sends health reports to the central system
 - Provides an endpoint to retrieve the current health report
+- Tracks the last successful health update time
+- Logs health reporting activities and errors
 
 ### 3. Ollama Client (`pkg/ollama/client.go`)
 
 - Communicates with the local Ollama instance
 - Lists available models
 - Sends chat and completion requests
+- Logs API interactions with detailed request/response information
 
 ### 4. HTTP Server (`pkg/server/server.go`)
 
 - Exposes API endpoints for health checks, busy status, and inference requests
 - Handles HMAC validation
 - Forwards requests to Ollama after validation
+- Provides a real-time console interface
+- Logs requests with formatted durations and status codes
 
 ### 5. Configuration (`pkg/config/config.go`)
 
 - Loads configuration from YAML file
 - Provides default values if configuration is not found
+- Includes logging configuration options
+
+### 6. Logger (`pkg/logger/logger.go`)
+
+- Implements structured logging using Zap
+- Configures log rotation using lumberjack
+- Provides helper methods for different log levels
+- Supports multiple output destinations
 
 ## API Endpoints
 
@@ -93,6 +151,24 @@ A default configuration is provided if the file is not found, and the NGROK URL 
 ## Deployment
 
 The provider client is built in Go and can be packaged in a Docker container for easy deployment. It is designed to be as small and efficient as possible, with minimal dependencies.
+
+## Logging Configuration
+
+The logging system can be configured in the `config.yaml` file:
+
+```yaml
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+  # Log directory (defaults to ~/.local/state/inferoute/log if empty)
+  log_dir: ""
+  # Maximum size of log files in megabytes before rotation
+  max_size: 100
+  # Maximum number of old log files to retain
+  max_backups: 5
+  # Maximum number of days to retain old log files
+  max_age: 30
+```
 
 
 
