@@ -17,22 +17,6 @@ else
     SCRIPT_DIR="$(mktemp -d)"
     cd "$SCRIPT_DIR"
     echo -e "${BLUE}Created temporary directory: $SCRIPT_DIR${NC}"
-    
-    # Download config.yaml.example if it doesn't exist
-    if [ ! -f "config.yaml.example" ]; then
-        echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-        curl -fsSL -o config.yaml.example https://github.com/Inferoute/inferoute-client/blob/main/config.yaml.example
-        
-        # Create config.yaml if it doesn't exist
-        if [ ! -f "config.yaml" ]; then
-            echo -e "${YELLOW}Creating config.yaml from example...${NC}"
-            cp config.yaml.example config.yaml
-            echo -e "${YELLOW}Please edit config.yaml to add your NGROK authtoken and other settings.${NC}"
-            echo -e "${YELLOW}You can do this by running: nano config.yaml${NC}"
-            echo -e "${YELLOW}Press Enter to continue after editing the file...${NC}"
-            read -p ""
-        fi
-    fi
 fi
 
 # Detect OS and architecture
@@ -78,7 +62,7 @@ if [ ! -f "config.yaml" ]; then
     # Check if config.yaml.example exists, download if not
     if [ ! -f "config.yaml.example" ]; then
         echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-        curl -fsSL -o config.yaml.example https://github.com/Inferoute/inferoute-client/blob/main/config.yaml.example
+        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
     fi
     
     # Create config.yaml from example
