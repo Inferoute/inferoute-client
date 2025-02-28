@@ -17,7 +17,7 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 
 ## Installation
 
-### Option 1: One-Line Installation (Recommended)
+### Linux/OSX
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/install.sh | bash
@@ -27,6 +27,8 @@ After installation, start the client with:
 ```bash
 ./run/start.sh
 ```
+
+### Windows
 
 ### Option 2: Manual Download and Install
 

@@ -8,15 +8,20 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Create installation directory in user's home folder
+INSTALL_DIR="$HOME/inferoute-client"
+mkdir -p "$INSTALL_DIR"
+echo -e "${BLUE}Creating installation directory: $INSTALL_DIR${NC}"
+
 # Detect if script is being piped to sh/bash
 if [ -z "$BASH_SOURCE" ] || [ "$BASH_SOURCE" = "$0" ]; then
     # Script is being run directly (not piped)
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 else
-    # Script is being piped to sh/bash, create a temporary directory
-    SCRIPT_DIR="$(mktemp -d)"
+    # Script is being piped to sh/bash, use the installation directory
+    SCRIPT_DIR="$INSTALL_DIR"
     cd "$SCRIPT_DIR"
-    echo -e "${BLUE}Created temporary directory: $SCRIPT_DIR${NC}"
+    echo -e "${BLUE}Working in installation directory: $SCRIPT_DIR${NC}"
 fi
 
 # Detect OS and architecture
@@ -55,6 +60,9 @@ esac
 echo -e "${BLUE}=== Inferoute Client Installation Script ===${NC}"
 echo -e "${BLUE}Detected OS: ${OS_TYPE}, Architecture: ${ARCH} (${ARCH_TYPE})${NC}"
 
+# Change to installation directory
+cd "$INSTALL_DIR"
+
 # Check if config.yaml exists
 if [ ! -f "config.yaml" ]; then
     echo -e "${YELLOW}config.yaml not found.${NC}"
@@ -69,7 +77,7 @@ if [ ! -f "config.yaml" ]; then
     echo -e "${YELLOW}Creating config.yaml from example...${NC}"
     cp config.yaml.example config.yaml
     echo -e "${YELLOW}Please edit config.yaml to add your NGROK authtoken and other settings.${NC}"
-    echo -e "${YELLOW}You can do this by running: nano config.yaml${NC}"
+    echo -e "${YELLOW}You can do this by running: nano $INSTALL_DIR/config.yaml${NC}"
     echo -e "${YELLOW}Press Enter to continue after editing the file...${NC}"
     read -p ""
 fi
@@ -79,7 +87,7 @@ NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" config.yaml | grep "authtoken:" | awk -F'"'
 if [ -z "$NGROK_AUTHTOKEN" ]; then
     echo -e "${RED}Error: NGROK authtoken not found in config.yaml${NC}"
     echo -e "Please add 'authtoken: \"your_ngrok_authtoken_here\"' under the ngrok section in config.yaml"
-    echo -e "You can do this by running: nano config.yaml"
+    echo -e "You can do this by running: nano $INSTALL_DIR/config.yaml"
     exit 1
 fi
 
@@ -169,7 +177,7 @@ if [ ! -f "./inferoute-client" ]; then
     echo -e "${BLUE}Downloading inferoute-client binary...${NC}"
     
     # Set GitHub repository and latest release info
-    GITHUB_REPO="sentnl/inferoute-client"
+    GITHUB_REPO="inferoute/inferoute-client"
     BINARY_NAME="inferoute-client-${OS_TYPE}-${ARCH_TYPE}"
     DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/${BINARY_NAME}.zip"
     
@@ -312,8 +320,12 @@ EOF
 chmod +x run/start.sh run/stop.sh
 
 echo -e "${GREEN}Installation complete!${NC}"
+echo -e "${BLUE}Inferoute Client has been installed to:${NC} $INSTALL_DIR"
 echo -e "${BLUE}To start inferoute-client with NGROK:${NC}"
+echo -e "  cd $INSTALL_DIR"
 echo -e "  ./run/start.sh"
 echo -e "${BLUE}To stop all services:${NC}"
+echo -e "  cd $INSTALL_DIR"
 echo -e "  ./run/stop.sh"
-echo -e "${YELLOW}Note: NGROK admin interface will be available at http://localhost:4040${NC}" 
+echo -e "${YELLOW}Note: NGROK admin interface will be available at http://localhost:4040${NC}"
+
