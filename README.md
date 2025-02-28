@@ -47,8 +47,7 @@ The official Ollama Docker image ollama/ollama is available on Docker Hub.
 
 - **GET /health**: Returns the current health status of the provider, including GPU information and available models.
 - **GET /busy**: Returns whether the GPU is currently busy (TRUE or FALSE).
-- **POST /v1/chat/completions**: OpenAI-compatible chat completions API endpoint.
-- **POST /v1/completions**: OpenAI-compatible completions API endpoint.
+
 
 ## Configuration
 
