@@ -43,7 +43,7 @@ The official Ollama Docker image ollama/ollama is available on Docker Hub.
 
 
 
-## API Endpoints
+## REST API 
 
 - **GET /health**: Returns the current health status of the provider, including GPU information and available models.
 - **GET /busy**: Returns whether the GPU is currently busy (TRUE or FALSE).
@@ -59,38 +59,6 @@ The configuration file (`config.yaml`) contains the following settings:
 - **provider**: Provider configuration (API key, central system URL)
 - **ngrok**: NGROK configuration (URL, authtoken)
 
-## Docker Setup
-
-### OSX
-
-Install Docker Desktop
-
-### Windows 
-
-Install Docker Desktop
-
-### Linux
-
-Follow the [official Docker installation instructions](https://docs.docker.com/engine/install/).
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details. 
 
 
 
-## Setup 
-
-### Docker 
-
-#### OSX
-
-Install Docker Desktop
-
-#### Windows 
-
-Install Docker Desktop 
-
-
-
-### Run without Docker
