@@ -43,13 +43,6 @@ The official Ollama Docker image ollama/ollama is available on Docker Hub.
 
 
 
-
-
-
-### Option 4: 
-
-2. The client will start a server on the configured port (default: 8080) and begin sending health reports to the central system.
-
 ## API Endpoints
 
 - **GET /health**: Returns the current health status of the provider, including GPU information and available models.
