@@ -1,0 +1,74 @@
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Project specific
+inferoute-client
+run/
+config.yaml
+debug.log
+
+# Output directories
+bin/
+dist/
+
+# Go workspace file
+go.work
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE specific files
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Debug files
+debug/
+
+# Test cache
+*.test
+*.tmp
+coverage.out
+coverage.html
+
+# Log files
+*.log
+logs/
+
+# Dependency directories (remove if you're committing vendor/)
+vendor/
+
+# Build output
+build/
+out/
+
+# Binary files
+*.bin
+
+# Local development files
+docker-compose.override.yml
+
+# Project specific directories
+.specstory/
+go.mdc
