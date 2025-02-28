@@ -25,89 +25,28 @@ curl -fsSL https://raw.githubusercontent.com/sentnl/inferoute-client/main/script
 
 After installation, start the client with:
 ```bash
-./run/start.sh
+~/inferoute-client/run/start.sh
 ```
+[Manual install instructions](https://github.com/inferoute/inferoute-client/blob/main/docs/linux.md)
 
 ### Windows
 
-### Option 2: Manual Download and Install
+Please mak sure to run you command prompt with administrator privileges
 
-1. Download the install script:
-   ```
-   curl -O https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/install.sh
-   chmod +x install.sh
-   ```
+```ps
+powershell -Command "& {iwr -useb https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/windows-install.bat -OutFile windows-install.bat}" && windows-install.bat
+```
 
-2. Create your configuration file:
-   ```
-   curl -O https://raw.githubusercontent.com/sentnl/inferoute-client/main/config.yaml.example
-   cp config.yaml.example config.yaml
-   ```
+### Docker
 
-3. Edit the configuration file to set your provider API key and NGROK authtoken:
-   ```
-   nano config.yaml
-   ```
+The official Ollama Docker image ollama/ollama is available on Docker Hub.
 
-4. Run the install script:
-   ```
-   ./install.sh
-   ```
 
-5. Start the client:
-   ```
-   ./run/start.sh
-   ```
 
-### Option 3: Manual Installation (For Development)
 
-1. Install Go 1.21 or higher if you want to build from source.
 
-2. Clone the repository:
-   ```
-   git clone https://github.com/sentnl/inferoute-client.git
-   cd inferoute-client
-   ```
 
-3. Copy the example configuration file:
-   ```
-   cp config.yaml.example config.yaml
-   ```
-
-4. Edit the configuration file to set your provider API key and other settings:
-   ```
-   nano config.yaml
-   ```
-
-5. Build the client:
-   ```
-   go build -o inferoute-client ./cmd
-   ```
-
-### Option 4: Download Pre-built Binary
-
-1. Download the latest binary for your platform from the [Releases page](https://github.com/sentnl/inferoute-client/releases).
-
-2. Extract the binary:
-   ```
-   unzip inferoute-client-*.zip
-   chmod +x inferoute-client-*
-   mv inferoute-client-* inferoute-client
-   ```
-
-3. Create and configure your `config.yaml` file.
-
-## Usage
-
-1. Start the client:
-   ```
-   ./inferoute-client
-   ```
-
-   Or with a custom configuration file:
-   ```
-   ./inferoute-client -config /path/to/config.yaml
-   ```
+### Option 4: 
 
 2. The client will start a server on the configured port (default: 8080) and begin sending health reports to the central system.
 
