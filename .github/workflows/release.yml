@@ -17,13 +17,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         
-      - name: Debug - Print GitHub Context
-        run: |
-          echo "GitHub Actor: ${{ github.actor }}"
-          echo "Repository: ${{ github.repository }}"
-          echo "Event Name: ${{ github.event_name }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "Permissions: ${{ toJSON(github.permissions) }}"
         
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -55,17 +48,6 @@ jobs:
           zip -r inferoute-client-darwin-arm64.zip inferoute-client-darwin-arm64
           cd ..
       
-      - name: Debug - List Files
-        run: |
-          ls -la build/
-          echo "Checking if files exist:"
-          for file in build/inferoute-client-linux-amd64.zip build/inferoute-client-linux-arm64.zip build/inferoute-client-darwin-amd64.zip build/inferoute-client-darwin-arm64.zip; do
-            if [ -f "$file" ]; then
-              echo "$file exists"
-            else
-              echo "$file does not exist"
-            fi
-          done
       
       - name: Create Release
         id: create_release
@@ -81,8 +63,3 @@ jobs:
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Debug - Release Status
-        if: always()
-        run: |
-          echo "Release step status: ${{ steps.create_release.outcome }}"
-          echo "Release step conclusion: ${{ steps.create_release.conclusion }}" 
