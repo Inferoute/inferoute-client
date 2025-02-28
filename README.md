@@ -11,32 +11,89 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 
 ## Requirements
 
-- Go 1.21 or higher
-- NVIDIA GPU with nvidia-smi installed
+- NVIDIA GPU with nvidia-smi installed (for GPU monitoring)
 - Ollama running locally
+- jq (installed automatically by the script if missing)
 
 ## Installation
 
-1. Clone the repository:
+### Option 1: One-Line Installation (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sentnl/inferoute-client/main/install.sh | bash
+```
+
+After installation, start the client with:
+```bash
+./run/start.sh
+```
+
+### Option 2: Manual Download and Install
+
+1. Download the install script:
+   ```
+   curl -O https://raw.githubusercontent.com/sentnl/inferoute-client/main/install.sh
+   chmod +x install.sh
+   ```
+
+2. Create your configuration file:
+   ```
+   curl -O https://raw.githubusercontent.com/sentnl/inferoute-client/main/config.yaml.example
+   cp config.yaml.example config.yaml
+   ```
+
+3. Edit the configuration file to set your provider API key and NGROK authtoken:
+   ```
+   nano config.yaml
+   ```
+
+4. Run the install script:
+   ```
+   ./install.sh
+   ```
+
+5. Start the client:
+   ```
+   ./run/start.sh
+   ```
+
+### Option 3: Manual Installation (For Development)
+
+1. Install Go 1.21 or higher if you want to build from source.
+
+2. Clone the repository:
    ```
    git clone https://github.com/sentnl/inferoute-client.git
    cd inferoute-client
    ```
 
-2. Copy the example configuration file:
+3. Copy the example configuration file:
    ```
    cp config.yaml.example config.yaml
    ```
 
-3. Edit the configuration file to set your provider API key and other settings:
+4. Edit the configuration file to set your provider API key and other settings:
    ```
    nano config.yaml
    ```
 
-4. Build the client:
+5. Build the client:
    ```
    go build -o inferoute-client ./cmd
    ```
+
+### Option 4: Download Pre-built Binary
+
+1. Download the latest binary for your platform from the [Releases page](https://github.com/sentnl/inferoute-client/releases).
+
+2. Extract the binary:
+   ```
+   unzip inferoute-client-*.zip
+   chmod +x inferoute-client-*
+   mv inferoute-client-* inferoute-client
+   ```
+
+3. Create and configure your `config.yaml` file.
 
 ## Usage
 
@@ -66,8 +123,40 @@ The configuration file (`config.yaml`) contains the following settings:
 - **server**: Server configuration (port, host)
 - **ollama**: Ollama configuration (URL)
 - **provider**: Provider configuration (API key, central system URL)
-- **ngrok**: NGROK configuration (URL)
+- **ngrok**: NGROK configuration (URL, authtoken)
+
+## Docker Setup
+
+### OSX
+
+Install Docker Desktop
+
+### Windows 
+
+Install Docker Desktop
+
+### Linux
+
+Follow the [official Docker installation instructions](https://docs.docker.com/engine/install/).
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details. 
+
+
+
+## Setup 
+
+### Docker 
+
+#### OSX
+
+Install Docker Desktop
+
+#### Windows 
+
+Install Docker Desktop 
+
+
+
+### Run without Docker

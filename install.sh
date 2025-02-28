@@ -8,6 +8,33 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Detect if script is being piped to sh/bash
+if [ -z "$BASH_SOURCE" ] || [ "$BASH_SOURCE" = "$0" ]; then
+    # Script is being run directly (not piped)
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+else
+    # Script is being piped to sh/bash, create a temporary directory
+    SCRIPT_DIR="$(mktemp -d)"
+    cd "$SCRIPT_DIR"
+    echo -e "${BLUE}Created temporary directory: $SCRIPT_DIR${NC}"
+    
+    # Download config.yaml.example if it doesn't exist
+    if [ ! -f "config.yaml.example" ]; then
+        echo -e "${BLUE}Downloading config.yaml.example...${NC}"
+        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/sentnl/inferoute-client/main/config.yaml.example
+        
+        # Create config.yaml if it doesn't exist
+        if [ ! -f "config.yaml" ]; then
+            echo -e "${YELLOW}Creating config.yaml from example...${NC}"
+            cp config.yaml.example config.yaml
+            echo -e "${YELLOW}Please edit config.yaml to add your NGROK authtoken and other settings.${NC}"
+            echo -e "${YELLOW}You can do this by running: nano config.yaml${NC}"
+            echo -e "${YELLOW}Press Enter to continue after editing the file...${NC}"
+            read -p ""
+        fi
+    fi
+fi
+
 # Detect OS and architecture
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -46,10 +73,21 @@ echo -e "${BLUE}Detected OS: ${OS_TYPE}, Architecture: ${ARCH} (${ARCH_TYPE})${N
 
 # Check if config.yaml exists
 if [ ! -f "config.yaml" ]; then
-    echo -e "${RED}Error: config.yaml not found.${NC}"
-    echo -e "Please create a config.yaml file before running this script."
-    echo -e "You can use config.yaml.example as a template."
-    exit 1
+    echo -e "${YELLOW}config.yaml not found.${NC}"
+    
+    # Check if config.yaml.example exists, download if not
+    if [ ! -f "config.yaml.example" ]; then
+        echo -e "${BLUE}Downloading config.yaml.example...${NC}"
+        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/sentnl/inferoute-client/main/config.yaml.example
+    fi
+    
+    # Create config.yaml from example
+    echo -e "${YELLOW}Creating config.yaml from example...${NC}"
+    cp config.yaml.example config.yaml
+    echo -e "${YELLOW}Please edit config.yaml to add your NGROK authtoken and other settings.${NC}"
+    echo -e "${YELLOW}You can do this by running: nano config.yaml${NC}"
+    echo -e "${YELLOW}Press Enter to continue after editing the file...${NC}"
+    read -p ""
 fi
 
 # Check if NGROK authtoken is in config.yaml
@@ -57,31 +95,8 @@ NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" config.yaml | grep "authtoken:" | awk -F'"'
 if [ -z "$NGROK_AUTHTOKEN" ]; then
     echo -e "${RED}Error: NGROK authtoken not found in config.yaml${NC}"
     echo -e "Please add 'authtoken: \"your_ngrok_authtoken_here\"' under the ngrok section in config.yaml"
+    echo -e "You can do this by running: nano config.yaml"
     exit 1
-fi
-
-# Check if Go is installed
-if ! command -v go &> /dev/null; then
-    echo -e "${RED}Error: Go is not installed.${NC}"
-    echo -e "Please install Go before running this script."
-    echo -e "Visit https://golang.org/doc/install for installation instructions."
-    exit 1
-fi
-
-# Check Go version
-GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-GO_MAJOR=$(echo $GO_VERSION | cut -d. -f1)
-GO_MINOR=$(echo $GO_VERSION | cut -d. -f2)
-
-if [ "$GO_MAJOR" -lt 1 ] || ([ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -lt 21 ]); then
-    echo -e "${YELLOW}Warning: Go version $GO_VERSION detected.${NC}"
-    echo -e "Inferoute Client requires Go 1.21 or higher."
-    echo -e "Continue at your own risk."
-    read -p "Continue? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
 fi
 
 # Check if jq is installed (needed for parsing NGROK API response)
@@ -165,11 +180,39 @@ echo -e "${BLUE}Configuring NGROK...${NC}"
 ngrok config add-authtoken "$NGROK_AUTHTOKEN"
 echo -e "${GREEN}NGROK configured successfully.${NC}"
 
-# Build inferoute-client if not already built
+# Download inferoute-client binary
 if [ ! -f "./inferoute-client" ]; then
-    echo -e "${BLUE}Building inferoute-client...${NC}"
-    go build -o inferoute-client ./cmd
-    echo -e "${GREEN}Build successful.${NC}"
+    echo -e "${BLUE}Downloading inferoute-client binary...${NC}"
+    
+    # Set GitHub repository and latest release info
+    GITHUB_REPO="sentnl/inferoute-client"
+    BINARY_NAME="inferoute-client-${OS_TYPE}-${ARCH_TYPE}"
+    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/${BINARY_NAME}.zip"
+    
+    # Create temp directory
+    TEMP_DIR=$(mktemp -d)
+    cd $TEMP_DIR
+    
+    echo -e "${BLUE}Downloading from: ${DOWNLOAD_URL}${NC}"
+    
+    if curl -Lo "${BINARY_NAME}.zip" "$DOWNLOAD_URL"; then
+        # Extract binary
+        unzip -o "${BINARY_NAME}.zip"
+        
+        # Move binary to current directory
+        mv $BINARY_NAME ../inferoute-client
+        chmod +x ../inferoute-client
+        
+        echo -e "${GREEN}inferoute-client downloaded successfully.${NC}"
+    else
+        echo -e "${RED}Failed to download inferoute-client binary.${NC}"
+        echo -e "${YELLOW}Please check if the release exists at: https://github.com/${GITHUB_REPO}/releases${NC}"
+        exit 1
+    fi
+    
+    # Clean up
+    cd - > /dev/null
+    rm -rf $TEMP_DIR
 else
     echo -e "${GREEN}inferoute-client binary already exists.${NC}"
 fi
