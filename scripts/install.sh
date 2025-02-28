@@ -21,7 +21,7 @@ else
     # Download config.yaml.example if it doesn't exist
     if [ ! -f "config.yaml.example" ]; then
         echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/sentnl/inferoute-client/main/config.yaml.example
+        curl -fsSL -o config.yaml.example https://github.com/Inferoute/inferoute-client/blob/main/config.yaml.example
         
         # Create config.yaml if it doesn't exist
         if [ ! -f "config.yaml" ]; then
@@ -78,7 +78,7 @@ if [ ! -f "config.yaml" ]; then
     # Check if config.yaml.example exists, download if not
     if [ ! -f "config.yaml.example" ]; then
         echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/sentnl/inferoute-client/main/config.yaml.example
+        curl -fsSL -o config.yaml.example https://github.com/Inferoute/inferoute-client/blob/main/config.yaml.example
     fi
     
     # Create config.yaml from example
