@@ -1,6 +1,6 @@
 # Server configuration
 server:
-  port: 8080
+  port: 8090
   host: "0.0.0.0"
 
 # Provider configuration
@@ -8,7 +8,7 @@ provider:
   # Your provider API key from the Inferoute platform
   api_key: "test_key_tier2b"
   # URL of the central Inferoute system
-  url: "http://192.168.0.36:80"
+  url: "http://192.168.0.3:80"
   # Type of provider (ollama, exolabs, etc.)
   provider_type: "ollama"
   # URL of the local LLM provider

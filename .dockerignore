@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+.github
+
+# IDE files
+.idea
+.vscode
+*.swp
+*.swo
+.cursor
+
+# Build artifacts
+inferoute-client
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Debug files
+debug.log
+*.log
+
+# Documentation
+documentation/
+*.md
+!docker/README.md
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Config files (except example)
+config.yaml
+!config.yaml.example
+
+# Other
+.DS_Store
+Dockerfile
+.dockerignore 

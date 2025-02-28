@@ -13,13 +13,18 @@ The Provider Client is a lightweight Go service that runs on Ollama provider mac
 
 1. It collects local metrics (e.g., GPU type, number of GPUs, utilization stats, models available) and reports them to the central system. It sends these reports to `http://localhost:80/api/provider/health`.
 
-   - GPU details are collected using `nvidia-smi -x -q` command and parsing the XML output to extract GPU type, driver version, CUDA version, memory usage, and utilization.
+   - On Linux systems with NVIDIA GPUs, details are collected using `nvidia-smi -x -q` command and parsing the XML output to extract GPU type, driver version, CUDA version, memory usage, and utilization.
+   - On macOS systems, GPU details are collected using `system_profiler SPDisplaysDataType` command to extract GPU model and core count information.
    - Available models are retrieved from the local Ollama instance via the REST API by calling `/api/models`.
    - The health report includes GPU information, available models, and the NGROK URL.
 
    Health reports are sent every 5 minutes automatically, and there is also an API endpoint `/health` that returns this information on demand.
 
-2. The client exposes an API endpoint `/busy` that checks whether the GPU is busy by examining the GPU utilization. If utilization is above 20%, the GPU is considered busy. This endpoint returns a JSON response with a boolean `busy` field.
+2. The client exposes an API endpoint `/busy` that checks whether the GPU is busy:
+   - On Linux systems, this is determined by examining the GPU utilization. If utilization is above 20%, the GPU is considered busy.
+   - On macOS systems, the GPU is always considered not busy.
+   
+   This endpoint returns a JSON response with a boolean `busy` field.
 
 ### Inference Request Handling:
 
@@ -100,9 +105,13 @@ A default configuration is provided if the file is not found, and the NGROK URL 
 
 ### 1. GPU Monitor (`pkg/gpu/monitor.go`)
 
-- Checks for the availability of `nvidia-smi` on startup
-- Retrieves GPU information including product name, driver version, CUDA version, memory usage, and utilization
-- Determines if the GPU is busy based on utilization threshold (20%)
+- Detects the operating system and uses the appropriate GPU monitoring method:
+  - On Linux: Uses `nvidia-smi` for NVIDIA GPUs
+  - On macOS: Uses `system_profiler SPDisplaysDataType` for Apple GPUs
+- Retrieves GPU information including product name, driver version, CUDA version, memory usage, and utilization (where available)
+- On Linux, determines if the GPU is busy based on utilization threshold (20%)
+- On macOS, always reports the GPU as not busy
+- Gracefully handles cases where GPU information cannot be obtained
 - Logs GPU status and errors using structured logging
 
 ### 2. Health Reporter (`pkg/health/reporter.go`)
@@ -111,6 +120,7 @@ A default configuration is provided if the file is not found, and the NGROK URL 
 - Creates and sends health reports to the central system
 - Provides an endpoint to retrieve the current health report
 - Tracks the last successful health update time
+- Handles cases where GPU information is not available
 - Logs health reporting activities and errors
 
 ### 3. Ollama Client (`pkg/ollama/client.go`)
@@ -126,6 +136,7 @@ A default configuration is provided if the file is not found, and the NGROK URL 
 - Handles HMAC validation
 - Forwards requests to Ollama after validation
 - Provides a real-time console interface
+- Handles cases where GPU monitoring is not available
 - Logs requests with formatted durations and status codes
 
 ### 5. Configuration (`pkg/config/config.go`)
@@ -147,6 +158,24 @@ A default configuration is provided if the file is not found, and the NGROK URL 
 2. `GET /busy`: Returns whether the GPU is currently busy
 3. `POST /v1/chat/completions`: OpenAI-compatible chat completions API endpoint
 4. `POST /v1/completions`: OpenAI-compatible completions API endpoint
+
+## Cross-Platform Support
+
+The provider client is designed to work on both Linux and macOS systems:
+
+1. **Linux with NVIDIA GPUs**:
+   - Full GPU monitoring with detailed information
+   - Accurate busy status based on GPU utilization
+
+2. **macOS with Apple GPUs**:
+   - Basic GPU information (model name, core count)
+   - Always reports GPU as not busy
+   - Limited memory and utilization information
+
+3. **Systems without GPU monitoring**:
+   - Client continues to function without GPU information
+   - Reports empty/null GPU data in health reports
+   - Always reports GPU as not busy
 
 ## Deployment
 

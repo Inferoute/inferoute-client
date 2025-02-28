@@ -16,9 +16,12 @@ provider:
   provider_type: "ollama"
   llm_url: "http://localhost:11434"
 
-# NGROK configuration (will be overridden by code for now)
+# NGROK configuration
 ngrok:
+  # NGROK public URL (will be automatically updated by the container)
   url: ""
+  # Your NGROK authtoken (required for the Docker container)
+  authtoken: "your_ngrok_authtoken_here"
 
 # Logging configuration
 logging:
