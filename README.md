@@ -20,7 +20,7 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 ### Option 1: One-Line Installation (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sentnl/inferoute-client/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/install.sh | bash
 ```
 
 After installation, start the client with:
@@ -32,7 +32,7 @@ After installation, start the client with:
 
 1. Download the install script:
    ```
-   curl -O https://raw.githubusercontent.com/sentnl/inferoute-client/main/install.sh
+   curl -O https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/install.sh
    chmod +x install.sh
    ```
 
