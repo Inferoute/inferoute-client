@@ -17,7 +17,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         
-        
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -40,12 +39,20 @@ jobs:
           # Build for macOS arm64 (Apple Silicon)
           GOOS=darwin GOARCH=arm64 go build -o build/inferoute-client-darwin-arm64 ./cmd
           
+          # Build for Windows amd64 (64-bit)
+          GOOS=windows GOARCH=amd64 go build -o build/inferoute-client-windows-amd64.exe ./cmd
+          
+          # Build for Windows 386 (32-bit)
+          GOOS=windows GOARCH=386 go build -o build/inferoute-client-windows-386.exe ./cmd
+          
           # Create zip archives
           cd build
           zip -r inferoute-client-linux-amd64.zip inferoute-client-linux-amd64
           zip -r inferoute-client-linux-arm64.zip inferoute-client-linux-arm64
           zip -r inferoute-client-darwin-amd64.zip inferoute-client-darwin-amd64
           zip -r inferoute-client-darwin-arm64.zip inferoute-client-darwin-arm64
+          zip -r inferoute-client-windows-amd64.zip inferoute-client-windows-amd64.exe
+          zip -r inferoute-client-windows-386.zip inferoute-client-windows-386.exe
           cd ..
       
       
@@ -58,6 +65,8 @@ jobs:
             build/inferoute-client-linux-arm64.zip
             build/inferoute-client-darwin-amd64.zip
             build/inferoute-client-darwin-arm64.zip
+            build/inferoute-client-windows-amd64.zip
+            build/inferoute-client-windows-386.zip
           draft: false
           prerelease: false
           generate_release_notes: true
