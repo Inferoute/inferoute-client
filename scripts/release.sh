@@ -40,21 +40,6 @@ if [ ! -f "$CHANGELOG_PATH" ]; then
     exit 1
 fi
 
-# Update CHANGELOG.md
-echo -e "${BLUE}Updating CHANGELOG.md...${NC}"
-if [ "$(uname)" = "Darwin" ]; then
-    # macOS version of sed
-    sed -i '' "s/## \[Unreleased\]/## [${VERSION}] - ${DATE}/" "$CHANGELOG_PATH"
-else
-    # Linux version of sed
-    sed -i "s/## \[Unreleased\]/## [${VERSION}] - ${DATE}/" "$CHANGELOG_PATH"
-fi
-
-# Check if the change was successful
-if ! grep -q "## \[${VERSION}\] - ${DATE}" "$CHANGELOG_PATH"; then
-    echo -e "${RED}Error: Failed to update CHANGELOG.md${NC}"
-    exit 1
-fi
 
 # Change to root directory for git operations
 cd "$ROOT_DIR"

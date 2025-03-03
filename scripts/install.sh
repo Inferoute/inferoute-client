@@ -313,5 +313,5 @@ echo -e "Config file: $CONFIG_DIR/config.yaml"
 echo -e "Log directory: $LOG_DIR"
 
 echo -e "\n${BLUE}INFEROUTE Start Command:${NC}"
-echo -e "${YELLOW}inferoute-client -config $CONFIG_DIR/config.yaml${NC}"
+echo -e "${YELLOW}inferoute-client --config $CONFIG_DIR/config.yaml${NC}"
 
