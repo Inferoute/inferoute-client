@@ -157,8 +157,35 @@ else
     echo -e "${GREEN}NGROK is already installed.${NC}"
 fi
 
-# Download inferoute-client binary
-if [ ! -f "/usr/local/bin/inferoute-client" ]; then
+# Function to get version from binary
+get_binary_version() {
+    local binary_path="/usr/local/bin/inferoute-client"
+    if [ -f "$binary_path" ]; then
+        "$binary_path" --version | head -n1 | cut -d' ' -f2
+    else
+        echo "0.0.0"
+    fi
+}
+
+# Function to get latest version from GitHub
+get_latest_version() {
+    local repo="$1"
+    local latest_version
+    latest_version=$(curl -s "https://api.github.com/repos/${repo}/releases/latest" | jq -r '.tag_name' | sed 's/^v//')
+    if [ "$latest_version" = "null" ] || [ -z "$latest_version" ]; then
+        echo "0.0.0"
+    else
+        echo "$latest_version"
+    fi
+}
+
+# Function to compare versions
+version_gt() {
+    test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"
+}
+
+# Download and install inferoute-client binary
+install_binary() {
     echo -e "${BLUE}Downloading inferoute-client binary...${NC}"
     
     # Set GitHub repository and latest release info
@@ -180,9 +207,18 @@ if [ ! -f "/usr/local/bin/inferoute-client" ]; then
         sudo mv $BINARY_NAME /usr/local/bin/inferoute-client
         sudo chmod +x /usr/local/bin/inferoute-client
         
-        echo -e "${GREEN}inferoute-client downloaded successfully.${NC}"
+        # Verify installation
+        if inferoute-client --version >/dev/null 2>&1; then
+            echo -e "${GREEN}inferoute-client installed successfully${NC}"
+            # Remove backup if installation was successful
+            [ -f "/usr/local/bin/inferoute-client.bak" ] && sudo rm /usr/local/bin/inferoute-client.bak
+        else
+            echo -e "${RED}New binary verification failed, restoring backup...${NC}"
+            [ -f "/usr/local/bin/inferoute-client.bak" ] && sudo mv /usr/local/bin/inferoute-client.bak /usr/local/bin/inferoute-client
+            exit 1
+        fi
     else
-        echo -e "${RED}Failed to download inferoute-client binary.${NC}"
+        echo -e "${RED}Failed to download inferoute-client binary${NC}"
         echo -e "${YELLOW}Please check if the release exists at: https://github.com/${GITHUB_REPO}/releases${NC}"
         exit 1
     fi
@@ -190,8 +226,27 @@ if [ ! -f "/usr/local/bin/inferoute-client" ]; then
     # Clean up
     cd - > /dev/null
     rm -rf $TEMP_DIR
+}
+
+# Check and install inferoute-client binary
+GITHUB_REPO="inferoute/inferoute-client"
+if [ -f "/usr/local/bin/inferoute-client" ]; then
+    echo -e "${BLUE}Checking for updates...${NC}"
+    CURRENT_VERSION=$(get_binary_version)
+    LATEST_VERSION=$(get_latest_version "$GITHUB_REPO")
+    
+    echo -e "Current version: ${YELLOW}${CURRENT_VERSION}${NC}"
+    echo -e "Latest version:  ${YELLOW}${LATEST_VERSION}${NC}"
+    
+    if version_gt "$LATEST_VERSION" "$CURRENT_VERSION"; then
+        echo -e "${YELLOW}New version available. Updating...${NC}"
+        install_binary
+    else
+        echo -e "${GREEN}You have the latest version.${NC}"
+    fi
 else
-    echo -e "${GREEN}inferoute-client binary already exists.${NC}"
+    echo -e "${YELLOW}No existing installation found. Installing...${NC}"
+    install_binary
 fi
 
 # Now handle config.yaml setup
