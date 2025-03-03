@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,8 +20,39 @@ import (
 
 func main() {
 	// Parse command line flags
-	configPath := flag.String("config", "config.yaml", "Path to configuration file")
+	configPath := flag.String("config", "", "Path to configuration file")
 	flag.Parse()
+
+	// If no config path is provided, check standard locations
+	if *configPath == "" {
+		// Get user's home directory
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Printf("Failed to get user home directory: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Check standard config locations
+		configLocations := []string{
+			filepath.Join(homeDir, ".config", "inferoute", "config.yaml"),
+			"config.yaml", // Current directory
+		}
+
+		for _, location := range configLocations {
+			if _, err := os.Stat(location); err == nil {
+				*configPath = location
+				break
+			}
+		}
+
+		if *configPath == "" {
+			fmt.Printf("No configuration file found in standard locations:\n")
+			for _, location := range configLocations {
+				fmt.Printf("  - %s\n", location)
+			}
+			os.Exit(1)
+		}
+	}
 
 	// Load configuration
 	cfg, err := config.Load(*configPath)
