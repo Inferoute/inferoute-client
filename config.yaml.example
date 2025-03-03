@@ -20,7 +20,7 @@ provider:
 ngrok:
   # NGROK public URL (will be automatically updated by the container)
   url: ""
-  # Your NGROK authtoken (required for the Docker container)
+  # Your NGROK authtoken
   authtoken: "your_ngrok_authtoken_here"
 
 # Logging configuration
