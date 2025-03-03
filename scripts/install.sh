@@ -24,23 +24,22 @@ check_env_var() {
     echo "${var_value:-$default_value}"
 }
 
-# Create installation directory in user's home folder
-INSTALL_DIR="$HOME/inferoute-client"
+# Create config directory
 CONFIG_DIR="$HOME/.config/inferoute"
-mkdir -p "$INSTALL_DIR"
+LOG_DIR="$HOME/.local/state/inferoute/log"
 mkdir -p "$CONFIG_DIR"
-echo -e "${BLUE}Creating installation directory: $INSTALL_DIR${NC}"
+mkdir -p "$LOG_DIR"
 echo -e "${BLUE}Creating config directory: $CONFIG_DIR${NC}"
+echo -e "${BLUE}Creating log directory: $LOG_DIR${NC}"
 
 # Detect if script is being piped to sh/bash
 if [ -z "$BASH_SOURCE" ] || [ "$BASH_SOURCE" = "$0" ]; then
     # Script is being run directly (not piped)
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 else
-    # Script is being piped to sh/bash, use the installation directory
-    SCRIPT_DIR="$INSTALL_DIR"
+    # Script is being piped to sh/bash
+    SCRIPT_DIR="/tmp"
     cd "$SCRIPT_DIR"
-    echo -e "${BLUE}Working in installation directory: $SCRIPT_DIR${NC}"
 fi
 
 # Detect OS and architecture
@@ -80,7 +79,7 @@ echo -e "${BLUE}=== Inferoute Client Installation Script ===${NC}"
 echo -e "${BLUE}Detected OS: ${OS_TYPE}, Architecture: ${ARCH} (${ARCH_TYPE})${NC}"
 
 # Change to installation directory
-cd "$INSTALL_DIR"
+cd "$SCRIPT_DIR"
 
 # Check if jq is installed (needed for parsing NGROK API response)
 if ! command -v jq &> /dev/null; then
@@ -238,7 +237,7 @@ if [ -z "$NGROK_URL" ]; then
     sleep 2
 
     # Start NGROK with the configured port
-    ngrok http $SERVER_PORT --log=stdout --host-header="localhost:$SERVER_PORT" > "$INSTALL_DIR/ngrok.log" 2>&1 &
+    ngrok http $SERVER_PORT --log=stdout --host-header="localhost:$SERVER_PORT" > "$LOG_DIR/ngrok.log" 2>&1 &
     NGROK_PID=$!
 
     # Wait for NGROK to start
@@ -253,7 +252,7 @@ if [ -z "$NGROK_URL" ]; then
         # Check if NGROK is still running
         if ! ps -p $NGROK_PID > /dev/null; then
             echo -e "${RED}Error: NGROK failed to start!${NC}"
-            echo "Check $INSTALL_DIR/ngrok.log for details"
+            echo "Check $LOG_DIR/ngrok.log for details"
             exit 1
         fi
 
@@ -271,7 +270,7 @@ if [ -z "$NGROK_URL" ]; then
 
     if [ -z "$NGROK_URL" ]; then
         echo -e "${RED}Failed to get NGROK URL after $MAX_ATTEMPTS attempts${NC}"
-        echo "Check $INSTALL_DIR/ngrok.log for details"
+        echo "Check $LOG_DIR/ngrok.log for details"
         pkill -f ngrok || true
         exit 1
     fi
@@ -303,15 +302,16 @@ echo -e "\n${GREEN}Installation complete!${NC}"
 echo -e "\n${BLUE}NGROK is running:${NC}"
 echo -e "URL: ${GREEN}$NGROK_URL${NC}"
 echo -e "Admin interface: ${GREEN}http://localhost:4040${NC}"
-echo -e "Logs: $INSTALL_DIR/ngrok.log"
+echo -e "Logs: $LOG_DIR/ngrok.log"
 
 echo -e "\n${BLUE}To start inferoute-client:${NC}"
 echo -e "${YELLOW}inferoute-client -config $CONFIG_DIR/config.yaml${NC}"
 
 echo -e "\n${BLUE}Manual NGROK control:${NC}"
-echo -e "Start: ${YELLOW}ngrok http $SERVER_PORT --log=stdout --host-header=\"localhost:$SERVER_PORT\" > $INSTALL_DIR/ngrok.log 2>&1 &${NC}"
+echo -e "Start: ${YELLOW}ngrok http $SERVER_PORT --log=stdout --host-header=\"localhost:$SERVER_PORT\" > $LOG_DIR/ngrok.log 2>&1 &${NC}"
 echo -e "Stop:  ${YELLOW}pkill -f ngrok${NC}"
 
 echo -e "\n${BLUE}Configuration:${NC}"
 echo -e "Config file: $CONFIG_DIR/config.yaml"
+echo -e "Log directory: $LOG_DIR"
 
