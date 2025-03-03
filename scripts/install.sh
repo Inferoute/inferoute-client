@@ -217,17 +217,39 @@ SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
 # Create config.yaml with provided values
 echo -e "${BLUE}Creating config.yaml with provided values...${NC}"
 cat > "$INSTALL_DIR/config.yaml" << EOF
+# Server configuration
 server:
   port: $SERVER_PORT
+  host: "0.0.0.0"
 
-ngrok:
-  authtoken: "$NGROK_AUTHTOKEN"
-  url: ""  # Will be updated automatically when NGROK starts
-
+# Provider configuration
 provider:
-  type: "$PROVIDER_TYPE"
+  # Your provider API key from the Inferoute platform
   api_key: "$PROVIDER_API_KEY"
+  # Type of provider (ollama, exolabs, etc.)
+  type: "$PROVIDER_TYPE"
+  # URL of the local LLM provider
   ollama_url: "$OLLAMA_URL"
+
+# NGROK configuration
+ngrok:
+  # Will be updated automatically when NGROK starts
+  url: ""
+  # Your NGROK authtoken
+  authtoken: "$NGROK_AUTHTOKEN"
+
+# Logging configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+  # Log directory (defaults to ~/.local/state/inferoute/log if empty)
+  log_dir: ""
+  # Maximum size of log files in megabytes before rotation
+  max_size: 100
+  # Maximum number of old log files to retain
+  max_backups: 5
+  # Maximum number of days to retain old log files
+  max_age: 30
 EOF
 
 echo -e "${GREEN}Configuration file created successfully.${NC}"
