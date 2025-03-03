@@ -18,10 +18,57 @@ import (
 	"go.uber.org/zap"
 )
 
+// Version information (will be set by build flags)
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
+const helpText = `
+Inferoute Client - A client for connecting to the Inferoute network
+
+Usage:
+  inferoute-client [flags]
+
+Flags:
+  --config string   Path to configuration file (default: ~/.config/inferoute/config.yaml)
+  --version        Show version information
+  --help          Show this help message
+
+For more information, visit: https://github.com/inferoute/inferoute-client
+`
+
 func main() {
+	// Create custom flag set
+	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	flags.Usage = func() {
+		fmt.Print(helpText)
+	}
+
 	// Parse command line flags
-	configPath := flag.String("config", "", "Path to configuration file")
-	flag.Parse()
+	configPath := flags.String("config", "", "Path to configuration file")
+	showVersion := flags.Bool("version", false, "Show version information")
+
+	// Parse flags
+	if err := flags.Parse(os.Args[1:]); err != nil {
+		flags.Usage()
+		os.Exit(1)
+	}
+
+	// Show help if requested
+	if flags.NArg() > 0 && (flags.Arg(0) == "help" || flags.Arg(0) == "--help") {
+		flags.Usage()
+		os.Exit(0)
+	}
+
+	// Show version and exit if requested
+	if *showVersion {
+		fmt.Printf("inferoute-client %s\n", version)
+		fmt.Printf("  commit: %s\n", commit)
+		fmt.Printf("  built:  %s\n", date)
+		os.Exit(0)
+	}
 
 	// If no config path is provided, check standard locations
 	if *configPath == "" {

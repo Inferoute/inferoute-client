@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scr
 
 After installation, start the client with:
 ```bash
-~/inferoute-client/run/start.sh
+
 ```
 [Manual install instructions](https://github.com/inferoute/inferoute-client/blob/main/docs/linux.md)
 
@@ -47,6 +47,9 @@ The official Ollama Docker image ollama/ollama is available on Docker Hub.
 
 ```
 docker run -e NGROK_AUTHTOKEN="your-token" -e PROVIDER_API_KEY="your-key" -p 8080:8080 -p 4040:4040 inferoute/inferoute-client:latest
+```
+
+
 ```
 docker run -e NGROK_AUTHTOKEN="your-token" \
            -e PROVIDER_API_KEY="your-key" \

@@ -1,3 +1,19 @@
+FROM golang:1.21-alpine AS builder
+
+# Build arguments for version info
+ARG VERSION
+ARG COMMIT
+ARG DATE
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Build the binary with version info
+RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o inferoute-client ./cmd
+
+# Final stage
 FROM alpine:3.19.1
 
 # Install required packages
@@ -38,4 +54,7 @@ EXPOSE 8080 4040
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["inferoute-client", "-config", "/root/.config/inferoute/config.yaml"] 
+CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"]
+
+# Copy binary from builder
+COPY --from=builder /app/inferoute-client /usr/local/bin/ 
