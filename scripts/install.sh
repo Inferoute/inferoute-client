@@ -177,31 +177,78 @@ else
 fi
 
 # Now handle config.yaml setup
-if [ ! -f "config.yaml" ]; then
-    echo -e "${YELLOW}config.yaml not found.${NC}"
-    
-    # Check if config.yaml.example exists, download if not
-    if [ ! -f "config.yaml.example" ]; then
-        echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
+echo -e "\n${BLUE}=== Configuration Setup ===${NC}"
+
+# Download config.yaml.example first
+echo -e "${BLUE}Downloading config.yaml.example...${NC}"
+curl -fsSL -o "$INSTALL_DIR/config.yaml.example" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
+
+# Check if config.yaml already exists
+CONFIG_EXISTS=false
+if [ -f "$INSTALL_DIR/config.yaml" ]; then
+    echo -e "${YELLOW}Existing config.yaml found.${NC}"
+    read -p "Do you want to keep the existing configuration? (Y/n): " KEEP_CONFIG
+    if [[ $KEEP_CONFIG =~ ^[Nn]$ ]]; then
+        echo -e "${YELLOW}Creating new configuration...${NC}"
+        mv "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.backup"
+        echo -e "${YELLOW}Existing config backed up to: config.yaml.backup${NC}"
+    else
+        CONFIG_EXISTS=true
+        echo -e "${GREEN}Keeping existing configuration.${NC}"
     fi
-    
-    # Create config.yaml from example
-    echo -e "${YELLOW}Creating config.yaml from example...${NC}"
-    cp config.yaml.example config.yaml
-    echo -e "${YELLOW}Please edit config.yaml to add your NGROK authtoken and other settings.${NC}"
-    echo -e "${YELLOW}You can do this by running: nano $INSTALL_DIR/config.yaml${NC}"
-    echo -e "${YELLOW}Press Enter to continue after editing the file...${NC}"
-    read -p ""
 fi
 
-# Check if NGROK authtoken is in config.yaml
-NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" config.yaml | grep "authtoken:" | awk -F'"' '{print $2}')
-if [ -z "$NGROK_AUTHTOKEN" ]; then
-    echo -e "${RED}Error: NGROK authtoken not found in config.yaml${NC}"
-    echo -e "Please add 'authtoken: \"your_ngrok_authtoken_here\"' under the ngrok section in config.yaml"
-    echo -e "You can do this by running: nano $INSTALL_DIR/config.yaml"
-    exit 1
+if [ "$CONFIG_EXISTS" = false ]; then
+    # Get NGROK authtoken
+    echo -e "\n${BLUE}NGROK Configuration${NC}"
+    read -p "Enter your NGROK authtoken: " NGROK_AUTHTOKEN
+    while [ -z "$NGROK_AUTHTOKEN" ]; do
+        echo -e "${RED}NGROK authtoken cannot be empty${NC}"
+        read -p "Enter your NGROK authtoken: " NGROK_AUTHTOKEN
+    done
+
+    # Get Provider API key
+    echo -e "\n${BLUE}Provider Configuration${NC}"
+    read -p "Enter your Provider API key from inferoute.com: " PROVIDER_API_KEY
+    while [ -z "$PROVIDER_API_KEY" ]; do
+        echo -e "${RED}Provider API key cannot be empty${NC}"
+        read -p "Enter your Provider API key: " PROVIDER_API_KEY
+    done
+
+    # Get Provider type with default
+    read -p "Enter provider type [ollama]: " PROVIDER_TYPE
+    PROVIDER_TYPE=${PROVIDER_TYPE:-ollama}
+
+    # Get Ollama URL with default
+    read -p "Enter Ollama URL [http://localhost:11434]: " OLLAMA_URL
+    OLLAMA_URL=${OLLAMA_URL:-http://localhost:11434}
+
+    # Get Server port with default
+    read -p "Enter server port [8080]: " SERVER_PORT
+    SERVER_PORT=${SERVER_PORT:-8080}
+
+    # Create config.yaml with user inputs
+    echo -e "${BLUE}Creating config.yaml with provided values...${NC}"
+    cat > "$INSTALL_DIR/config.yaml" << EOF
+server:
+  port: $SERVER_PORT
+
+ngrok:
+  authtoken: "$NGROK_AUTHTOKEN"
+  url: ""  # Will be updated automatically when NGROK starts
+
+provider:
+  type: "$PROVIDER_TYPE"
+  api_key: "$PROVIDER_API_KEY"
+  ollama_url: "$OLLAMA_URL"
+EOF
+
+    echo -e "${GREEN}Configuration file created successfully.${NC}"
+else
+    # If keeping existing config, still need to get the authtoken for NGROK setup
+    NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" "$INSTALL_DIR/config.yaml" | grep "authtoken:" | awk -F'"' '{print $2}')
+    SERVER_PORT=$(grep -A 5 "server:" "$INSTALL_DIR/config.yaml" | grep "port:" | awk '{print $2}')
+    SERVER_PORT=${SERVER_PORT:-8080}
 fi
 
 # Configure NGROK authtoken
@@ -232,8 +279,8 @@ if [ -z "$NGROK_URL" ]; then
     pkill -f ngrok || true
     sleep 2
 
-    # Start NGROK
-    ngrok http 8080 --log=stdout --host-header="localhost:8080" > "$INSTALL_DIR/ngrok.log" 2>&1 &
+    # Start NGROK with the configured port
+    ngrok http $SERVER_PORT --log=stdout --host-header="localhost:$SERVER_PORT" > "$INSTALL_DIR/ngrok.log" 2>&1 &
     NGROK_PID=$!
 
     # Wait for NGROK to start
@@ -276,10 +323,10 @@ fi
 echo -e "${BLUE}Updating config.yaml with NGROK URL...${NC}"
 if [ "$(uname)" = "Darwin" ]; then
     # macOS requires different sed syntax
-    sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" config.yaml
+    sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$INSTALL_DIR/config.yaml"
 else
     # Linux version
-    sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" config.yaml
+    sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$INSTALL_DIR/config.yaml"
 fi
 
 echo -e "\n${GREEN}Installation complete!${NC}"
@@ -292,7 +339,7 @@ echo -e "\n${BLUE}To start inferoute-client:${NC}"
 echo -e "${YELLOW}inferoute-client -config $INSTALL_DIR/config.yaml${NC}"
 
 echo -e "\n${BLUE}Manual NGROK control:${NC}"
-echo -e "Start: ${YELLOW}ngrok http 8080 --log=stdout --host-header=\"localhost:8080\" > $INSTALL_DIR/ngrok.log 2>&1 &${NC}"
+echo -e "Start: ${YELLOW}ngrok http $SERVER_PORT --log=stdout --host-header=\"localhost:$SERVER_PORT\" > $INSTALL_DIR/ngrok.log 2>&1 &${NC}"
 echo -e "Stop:  ${YELLOW}pkill -f ngrok${NC}"
 
 echo -e "\n${BLUE}Configuration:${NC}"
