@@ -13,7 +13,7 @@ WORKDIR /app
 COPY scripts/install.sh /app/install.sh
 RUN chmod +x /app/install.sh
 
-# Create entrypoint script
+# Create entrypoint scripts
 RUN echo '#!/bin/bash\n\
 set -e\n\
 \n\
