@@ -1,68 +1,41 @@
-FROM golang:1.21.6-alpine3.19 AS builder
-
-# Install build dependencies
-RUN apk add --no-cache git build-base
-
-# Set working directory
-WORKDIR /app
-
-# Copy go.mod and go.sum files
-COPY go.mod go.sum ./
-
-# Download dependencies
-RUN go mod download
-
-# Copy source code
-COPY . .
-
-# Build the application
-RUN go build -o inferoute-client ./cmd
-
-# Use a smaller base image for the final image
 FROM alpine:3.19.1
 
 # Install required packages
-RUN apk add --no-cache ca-certificates curl jq nginx supervisor bash
+RUN apk add --no-cache ca-certificates curl jq bash unzip sudo
 
-# Install NGROK
-RUN curl -Lo /tmp/ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
-    unzip -o /tmp/ngrok.zip -d /usr/local/bin && \
-    rm -f /tmp/ngrok.zip && \
-    chmod +x /usr/local/bin/ngrok
+# Create config and log directories
+RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
 
 # Set working directory
 WORKDIR /app
 
-# Copy the compiled binary from the builder stage
-COPY --from=builder /app/inferoute-client /app/inferoute-client
+# Copy install script
+COPY scripts/install.sh /app/install.sh
+RUN chmod +x /app/install.sh
 
-# Copy config.yaml.example
-COPY config.yaml.example /app/config.yaml.example
+# Create entrypoint script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Run the install script to download and configure everything\n\
+if [ ! -f "/usr/local/bin/inferoute-client" ]; then\n\
+  NGROK_AUTHTOKEN="${NGROK_AUTHTOKEN}" PROVIDER_API_KEY="${PROVIDER_API_KEY}" \\\n\
+  PROVIDER_TYPE="${PROVIDER_TYPE:-ollama}" OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}" \\\n\
+  SERVER_PORT="${SERVER_PORT:-8080}" /app/install.sh\n\
+else\n\
+  # If binary exists, just configure and start NGROK\n\
+  NGROK_AUTHTOKEN="${NGROK_AUTHTOKEN}" ngrok config add-authtoken "${NGROK_AUTHTOKEN}"\n\
+  ngrok http ${SERVER_PORT:-8080} --log=stdout --host-header="localhost:${SERVER_PORT:-8080}" > /root/.local/state/inferoute/log/ngrok.log 2>&1 &\n\
+fi\n\
+\n\
+# Keep container running\n\
+exec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
-# Create directories for NGINX
-RUN mkdir -p /run/nginx
-
-# Create docker directory and copy configuration files
-RUN mkdir -p /app/docker
-COPY docker/nginx.conf /etc/nginx/http.d/default.conf
-COPY docker/supervisord.conf /etc/supervisord.conf
-COPY docker/start.sh /app/start.sh
-COPY docker/ngrok_start.sh /app/docker/ngrok_start.sh
-COPY docker/inferoute_start.sh /app/docker/inferoute_start.sh
-
-# Make scripts executable
-RUN chmod +x /app/start.sh /app/docker/ngrok_start.sh /app/docker/inferoute_start.sh
-
-# Create a non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-RUN chown -R appuser:appgroup /app /run/nginx
-
-# Expose ports
+# Expose ports for inferoute-client and NGROK admin interface
 EXPOSE 8080 4040
 
-# Switch to non-root user for better security
-# Note: We need to keep root for now as nginx and supervisord require it
-# USER appuser
-
 # Set entrypoint
-ENTRYPOINT ["/app/start.sh"] 
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Default command
+CMD ["inferoute-client", "-config", "/root/.config/inferoute/config.yaml"] 
