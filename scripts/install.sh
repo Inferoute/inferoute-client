@@ -226,6 +226,8 @@ server:
 provider:
   # Your provider API key from the Inferoute platform
   api_key: "$PROVIDER_API_KEY"
+  # URL of the central Inferoute system
+  url: "http://192.168.0.119:80"
   # Type of provider (ollama, exolabs, etc.)
   type: "$PROVIDER_TYPE"
   # URL of the local LLM provider
