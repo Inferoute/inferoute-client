@@ -8,6 +8,22 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Check required environment variables
+check_env_var() {
+    local var_name="$1"
+    local var_value="$2"
+    local default_value="$3"
+    
+    if [ -z "$var_value" ] && [ -z "$default_value" ]; then
+        echo -e "${RED}Error: Required environment variable $var_name is not set${NC}"
+        echo "Please run the script with required environment variables:"
+        echo "curl ... | NGROK_AUTHTOKEN=\"your-token\" PROVIDER_API_KEY=\"your-key\" bash"
+        exit 1
+    fi
+    
+    echo "${var_value:-$default_value}"
+}
+
 # Create installation directory in user's home folder
 INSTALL_DIR="$HOME/inferoute-client"
 mkdir -p "$INSTALL_DIR"
@@ -186,50 +202,21 @@ curl -fsSL -o "$INSTALL_DIR/config.yaml.example" https://raw.githubusercontent.c
 # Check if config.yaml already exists
 CONFIG_EXISTS=false
 if [ -f "$INSTALL_DIR/config.yaml" ]; then
-    echo -e "${YELLOW}Existing config.yaml found.${NC}"
-    read -p "Do you want to keep the existing configuration? (Y/n): " KEEP_CONFIG
-    if [[ $KEEP_CONFIG =~ ^[Nn]$ ]]; then
-        echo -e "${YELLOW}Creating new configuration...${NC}"
-        mv "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.backup"
-        echo -e "${YELLOW}Existing config backed up to: config.yaml.backup${NC}"
-    else
-        CONFIG_EXISTS=true
-        echo -e "${GREEN}Keeping existing configuration.${NC}"
-    fi
+    echo -e "${YELLOW}Existing config.yaml found, backing up...${NC}"
+    mv "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.backup"
+    echo -e "${YELLOW}Existing config backed up to: config.yaml.backup${NC}"
 fi
 
-if [ "$CONFIG_EXISTS" = false ]; then
-    # Get NGROK authtoken
-    echo -e "\n${BLUE}NGROK Configuration${NC}"
-    read -p "Enter your NGROK authtoken: " NGROK_AUTHTOKEN
-    while [ -z "$NGROK_AUTHTOKEN" ]; do
-        echo -e "${RED}NGROK authtoken cannot be empty${NC}"
-        read -p "Enter your NGROK authtoken: " NGROK_AUTHTOKEN
-    done
+# Get configuration values from environment variables
+NGROK_AUTHTOKEN=$(check_env_var "NGROK_AUTHTOKEN" "$NGROK_AUTHTOKEN" "")
+PROVIDER_API_KEY=$(check_env_var "PROVIDER_API_KEY" "$PROVIDER_API_KEY" "")
+PROVIDER_TYPE=$(check_env_var "PROVIDER_TYPE" "$PROVIDER_TYPE" "ollama")
+OLLAMA_URL=$(check_env_var "OLLAMA_URL" "$OLLAMA_URL" "http://localhost:11434")
+SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
 
-    # Get Provider API key
-    echo -e "\n${BLUE}Provider Configuration${NC}"
-    read -p "Enter your Provider API key from inferoute.com: " PROVIDER_API_KEY
-    while [ -z "$PROVIDER_API_KEY" ]; do
-        echo -e "${RED}Provider API key cannot be empty${NC}"
-        read -p "Enter your Provider API key: " PROVIDER_API_KEY
-    done
-
-    # Get Provider type with default
-    read -p "Enter provider type [ollama]: " PROVIDER_TYPE
-    PROVIDER_TYPE=${PROVIDER_TYPE:-ollama}
-
-    # Get Ollama URL with default
-    read -p "Enter Ollama URL [http://localhost:11434]: " OLLAMA_URL
-    OLLAMA_URL=${OLLAMA_URL:-http://localhost:11434}
-
-    # Get Server port with default
-    read -p "Enter server port [8080]: " SERVER_PORT
-    SERVER_PORT=${SERVER_PORT:-8080}
-
-    # Create config.yaml with user inputs
-    echo -e "${BLUE}Creating config.yaml with provided values...${NC}"
-    cat > "$INSTALL_DIR/config.yaml" << EOF
+# Create config.yaml with provided values
+echo -e "${BLUE}Creating config.yaml with provided values...${NC}"
+cat > "$INSTALL_DIR/config.yaml" << EOF
 server:
   port: $SERVER_PORT
 
@@ -243,13 +230,7 @@ provider:
   ollama_url: "$OLLAMA_URL"
 EOF
 
-    echo -e "${GREEN}Configuration file created successfully.${NC}"
-else
-    # If keeping existing config, still need to get the authtoken for NGROK setup
-    NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" "$INSTALL_DIR/config.yaml" | grep "authtoken:" | awk -F'"' '{print $2}')
-    SERVER_PORT=$(grep -A 5 "server:" "$INSTALL_DIR/config.yaml" | grep "port:" | awk '{print $2}')
-    SERVER_PORT=${SERVER_PORT:-8080}
-fi
+echo -e "${GREEN}Configuration file created successfully.${NC}"
 
 # Configure NGROK authtoken
 echo -e "${BLUE}Configuring NGROK authtoken...${NC}"

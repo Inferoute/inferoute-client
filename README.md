@@ -20,7 +20,10 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 ### Linux/OSX
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | \
+  NGROK_AUTHTOKEN="your-token" \
+  PROVIDER_API_KEY="your-key" \
+  bash
 ```
 
 After installation, start the client with:
