@@ -103,7 +103,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: inferoute/client
+          images: inferoute/inferoute-client
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
