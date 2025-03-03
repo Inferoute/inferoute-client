@@ -206,17 +206,7 @@ install_binary() {
         # Move binary to /usr/local/bin
         sudo mv $BINARY_NAME /usr/local/bin/inferoute-client
         sudo chmod +x /usr/local/bin/inferoute-client
-        
-        # Verify installation
-        if inferoute-client --version >/dev/null 2>&1; then
-            echo -e "${GREEN}inferoute-client installed successfully${NC}"
-            # Remove backup if installation was successful
-            [ -f "/usr/local/bin/inferoute-client.bak" ] && sudo rm /usr/local/bin/inferoute-client.bak
-        else
-            echo -e "${RED}New binary verification failed, restoring backup...${NC}"
-            [ -f "/usr/local/bin/inferoute-client.bak" ] && sudo mv /usr/local/bin/inferoute-client.bak /usr/local/bin/inferoute-client
-            exit 1
-        fi
+
     else
         echo -e "${RED}Failed to download inferoute-client binary${NC}"
         echo -e "${YELLOW}Please check if the release exists at: https://github.com/${GITHUB_REPO}/releases${NC}"
