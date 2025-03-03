@@ -62,7 +62,7 @@ cd "$ROOT_DIR"
 # Stage CHANGELOG.md
 git add CHANGELOG.md
 
-# Commit the change
+# Commit the changes
 echo -e "${BLUE}Committing CHANGELOG.md changes...${NC}"
 git commit -m "chore: update CHANGELOG.md for v${VERSION}"
 
