@@ -70,12 +70,3 @@ git commit -m "chore: update CHANGELOG.md for v${VERSION}"
 echo -e "${BLUE}Creating and pushing tag v${VERSION}...${NC}"
 git tag "v${VERSION}"
 git push origin "v${VERSION}"
-git push origin main
-
-echo -e "${GREEN}Release v${VERSION} created successfully!${NC}"
-echo -e "${YELLOW}The GitHub Action workflow will now:${NC}"
-echo "1. Build the binaries for all platforms"
-echo "2. Create a GitHub release"
-echo "3. Build and push the Docker image"
-echo -e "\n${BLUE}You can monitor the progress at:${NC}"
-echo "https://github.com/inferoute/inferoute-client/actions"
