@@ -197,15 +197,7 @@ echo -e "\n${BLUE}=== Configuration Setup ===${NC}"
 
 # Download config.yaml.example first
 echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-curl -fsSL -o "$INSTALL_DIR/config.yaml.example" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
-
-# Check if config.yaml already exists
-CONFIG_EXISTS=false
-if [ -f "$INSTALL_DIR/config.yaml" ]; then
-    echo -e "${YELLOW}Existing config.yaml found, backing up...${NC}"
-    mv "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.backup"
-    echo -e "${YELLOW}Existing config backed up to: config.yaml.backup${NC}"
-fi
+curl -fsSL -o "$INSTALL_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
 
 # Get configuration values from environment variables
 NGROK_AUTHTOKEN=$(check_env_var "NGROK_AUTHTOKEN" "$NGROK_AUTHTOKEN" "")
@@ -213,48 +205,6 @@ PROVIDER_API_KEY=$(check_env_var "PROVIDER_API_KEY" "$PROVIDER_API_KEY" "")
 PROVIDER_TYPE=$(check_env_var "PROVIDER_TYPE" "$PROVIDER_TYPE" "ollama")
 OLLAMA_URL=$(check_env_var "OLLAMA_URL" "$OLLAMA_URL" "http://localhost:11434")
 SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
-
-# Create config.yaml with provided values
-echo -e "${BLUE}Creating config.yaml with provided values...${NC}"
-cat > "$INSTALL_DIR/config.yaml" << EOF
-# Server configuration
-server:
-  port: $SERVER_PORT
-  host: "0.0.0.0"
-
-# Provider configuration
-provider:
-  # Your provider API key from the Inferoute platform
-  api_key: "$PROVIDER_API_KEY"
-  # URL of the central Inferoute system
-  url: "http://192.168.0.119:80"
-  # Type of provider (ollama, exolabs, etc.)
-  type: "$PROVIDER_TYPE"
-  # URL of the local LLM provider
-  ollama_url: "$OLLAMA_URL"
-
-# NGROK configuration
-ngrok:
-  # Will be updated automatically when NGROK starts
-  url: ""
-  # Your NGROK authtoken
-  authtoken: "$NGROK_AUTHTOKEN"
-
-# Logging configuration
-logging:
-  # Log level: debug, info, warn, error
-  level: "info"
-  # Log directory (defaults to ~/.local/state/inferoute/log if empty)
-  log_dir: ""
-  # Maximum size of log files in megabytes before rotation
-  max_size: 100
-  # Maximum number of old log files to retain
-  max_backups: 5
-  # Maximum number of days to retain old log files
-  max_age: 30
-EOF
-
-echo -e "${GREEN}Configuration file created successfully.${NC}"
 
 # Configure NGROK authtoken
 echo -e "${BLUE}Configuring NGROK authtoken...${NC}"
@@ -324,15 +274,27 @@ if [ -z "$NGROK_URL" ]; then
     fi
 fi
 
-# Update config.yaml with NGROK URL
-echo -e "${BLUE}Updating config.yaml with NGROK URL...${NC}"
+# Update all configuration values at once
+echo -e "${BLUE}Updating configuration values...${NC}"
 if [ "$(uname)" = "Darwin" ]; then
-    # macOS requires different sed syntax
+    # macOS version
+    sed -i '' "s|port: .*|port: $SERVER_PORT|" "$INSTALL_DIR/config.yaml"
+    sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$INSTALL_DIR/config.yaml"
+    sed -i '' "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$INSTALL_DIR/config.yaml"
+    sed -i '' "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$INSTALL_DIR/config.yaml"
+    sed -i '' "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$INSTALL_DIR/config.yaml"
     sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$INSTALL_DIR/config.yaml"
 else
     # Linux version
+    sed -i "s|port: .*|port: $SERVER_PORT|" "$INSTALL_DIR/config.yaml"
+    sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$INSTALL_DIR/config.yaml"
+    sed -i "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$INSTALL_DIR/config.yaml"
+    sed -i "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$INSTALL_DIR/config.yaml"
+    sed -i "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$INSTALL_DIR/config.yaml"
     sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$INSTALL_DIR/config.yaml"
 fi
+
+echo -e "${GREEN}Configuration file updated successfully.${NC}"
 
 echo -e "\n${GREEN}Installation complete!${NC}"
 echo -e "\n${BLUE}NGROK is running:${NC}"
