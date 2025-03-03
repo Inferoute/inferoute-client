@@ -304,14 +304,14 @@ echo -e "URL: ${GREEN}$NGROK_URL${NC}"
 echo -e "Admin interface: ${GREEN}http://localhost:4040${NC}"
 echo -e "Logs: $LOG_DIR/ngrok.log"
 
-echo -e "\n${BLUE}To start inferoute-client:${NC}"
-echo -e "${YELLOW}inferoute-client -config $CONFIG_DIR/config.yaml${NC}"
-
-echo -e "\n${BLUE}Manual NGROK control:${NC}"
+echo -e "\n${BLUE}NGROK manual control:${NC}"
 echo -e "Start: ${YELLOW}ngrok http $SERVER_PORT --log=stdout --host-header=\"localhost:$SERVER_PORT\" > $LOG_DIR/ngrok.log 2>&1 &${NC}"
 echo -e "Stop:  ${YELLOW}pkill -f ngrok${NC}"
 
-echo -e "\n${BLUE}Configuration:${NC}"
+echo -e "\n${BLUE}INFEROUTE Files:${NC}"
 echo -e "Config file: $CONFIG_DIR/config.yaml"
 echo -e "Log directory: $LOG_DIR"
+
+echo -e "\n${BLUE}INFEROUTE Start Command:${NC}"
+echo -e "${YELLOW}inferoute-client -config $CONFIG_DIR/config.yaml${NC}"
 
