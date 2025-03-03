@@ -26,8 +26,11 @@ check_env_var() {
 
 # Create installation directory in user's home folder
 INSTALL_DIR="$HOME/inferoute-client"
+CONFIG_DIR="$HOME/.config/inferoute"
 mkdir -p "$INSTALL_DIR"
+mkdir -p "$CONFIG_DIR"
 echo -e "${BLUE}Creating installation directory: $INSTALL_DIR${NC}"
+echo -e "${BLUE}Creating config directory: $CONFIG_DIR${NC}"
 
 # Detect if script is being piped to sh/bash
 if [ -z "$BASH_SOURCE" ] || [ "$BASH_SOURCE" = "$0" ]; then
@@ -197,7 +200,7 @@ echo -e "\n${BLUE}=== Configuration Setup ===${NC}"
 
 # Download config.yaml.example first
 echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-curl -fsSL -o "$INSTALL_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
+curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
 
 # Get configuration values from environment variables
 NGROK_AUTHTOKEN=$(check_env_var "NGROK_AUTHTOKEN" "$NGROK_AUTHTOKEN" "")
@@ -278,20 +281,20 @@ fi
 echo -e "${BLUE}Updating configuration values...${NC}"
 if [ "$(uname)" = "Darwin" ]; then
     # macOS version
-    sed -i '' "s|port: .*|port: $SERVER_PORT|" "$INSTALL_DIR/config.yaml"
-    sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$INSTALL_DIR/config.yaml"
-    sed -i '' "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$INSTALL_DIR/config.yaml"
-    sed -i '' "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$INSTALL_DIR/config.yaml"
-    sed -i '' "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$INSTALL_DIR/config.yaml"
-    sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$INSTALL_DIR/config.yaml"
+    sed -i '' "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$CONFIG_DIR/config.yaml"
 else
     # Linux version
-    sed -i "s|port: .*|port: $SERVER_PORT|" "$INSTALL_DIR/config.yaml"
-    sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$INSTALL_DIR/config.yaml"
-    sed -i "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$INSTALL_DIR/config.yaml"
-    sed -i "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$INSTALL_DIR/config.yaml"
-    sed -i "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$INSTALL_DIR/config.yaml"
-    sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$INSTALL_DIR/config.yaml"
+    sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
+    sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
+    sed -i "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
+    sed -i "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$CONFIG_DIR/config.yaml"
+    sed -i "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
+    sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$CONFIG_DIR/config.yaml"
 fi
 
 echo -e "${GREEN}Configuration file updated successfully.${NC}"
@@ -303,12 +306,12 @@ echo -e "Admin interface: ${GREEN}http://localhost:4040${NC}"
 echo -e "Logs: $INSTALL_DIR/ngrok.log"
 
 echo -e "\n${BLUE}To start inferoute-client:${NC}"
-echo -e "${YELLOW}inferoute-client -config $INSTALL_DIR/config.yaml${NC}"
+echo -e "${YELLOW}inferoute-client -config $CONFIG_DIR/config.yaml${NC}"
 
 echo -e "\n${BLUE}Manual NGROK control:${NC}"
 echo -e "Start: ${YELLOW}ngrok http $SERVER_PORT --log=stdout --host-header=\"localhost:$SERVER_PORT\" > $INSTALL_DIR/ngrok.log 2>&1 &${NC}"
 echo -e "Stop:  ${YELLOW}pkill -f ngrok${NC}"
 
 echo -e "\n${BLUE}Configuration:${NC}"
-echo -e "Config file: $INSTALL_DIR/config.yaml"
+echo -e "Config file: $CONFIG_DIR/config.yaml"
 
