@@ -63,34 +63,6 @@ echo -e "${BLUE}Detected OS: ${OS_TYPE}, Architecture: ${ARCH} (${ARCH_TYPE})${N
 # Change to installation directory
 cd "$INSTALL_DIR"
 
-# Check if config.yaml exists
-if [ ! -f "config.yaml" ]; then
-    echo -e "${YELLOW}config.yaml not found.${NC}"
-    
-    # Check if config.yaml.example exists, download if not
-    if [ ! -f "config.yaml.example" ]; then
-        echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
-    fi
-    
-    # Create config.yaml from example
-    echo -e "${YELLOW}Creating config.yaml from example...${NC}"
-    cp config.yaml.example config.yaml
-    echo -e "${YELLOW}Please edit config.yaml to add your NGROK authtoken and other settings.${NC}"
-    echo -e "${YELLOW}You can do this by running: nano $INSTALL_DIR/config.yaml${NC}"
-    echo -e "${YELLOW}Press Enter to continue after editing the file...${NC}"
-    read -p ""
-fi
-
-# Check if NGROK authtoken is in config.yaml
-NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" config.yaml | grep "authtoken:" | awk -F'"' '{print $2}')
-if [ -z "$NGROK_AUTHTOKEN" ]; then
-    echo -e "${RED}Error: NGROK authtoken not found in config.yaml${NC}"
-    echo -e "Please add 'authtoken: \"your_ngrok_authtoken_here\"' under the ngrok section in config.yaml"
-    echo -e "You can do this by running: nano $INSTALL_DIR/config.yaml"
-    exit 1
-fi
-
 # Check if jq is installed (needed for parsing NGROK API response)
 if ! command -v jq &> /dev/null; then
     echo -e "${YELLOW}jq is not installed. Installing...${NC}"
@@ -167,11 +139,6 @@ else
     echo -e "${GREEN}NGROK is already installed.${NC}"
 fi
 
-# Configure NGROK using the official method
-echo -e "${BLUE}Configuring NGROK...${NC}"
-ngrok config add-authtoken "$NGROK_AUTHTOKEN"
-echo -e "${GREEN}NGROK configured successfully.${NC}"
-
 # Download inferoute-client binary
 if [ ! -f "./inferoute-client" ]; then
     echo -e "${BLUE}Downloading inferoute-client binary...${NC}"
@@ -192,8 +159,8 @@ if [ ! -f "./inferoute-client" ]; then
         unzip -o "${BINARY_NAME}.zip"
         
         # Move binary to current directory
-        mv $BINARY_NAME ../inferoute-client
-        chmod +x ../inferoute-client
+        mv $BINARY_NAME /usr/local/bin/inferoute-client
+        chmod +x /usr/local/bin/inferoute-client
         
         echo -e "${GREEN}inferoute-client downloaded successfully.${NC}"
     else
@@ -221,6 +188,13 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $DIR/..
 
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
 # Get server port from config.yaml
 SERVER_PORT=$(grep -A 5 "server:" config.yaml | grep "port:" | awk '{print $2}')
 if [ -z "$SERVER_PORT" ]; then
@@ -228,17 +202,82 @@ if [ -z "$SERVER_PORT" ]; then
     echo "Server port not found in config.yaml, using default: $SERVER_PORT"
 fi
 
-# Start NGROK in background
+# Configure NGROK authtoken from config.yaml
+NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" config.yaml | grep "authtoken:" | awk -F'"' '{print $2}')
+if [ -z "$NGROK_AUTHTOKEN" ]; then
+    echo -e "${RED}Error: NGROK authtoken not found in config.yaml${NC}"
+    echo -e "Please add 'authtoken: \"your_ngrok_authtoken_here\"' under the ngrok section in config.yaml"
+    exit 1
+fi
+
+# Configure NGROK authtoken
+echo -e "${BLUE}Configuring NGROK authtoken...${NC}"
+ngrok config add-authtoken "$NGROK_AUTHTOKEN" || {
+    echo -e "${RED}Failed to configure NGROK authtoken${NC}"
+    exit 1
+}
+
+# Kill any existing NGROK processes
+pkill -f ngrok || true
+sleep 2
+
+# Start NGROK in background with proper configuration
 echo "Starting NGROK tunnel..."
-ngrok http $SERVER_PORT --log=stdout --host-header="localhost:$SERVER_PORT" > run/ngrok.log 2>&1 &
+ngrok http $SERVER_PORT \
+    --log=stdout \
+    --log-level=debug \
+    --host-header="localhost:$SERVER_PORT" > run/ngrok.log 2>&1 &
 NGROK_PID=$!
 
 # Save PID for later cleanup
 echo $NGROK_PID > run/ngrok.pid
 
-# Wait for NGROK to start
-echo "Waiting for NGROK to start..."
-sleep 5
+# Check if NGROK process is running
+sleep 2
+if ! ps -p $NGROK_PID > /dev/null; then
+    echo -e "${RED}Error: NGROK failed to start!${NC}"
+    echo "Check run/ngrok.log for details:"
+    echo "----------------------------------------"
+    tail -n 20 run/ngrok.log
+    echo "----------------------------------------"
+    echo "Common issues:"
+    echo "1. Port $SERVER_PORT might be in use"
+    echo "2. NGROK authentication token might be invalid"
+    echo "3. Network connectivity issues"
+    exit 1
+fi
+
+# Wait for NGROK to start and API to be available
+echo "Waiting for NGROK to initialize..."
+MAX_INIT_ATTEMPTS=30
+INIT_ATTEMPT=0
+
+while ! curl -s http://localhost:4040/api/tunnels > /dev/null && [ $INIT_ATTEMPT -lt $MAX_INIT_ATTEMPTS ]; do
+    # Check if NGROK is still running
+    if ! ps -p $NGROK_PID > /dev/null; then
+        echo -e "${RED}Error: NGROK process died unexpectedly!${NC}"
+        echo "Check run/ngrok.log for details:"
+        echo "----------------------------------------"
+        tail -n 20 run/ngrok.log
+        echo "----------------------------------------"
+        exit 1
+    fi
+    
+    INIT_ATTEMPT=$((INIT_ATTEMPT+1))
+    echo "Waiting for NGROK API to be available (attempt $INIT_ATTEMPT/$MAX_INIT_ATTEMPTS)..."
+    sleep 2
+done
+
+if ! curl -s http://localhost:4040/api/tunnels > /dev/null; then
+    echo -e "${RED}Error: Failed to initialize NGROK API after $MAX_INIT_ATTEMPTS attempts.${NC}"
+    echo "Check run/ngrok.log for details:"
+    echo "----------------------------------------"
+    tail -n 20 run/ngrok.log
+    echo "----------------------------------------"
+    echo "Stopping NGROK..."
+    kill $NGROK_PID 2>/dev/null || true
+    exit 1
+fi
 
 # Get NGROK public URL
 echo "Getting NGROK public URL..."
@@ -247,26 +286,47 @@ MAX_ATTEMPTS=30
 ATTEMPT=0
 
 while [ -z "$NGROK_PUBLIC_URL" ] && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    # Check if NGROK is still running
+    if ! ps -p $NGROK_PID > /dev/null; then
+        echo -e "${RED}Error: NGROK process died while getting public URL!${NC}"
+        echo "Check run/ngrok.log for details:"
+        echo "----------------------------------------"
+        tail -n 20 run/ngrok.log
+        echo "----------------------------------------"
+        exit 1
+    fi
+    
     ATTEMPT=$((ATTEMPT+1))
     echo "Trying to get NGROK public URL (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
-    NGROK_PUBLIC_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
     
+    TUNNELS_DATA=$(curl -s http://localhost:4040/api/tunnels)
+    if [ $? -ne 0 ]; then
+        echo "Failed to get tunnels data from NGROK API"
+        sleep 2
+        continue
+    fi
+    
+    NGROK_PUBLIC_URL=$(echo "$TUNNELS_DATA" | jq -r '.tunnels[0].public_url' 2>/dev/null)
     if [ "$NGROK_PUBLIC_URL" == "null" ] || [ -z "$NGROK_PUBLIC_URL" ]; then
-        echo "NGROK not ready yet, waiting..."
+        echo "NGROK tunnel not ready yet, waiting..."
+        echo "Current tunnels data: $TUNNELS_DATA"
         NGROK_PUBLIC_URL=""
         sleep 2
     fi
 done
 
 if [ -z "$NGROK_PUBLIC_URL" ]; then
-    echo "Failed to get NGROK public URL after $MAX_ATTEMPTS attempts."
-    echo "Check run/ngrok.log for details."
+    echo -e "${RED}Error: Failed to get NGROK public URL after $MAX_ATTEMPTS attempts.${NC}"
+    echo "Check run/ngrok.log for details:"
+    echo "----------------------------------------"
+    tail -n 20 run/ngrok.log
+    echo "----------------------------------------"
     echo "Stopping NGROK..."
-    kill $NGROK_PID
+    kill $NGROK_PID 2>/dev/null || true
     exit 1
 fi
 
-echo "NGROK public URL: $NGROK_PUBLIC_URL"
+echo -e "${GREEN}NGROK public URL: $NGROK_PUBLIC_URL${NC}"
 
 # Update config.yaml with NGROK URL
 if [ "$(uname)" = "Darwin" ]; then
@@ -278,8 +338,8 @@ else
 fi
 
 # Start inferoute-client
-echo "Starting inferoute-client..."
-./inferoute-client -config config.yaml
+echo -e "${BLUE}Starting inferoute-client...${NC}"
+inferoute-client -config config.yaml
 EOF
 
 # Create stop script
@@ -318,6 +378,34 @@ EOF
 
 # Make scripts executable
 chmod +x run/start.sh run/stop.sh
+
+# Now handle config.yaml setup
+if [ ! -f "config.yaml" ]; then
+    echo -e "${YELLOW}config.yaml not found.${NC}"
+    
+    # Check if config.yaml.example exists, download if not
+    if [ ! -f "config.yaml.example" ]; then
+        echo -e "${BLUE}Downloading config.yaml.example...${NC}"
+        curl -fsSL -o config.yaml.example https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
+    fi
+    
+    # Create config.yaml from example
+    echo -e "${YELLOW}Creating config.yaml from example...${NC}"
+    cp config.yaml.example config.yaml
+    echo -e "${YELLOW}Please edit config.yaml to add your NGROK authtoken and other settings.${NC}"
+    echo -e "${YELLOW}You can do this by running: nano $INSTALL_DIR/config.yaml${NC}"
+    echo -e "${YELLOW}Press Enter to continue after editing the file...${NC}"
+    read -p ""
+fi
+
+# Check if NGROK authtoken is in config.yaml
+NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" config.yaml | grep "authtoken:" | awk -F'"' '{print $2}')
+if [ -z "$NGROK_AUTHTOKEN" ]; then
+    echo -e "${RED}Error: NGROK authtoken not found in config.yaml${NC}"
+    echo -e "Please add 'authtoken: \"your_ngrok_authtoken_here\"' under the ngrok section in config.yaml"
+    echo -e "You can do this by running: nano $INSTALL_DIR/config.yaml"
+    exit 1
+fi
 
 echo -e "${GREEN}Installation complete!${NC}"
 echo -e "${BLUE}Inferoute Client has been installed to:${NC} $INSTALL_DIR"

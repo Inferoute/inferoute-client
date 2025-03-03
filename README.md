@@ -20,7 +20,7 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 ### Linux/OSX
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
 
 After installation, start the client with:
@@ -40,7 +40,6 @@ powershell -Command "& {iwr -useb https://raw.githubusercontent.com/sentnl/infer
 ### Docker
 
 The official Ollama Docker image ollama/ollama is available on Docker Hub.
-
 
 
 ## REST API 
