@@ -140,7 +140,7 @@ else
 fi
 
 # Download inferoute-client binary
-if [ ! -f "./inferoute-client" ]; then
+if [ ! -f "/usr/local/bin/inferoute-client" ]; then
     echo -e "${BLUE}Downloading inferoute-client binary...${NC}"
     
     # Set GitHub repository and latest release info
@@ -158,9 +158,9 @@ if [ ! -f "./inferoute-client" ]; then
         # Extract binary
         unzip -o "${BINARY_NAME}.zip"
         
-        # Move binary to current directory
-        mv $BINARY_NAME /usr/local/bin/inferoute-client
-        chmod +x /usr/local/bin/inferoute-client
+        # Move binary to /usr/local/bin
+        sudo mv $BINARY_NAME /usr/local/bin/inferoute-client
+        sudo chmod +x /usr/local/bin/inferoute-client
         
         echo -e "${GREEN}inferoute-client downloaded successfully.${NC}"
     else
@@ -175,209 +175,6 @@ if [ ! -f "./inferoute-client" ]; then
 else
     echo -e "${GREEN}inferoute-client binary already exists.${NC}"
 fi
-
-# Create run directory
-mkdir -p run
-
-# Create start script
-cat > run/start.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# Get the directory of this script
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd $DIR/..
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Get server port from config.yaml
-SERVER_PORT=$(grep -A 5 "server:" config.yaml | grep "port:" | awk '{print $2}')
-if [ -z "$SERVER_PORT" ]; then
-    SERVER_PORT=8080
-    echo "Server port not found in config.yaml, using default: $SERVER_PORT"
-fi
-
-# Configure NGROK authtoken from config.yaml
-NGROK_AUTHTOKEN=$(grep -A 5 "ngrok:" config.yaml | grep "authtoken:" | awk -F'"' '{print $2}')
-if [ -z "$NGROK_AUTHTOKEN" ]; then
-    echo -e "${RED}Error: NGROK authtoken not found in config.yaml${NC}"
-    echo -e "Please add 'authtoken: \"your_ngrok_authtoken_here\"' under the ngrok section in config.yaml"
-    exit 1
-fi
-
-# Configure NGROK authtoken
-echo -e "${BLUE}Configuring NGROK authtoken...${NC}"
-ngrok config add-authtoken "$NGROK_AUTHTOKEN" || {
-    echo -e "${RED}Failed to configure NGROK authtoken${NC}"
-    exit 1
-}
-
-# Kill any existing NGROK processes
-pkill -f ngrok || true
-sleep 2
-
-# Start NGROK in background with proper configuration
-echo "Starting NGROK tunnel..."
-ngrok http $SERVER_PORT \
-    --log=stdout \
-    --log-level=debug \
-    --host-header="localhost:$SERVER_PORT" > run/ngrok.log 2>&1 &
-NGROK_PID=$!
-
-# Save PID for later cleanup
-echo $NGROK_PID > run/ngrok.pid
-
-# Check if NGROK process is running
-sleep 2
-if ! ps -p $NGROK_PID > /dev/null; then
-    echo -e "${RED}Error: NGROK failed to start!${NC}"
-    echo "Check run/ngrok.log for details:"
-    echo "----------------------------------------"
-    tail -n 20 run/ngrok.log
-    echo "----------------------------------------"
-    echo "Common issues:"
-    echo "1. Port $SERVER_PORT might be in use"
-    echo "2. NGROK authentication token might be invalid"
-    echo "3. Network connectivity issues"
-    exit 1
-fi
-
-# Wait for NGROK to start and API to be available
-echo "Waiting for NGROK to initialize..."
-MAX_INIT_ATTEMPTS=30
-INIT_ATTEMPT=0
-
-while ! curl -s http://localhost:4040/api/tunnels > /dev/null && [ $INIT_ATTEMPT -lt $MAX_INIT_ATTEMPTS ]; do
-    # Check if NGROK is still running
-    if ! ps -p $NGROK_PID > /dev/null; then
-        echo -e "${RED}Error: NGROK process died unexpectedly!${NC}"
-        echo "Check run/ngrok.log for details:"
-        echo "----------------------------------------"
-        tail -n 20 run/ngrok.log
-        echo "----------------------------------------"
-        exit 1
-    fi
-    
-    INIT_ATTEMPT=$((INIT_ATTEMPT+1))
-    echo "Waiting for NGROK API to be available (attempt $INIT_ATTEMPT/$MAX_INIT_ATTEMPTS)..."
-    sleep 2
-done
-
-if ! curl -s http://localhost:4040/api/tunnels > /dev/null; then
-    echo -e "${RED}Error: Failed to initialize NGROK API after $MAX_INIT_ATTEMPTS attempts.${NC}"
-    echo "Check run/ngrok.log for details:"
-    echo "----------------------------------------"
-    tail -n 20 run/ngrok.log
-    echo "----------------------------------------"
-    echo "Stopping NGROK..."
-    kill $NGROK_PID 2>/dev/null || true
-    exit 1
-fi
-
-# Get NGROK public URL
-echo "Getting NGROK public URL..."
-NGROK_PUBLIC_URL=""
-MAX_ATTEMPTS=30
-ATTEMPT=0
-
-while [ -z "$NGROK_PUBLIC_URL" ] && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-    # Check if NGROK is still running
-    if ! ps -p $NGROK_PID > /dev/null; then
-        echo -e "${RED}Error: NGROK process died while getting public URL!${NC}"
-        echo "Check run/ngrok.log for details:"
-        echo "----------------------------------------"
-        tail -n 20 run/ngrok.log
-        echo "----------------------------------------"
-        exit 1
-    fi
-    
-    ATTEMPT=$((ATTEMPT+1))
-    echo "Trying to get NGROK public URL (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
-    
-    TUNNELS_DATA=$(curl -s http://localhost:4040/api/tunnels)
-    if [ $? -ne 0 ]; then
-        echo "Failed to get tunnels data from NGROK API"
-        sleep 2
-        continue
-    fi
-    
-    NGROK_PUBLIC_URL=$(echo "$TUNNELS_DATA" | jq -r '.tunnels[0].public_url' 2>/dev/null)
-    if [ "$NGROK_PUBLIC_URL" == "null" ] || [ -z "$NGROK_PUBLIC_URL" ]; then
-        echo "NGROK tunnel not ready yet, waiting..."
-        echo "Current tunnels data: $TUNNELS_DATA"
-        NGROK_PUBLIC_URL=""
-        sleep 2
-    fi
-done
-
-if [ -z "$NGROK_PUBLIC_URL" ]; then
-    echo -e "${RED}Error: Failed to get NGROK public URL after $MAX_ATTEMPTS attempts.${NC}"
-    echo "Check run/ngrok.log for details:"
-    echo "----------------------------------------"
-    tail -n 20 run/ngrok.log
-    echo "----------------------------------------"
-    echo "Stopping NGROK..."
-    kill $NGROK_PID 2>/dev/null || true
-    exit 1
-fi
-
-echo -e "${GREEN}NGROK public URL: $NGROK_PUBLIC_URL${NC}"
-
-# Update config.yaml with NGROK URL
-if [ "$(uname)" = "Darwin" ]; then
-    # macOS requires different sed syntax
-    sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_PUBLIC_URL\"|" config.yaml
-else
-    # Linux version
-    sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_PUBLIC_URL\"|" config.yaml
-fi
-
-# Start inferoute-client
-echo -e "${BLUE}Starting inferoute-client...${NC}"
-inferoute-client -config config.yaml
-EOF
-
-# Create stop script
-cat > run/stop.sh << 'EOF'
-#!/bin/bash
-
-# Get the directory of this script
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd $DIR
-
-# Check if NGROK is running
-if [ -f "ngrok.pid" ]; then
-    NGROK_PID=$(cat ngrok.pid)
-    if ps -p $NGROK_PID > /dev/null; then
-        echo "Stopping NGROK (PID: $NGROK_PID)..."
-        kill $NGROK_PID
-    else
-        echo "NGROK is not running."
-    fi
-    rm -f ngrok.pid
-else
-    echo "NGROK PID file not found."
-fi
-
-# Find and kill inferoute-client process
-INFEROUTE_PID=$(pgrep -f "inferoute-client -config")
-if [ ! -z "$INFEROUTE_PID" ]; then
-    echo "Stopping inferoute-client (PID: $INFEROUTE_PID)..."
-    kill $INFEROUTE_PID
-else
-    echo "inferoute-client is not running."
-fi
-
-echo "All processes stopped."
-EOF
-
-# Make scripts executable
-chmod +x run/start.sh run/stop.sh
 
 # Now handle config.yaml setup
 if [ ! -f "config.yaml" ]; then
@@ -407,13 +204,97 @@ if [ -z "$NGROK_AUTHTOKEN" ]; then
     exit 1
 fi
 
-echo -e "${GREEN}Installation complete!${NC}"
-echo -e "${BLUE}Inferoute Client has been installed to:${NC} $INSTALL_DIR"
-echo -e "${BLUE}To start inferoute-client with NGROK:${NC}"
-echo -e "  cd $INSTALL_DIR"
-echo -e "  ./run/start.sh"
-echo -e "${BLUE}To stop all services:${NC}"
-echo -e "  cd $INSTALL_DIR"
-echo -e "  ./run/stop.sh"
-echo -e "${YELLOW}Note: NGROK admin interface will be available at http://localhost:4040${NC}"
+# Configure NGROK authtoken
+echo -e "${BLUE}Configuring NGROK authtoken...${NC}"
+ngrok config add-authtoken "$NGROK_AUTHTOKEN" || {
+    echo -e "${RED}Failed to configure NGROK authtoken${NC}"
+    exit 1
+}
+
+# Check if NGROK is already running
+NGROK_URL=""
+if pgrep -f "ngrok http" > /dev/null; then
+    echo -e "${YELLOW}NGROK is already running, getting existing URL...${NC}"
+    # Try to get existing URL
+    TUNNELS_DATA=$(curl -s http://localhost:4040/api/tunnels)
+    if [ $? -eq 0 ]; then
+        NGROK_URL=$(echo "$TUNNELS_DATA" | jq -r '.tunnels[0].public_url' 2>/dev/null)
+        if [ "$NGROK_URL" != "null" ] && [ ! -z "$NGROK_URL" ]; then
+            echo -e "${GREEN}Found existing NGROK URL: $NGROK_URL${NC}"
+        fi
+    fi
+fi
+
+# Start NGROK if not already running or if URL not found
+if [ -z "$NGROK_URL" ]; then
+    echo -e "${BLUE}Starting NGROK...${NC}"
+    # Kill any existing NGROK processes that might be stuck
+    pkill -f ngrok || true
+    sleep 2
+
+    # Start NGROK
+    ngrok http 8080 --log=stdout --host-header="localhost:8080" > "$INSTALL_DIR/ngrok.log" 2>&1 &
+    NGROK_PID=$!
+
+    # Wait for NGROK to start
+    echo "Waiting for NGROK to initialize..."
+    MAX_ATTEMPTS=30
+    ATTEMPT=0
+
+    while [ -z "$NGROK_URL" ] && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+        ATTEMPT=$((ATTEMPT+1))
+        sleep 2
+
+        # Check if NGROK is still running
+        if ! ps -p $NGROK_PID > /dev/null; then
+            echo -e "${RED}Error: NGROK failed to start!${NC}"
+            echo "Check $INSTALL_DIR/ngrok.log for details"
+            exit 1
+        fi
+
+        # Try to get URL
+        TUNNELS_DATA=$(curl -s http://localhost:4040/api/tunnels)
+        if [ $? -eq 0 ]; then
+            NGROK_URL=$(echo "$TUNNELS_DATA" | jq -r '.tunnels[0].public_url' 2>/dev/null)
+            if [ "$NGROK_URL" != "null" ] && [ ! -z "$NGROK_URL" ]; then
+                echo -e "${GREEN}NGROK started successfully with URL: $NGROK_URL${NC}"
+                break
+            fi
+        fi
+        echo "Waiting for NGROK URL (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
+    done
+
+    if [ -z "$NGROK_URL" ]; then
+        echo -e "${RED}Failed to get NGROK URL after $MAX_ATTEMPTS attempts${NC}"
+        echo "Check $INSTALL_DIR/ngrok.log for details"
+        pkill -f ngrok || true
+        exit 1
+    fi
+fi
+
+# Update config.yaml with NGROK URL
+echo -e "${BLUE}Updating config.yaml with NGROK URL...${NC}"
+if [ "$(uname)" = "Darwin" ]; then
+    # macOS requires different sed syntax
+    sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" config.yaml
+else
+    # Linux version
+    sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" config.yaml
+fi
+
+echo -e "\n${GREEN}Installation complete!${NC}"
+echo -e "\n${BLUE}NGROK is running:${NC}"
+echo -e "URL: ${GREEN}$NGROK_URL${NC}"
+echo -e "Admin interface: ${GREEN}http://localhost:4040${NC}"
+echo -e "Logs: $INSTALL_DIR/ngrok.log"
+
+echo -e "\n${BLUE}To start inferoute-client:${NC}"
+echo -e "${YELLOW}inferoute-client -config $INSTALL_DIR/config.yaml${NC}"
+
+echo -e "\n${BLUE}Manual NGROK control:${NC}"
+echo -e "Start: ${YELLOW}ngrok http 8080 --log=stdout --host-header=\"localhost:8080\" > $INSTALL_DIR/ngrok.log 2>&1 &${NC}"
+echo -e "Stop:  ${YELLOW}pkill -f ngrok${NC}"
+
+echo -e "\n${BLUE}Configuration:${NC}"
+echo -e "Config file: $INSTALL_DIR/config.yaml"
 
