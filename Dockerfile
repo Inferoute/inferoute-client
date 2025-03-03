@@ -1,19 +1,3 @@
-FROM golang:1.21-alpine AS builder
-
-# Build arguments for version info
-ARG VERSION
-ARG COMMIT
-ARG DATE
-
-WORKDIR /app
-
-# Copy source code
-COPY . .
-
-# Build the binary with version info
-RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o inferoute-client ./cmd
-
-# Final stage
 FROM alpine:3.19.1
 
 # Install required packages
