@@ -22,6 +22,27 @@ jobs:
         with:
           go-version: '1.21'
           
+      - name: Update CHANGELOG.md
+        run: |
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          DATE=$(date +'%Y-%m-%d')
+          
+          # Read the current CHANGELOG.md
+          if [ -f "CHANGELOG.md" ]; then
+            # Simply replace [Unreleased] with the version number and date
+            sed -i "s/## \[Unreleased\]/## [$VERSION] - $DATE/" CHANGELOG.md
+            
+            # Commit the updated CHANGELOG
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add CHANGELOG.md
+            git commit -m "Update CHANGELOG.md for v$VERSION release [skip ci]"
+            git push
+          else
+            echo "CHANGELOG.md not found. Skipping update."
+          fi
+          
       - name: Build binaries
         run: |
           # Create build directory
@@ -70,6 +91,7 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          body_path: ${{ github.workspace }}/CHANGELOG.md
           token: ${{ secrets.GITHUB_TOKEN }}
       
   docker:
