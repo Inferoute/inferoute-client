@@ -18,15 +18,9 @@ RUN echo '#!/bin/bash\n\
 set -e\n\
 \n\
 # Run the install script to download and configure everything\n\
-if [ ! -f "/usr/local/bin/inferoute-client" ]; then\n\
-  NGROK_AUTHTOKEN="${NGROK_AUTHTOKEN}" PROVIDER_API_KEY="${PROVIDER_API_KEY}" \\\n\
-  PROVIDER_TYPE="${PROVIDER_TYPE:-ollama}" OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}" \\\n\
-  SERVER_PORT="${SERVER_PORT:-8080}" /app/install.sh\n\
-else\n\
-  # If binary exists, just configure and start NGROK\n\
-  NGROK_AUTHTOKEN="${NGROK_AUTHTOKEN}" ngrok config add-authtoken "${NGROK_AUTHTOKEN}"\n\
-  ngrok http ${SERVER_PORT:-8080} --log=stdout --host-header="localhost:${SERVER_PORT:-8080}" > /root/.local/state/inferoute/log/ngrok.log 2>&1 &\n\
-fi\n\
+NGROK_AUTHTOKEN="${NGROK_AUTHTOKEN}" PROVIDER_API_KEY="${PROVIDER_API_KEY}" \\\n\
+PROVIDER_TYPE="${PROVIDER_TYPE:-ollama}" OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}" \\\n\
+SERVER_PORT="${SERVER_PORT:-8080}" /app/install.sh\n\
 \n\
 # Keep container running\n\
 exec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
@@ -38,7 +32,4 @@ EXPOSE 8080 4040
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"]
-
-# Copy binary from builder
-COPY --from=builder /app/inferoute-client /usr/local/bin/ 
+CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
