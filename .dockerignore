@@ -41,4 +41,11 @@ config.yaml
 # Other
 .DS_Store
 Dockerfile
-.dockerignore 
+.dockerignore
+
+*
+!cmd/
+!pkg/
+!scripts/
+!go.mod
+!go.sum 
