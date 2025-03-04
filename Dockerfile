@@ -54,7 +54,6 @@ COPY --from=client-base /usr/local/bin/inferoute-client /usr/local/bin/
 
 # Copy scripts and config template
 COPY scripts/entrypoint.sh /app/
-COPY config.yaml.example /app/
 RUN chmod +x /app/entrypoint.sh
 
 # Set working directory
