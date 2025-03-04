@@ -39,11 +39,13 @@ COPY --from=ngrok-base /usr/local/bin/ngrok /bin/ngrok
 COPY --from=client-base /usr/local/bin/inferoute-client /bin/inferoute-client
 
 # Final minimal runtime stage
-FROM ubuntu:22.04
-RUN apt-get update \
-    && apt-get install -y ca-certificates curl jq bash \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+FROM debian:12-slim
+
+# Install minimal requirements (split into multiple steps for better reliability in emulation)
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends ca-certificates 
+RUN apt-get install -y --no-install-recommends curl jq bash
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy binaries from archive stage
 COPY --from=archive /bin /usr/local/bin
