@@ -11,9 +11,17 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 
 ## Requirements
 
-- NVIDIA GPU with nvidia-smi installed (for GPU monitoring)
+- A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md) 
+
 - Ollama running locally
 - jq (installed automatically by the script if missing)
+
+## Optional
+
+- NVIDIA GPU with nvidia-smi installed (for GPU monitoring)
+- AMD GPU with xxxxxx installed (for GPU monitoring)
+
+
 
 ## Installation
 
@@ -29,9 +37,12 @@ curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scr
 
 After installation, start the client with:
 ```bash
-
+inferoute-client 
 ```
+
 [Manual install instructions](https://github.com/inferoute/inferoute-client/blob/main/docs/linux.md)
+
+[Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
 
 ### Windows
 
@@ -40,25 +51,43 @@ Please mak sure to run you command prompt with administrator privileges
 ```ps
 powershell -Command "& {iwr -useb https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/windows-install.bat -OutFile windows-install.bat}" && windows-install.bat
 ```
+[Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
 
 ### Docker
 
-The official Ollama Docker image ollama/ollama is available on Docker Hub.
+The official Ollama Docker image ollama/ollama is available on Docker Hub. Currently we do not support getting GPU information from within a container, but this is makes no difference in how your provider is given inference tasks.
 
+```bash
+docker run -d --name inferoute-client \
+  -e NGROK_AUTHTOKEN="your-token" \
+  -e PROVIDER_API_KEY="your-key" \
+  -p 8080:8080 -p 4040:4040 \
+  inferoute/inferoute-client:latest
 ```
-docker run -e NGROK_AUTHTOKEN="your-token" -e PROVIDER_API_KEY="your-key" -p 8080:8080 -p 4040:4040 inferoute/inferoute-client:latest
+
+#### To see your logs for you Inferoute-client on Docker 
+
+```bash
+sudo docker logs -f --since 1m inferoute-client 
+```
+
+### Docker upgrade
+
+####  Pull the new image first.
+
+```bash
+sudo docker pull inferoute/inferoute-client:latest
+```
+
+#### Rerun original command 
+
+```bash
+docker run -d --name inferoute-client -e NGROK_AUTHTOKEN="your-token" -e PROVIDER_API_KEY="your-key" -p 8080:8080 -p 4040:4040 inferoute/inferoute-client:latest
 ```
 
 
-```
-docker run -e NGROK_AUTHTOKEN="your-token" \
-           -e PROVIDER_API_KEY="your-key" \
-           -e PROVIDER_TYPE="custom-provider" \
-           -e OLLAMA_URL="http://custom-ollama:11434" \
-           -e SERVER_PORT="9090" \
-           -p 9090:9090 -p 4040:4040 \
-           inferoute/inferoute-client:latest
-```
+[Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
+
 
 
 ## REST API 
