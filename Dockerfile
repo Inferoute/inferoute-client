@@ -28,8 +28,8 @@ RUN chmod +x /app/install.sh /app/entrypoint.sh
 # Expose ports for inferoute-client and NGROK admin interface
 EXPOSE 8080 4040
 
-# Set entrypoint
+# Set entrypoint to run our setup script
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
+CMD ["/usr/local/bin/inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
