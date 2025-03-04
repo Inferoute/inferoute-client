@@ -1,7 +1,7 @@
 FROM alpine:3.19.1
 
 # Install required packages
-RUN apk add --no-cache ca-certificates curl jq bash unzip sudo
+RUN apk add --no-cache ca-certificates curl jq bash unzip sudo procps
 
 # Create config and log directories
 RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
