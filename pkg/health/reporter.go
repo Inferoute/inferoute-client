@@ -94,10 +94,17 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
-	logger.Debug("Sending health report",
-		zap.String("url", url),
-		zap.Int("models_count", len(models.Models)),
-		zap.String("gpu", gpuInfo.ProductName))
+	if gpuInfo != nil {
+		logger.Debug("Sending health report",
+			zap.String("url", url),
+			zap.Int("models_count", len(models.Models)),
+			zap.String("gpu", gpuInfo.ProductName))
+	} else {
+		logger.Debug("Sending health report",
+			zap.String("url", url),
+			zap.Int("models_count", len(models.Models)),
+			zap.String("gpu", "none"))
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
 	if err != nil {
@@ -180,9 +187,16 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		ProviderType: r.config.Provider.ProviderType,
 	}
 
-	logger.Debug("Health report generated",
-		zap.Int("models_count", len(models.Models)),
-		zap.String("gpu", gpuInfo.ProductName))
+	// Add null check for GPU info before logging
+	if gpuInfo != nil {
+		logger.Debug("Health report generated",
+			zap.Int("models_count", len(models.Models)),
+			zap.String("gpu", gpuInfo.ProductName))
+	} else {
+		logger.Debug("Health report generated",
+			zap.Int("models_count", len(models.Models)),
+			zap.String("gpu", "none"))
+	}
 
 	return report, nil
 }
