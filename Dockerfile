@@ -1,41 +1,29 @@
-FROM ubuntu:22.04
+FROM alpine:3.19.1
 
-# Prevent apt from prompting for input
-ENV DEBIAN_FRONTEND=noninteractive
+# Install required packages
+RUN apk add --no-cache ca-certificates curl jq bash unzip sudo
 
-# Install required packages and ngrok
-RUN apt-get update && apt-get install -y \
-    curl \
-    jq \
-    unzip \
-    sudo \
-    ca-certificates \
-    gnupg \
-    && curl -fsSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | dd of=/etc/apt/trusted.gpg.d/ngrok.asc \
-    && echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | tee /etc/apt/sources.list.d/ngrok.list \
-    && apt-get update \
-    && apt-get install -y ngrok \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Create config and log directories
+RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
 
-# Create non-root user
-RUN useradd -m -s /bin/bash inferoute \
-    && echo "inferoute ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/inferoute
-
-# Create config and log directories with correct permissions
-RUN mkdir -p /home/inferoute/.config/inferoute /home/inferoute/.local/state/inferoute/log \
-    && chown -R inferoute:inferoute /home/inferoute/.config /home/inferoute/.local
+# Install NGROK
+RUN ARCH="$(uname -m)"; \
+    case "${ARCH}" in \
+        x86_64) ARCH_TYPE=amd64 ;; \
+        aarch64|arm64) ARCH_TYPE=arm64 ;; \
+        *) echo "Unsupported architecture: ${ARCH}" && exit 1 ;; \
+    esac && \
+    wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-${ARCH_TYPE}.tgz -O /tmp/ngrok.tgz && \
+    tar xzf /tmp/ngrok.tgz -C /usr/local/bin && \
+    rm -f /tmp/ngrok.tgz && \
+    chmod +x /usr/local/bin/ngrok
 
 # Set working directory
 WORKDIR /app
 
-# Copy scripts and set permissions
+# Copy scripts
 COPY scripts/install.sh scripts/entrypoint.sh /app/
-RUN chmod +x /app/install.sh /app/entrypoint.sh \
-    && chown -R inferoute:inferoute /app
-
-# Switch to non-root user
-USER inferoute
+RUN chmod +x /app/install.sh /app/entrypoint.sh
 
 # Expose ports for inferoute-client and NGROK admin interface
 EXPOSE 8080 4040
@@ -44,4 +32,4 @@ EXPOSE 8080 4040
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["inferoute-client", "--config", "/home/inferoute/.config/inferoute/config.yaml"] 
+CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
