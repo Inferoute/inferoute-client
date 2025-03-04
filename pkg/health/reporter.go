@@ -62,43 +62,12 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		logger.Debug("GPU monitor not available, skipping GPU information")
 	}
 
-	// Special handling for Docker host access
-	isDockerHost := false
-	if r.config != nil && r.config.Provider.LLMURL != "" {
-		if r.config.Provider.LLMURL == "http://host.docker.internal:11434" ||
-			r.config.Provider.LLMURL == "https://host.docker.internal:11434" {
-			isDockerHost = true
-		}
-	}
-
 	// Get available models from Ollama
 	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
-
-	// Try to list models with Docker-specific error handling
-	var models *ollama.ListModelsResponse
-	models, err = ollamaClient.ListModels(ctx)
-
+	models, err := ollamaClient.ListModels(ctx)
 	if err != nil {
-		logger.Error("Failed to get models from Ollama",
-			zap.Error(err),
-			zap.String("llm_url", r.config.Provider.LLMURL))
-
-		// Special handling for Docker host issues - create an empty models response
-		if isDockerHost {
-			logger.Warn("Using empty models list due to Docker host connectivity issue")
-			models = &ollama.ListModelsResponse{
-				Object: "list",
-				Models: []ollama.OllamaModel{},
-			}
-		} else {
-			// For non-Docker host issues, return the error as usual
-			return fmt.Errorf("failed to get models from Ollama: %w", err)
-		}
-	}
-
-	// Ensure models is not nil, even if there was an error
-	if models == nil {
-		logger.Warn("Models response was nil, creating empty response")
+		logger.Error("Failed to get models from Ollama", zap.Error(err), zap.String("llm_url", r.config.Provider.LLMURL))
+		// Instead of returning an error, continue with an empty models list
 		models = &ollama.ListModelsResponse{
 			Object: "list",
 			Models: []ollama.OllamaModel{},
@@ -115,12 +84,6 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		},
 		ProviderType: r.config.Provider.ProviderType,
 	}
-
-	// DOCKER DEBUG: Log before marshaling to JSON
-	logger.Debug("Preparing to marshal health report",
-		zap.Int("models_count", len(models.Models)),
-		zap.Bool("gpu_info_nil", gpuInfo == nil),
-		zap.String("ngrok_url", r.config.NGROK.URL))
 
 	// Marshal report to JSON
 	reportJSON, err := json.Marshal(report)
@@ -180,19 +143,30 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	logger.Debug("Getting health report")
 
-	// Get GPU information
-	gpuInfo, err := r.gpuMonitor.GetGPUInfo()
-	if err != nil {
-		logger.Error("Failed to get GPU information", zap.Error(err))
-		return nil, fmt.Errorf("failed to get GPU information: %w", err)
+	// Get GPU information if available
+	var gpuInfo *gpu.GPUInfo
+	var err error
+	if r.gpuMonitor != nil {
+		gpuInfo, err = r.gpuMonitor.GetGPUInfo()
+		if err != nil {
+			logger.Error("Failed to get GPU information", zap.Error(err))
+			// Continue with nil GPU info rather than returning an error
+			gpuInfo = nil
+		}
+	} else {
+		logger.Debug("GPU monitor not available, skipping GPU information")
 	}
 
 	// Get available models from Ollama
 	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
 	models, err := ollamaClient.ListModels(ctx)
 	if err != nil {
-		logger.Error("Failed to get models from Ollama", zap.Error(err))
-		return nil, fmt.Errorf("failed to get models from Ollama: %w", err)
+		logger.Error("Failed to get models from Ollama", zap.Error(err), zap.String("llm_url", r.config.Provider.LLMURL))
+		// Instead of returning an error, continue with an empty models list
+		models = &ollama.ListModelsResponse{
+			Object: "list",
+			Models: []ollama.OllamaModel{},
+		}
 	}
 
 	// Create health report

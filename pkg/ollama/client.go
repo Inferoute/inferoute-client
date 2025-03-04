@@ -87,29 +87,29 @@ func (c *Client) ListModels(ctx context.Context) (*ListModelsResponse, error) {
 	// Send request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		logger.Error("Failed to send request for listing models",
-			zap.Error(err),
-			zap.String("url", url))
+		logger.Error("Failed to send request for listing models", zap.Error(err), zap.String("url", url))
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		logger.Error("Unexpected status code",
+		logger.Error("Request failed for listing models",
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("url", url))
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
 
 	// Parse response
 	var response ListModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		logger.Error("Failed to parse response", zap.Error(err))
+		logger.Error("Failed to parse response for listing models", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	logger.Debug("Successfully listed models", zap.Int("count", len(response.Models)))
+	logger.Debug("Successfully listed Ollama models",
+		zap.Int("model_count", len(response.Models)),
+		zap.String("url", url))
 	return &response, nil
 }
 
