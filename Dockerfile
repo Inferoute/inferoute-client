@@ -1,7 +1,22 @@
-FROM alpine:3.19.1
+FROM ubuntu:22.04
 
-# Install required packages
-RUN apk add --no-cache ca-certificates curl jq bash unzip sudo
+# Prevent apt from prompting for input
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required packages and ngrok
+RUN apt-get update && apt-get install -y \
+    curl \
+    jq \
+    unzip \
+    sudo \
+    ca-certificates \
+    gnupg \
+    && curl -fsSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | dd of=/etc/apt/trusted.gpg.d/ngrok.asc \
+    && echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | tee /etc/apt/sources.list.d/ngrok.list \
+    && apt-get update \
+    && apt-get install -y ngrok \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create config and log directories
 RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
