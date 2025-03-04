@@ -57,7 +57,10 @@ powershell -Command "& {iwr -useb https://raw.githubusercontent.com/sentnl/infer
 
 ### Docker
 
-The officialInferoute Docker image inferoute/inferoute-client is available on Docker Hub. Currently we do not support getting GPU information from within a container, but this is makes no difference in how your provider is given inference tasks.
+The official Inferoute Docker image inferoute/inferoute-client is available on Docker Hub. 
+
+Please note if running Inferoute within Docker you need to ensure your Ollama instance is running on port 0.0.0.0 (This allows the Docker container to access the Ollama Server - [See Ollama guide for help](https://github.com/inferoute/inferoute-client/blob/main/docs/ollama.md))
+
 
 ```bash
 docker run -d --name inferoute-client \
