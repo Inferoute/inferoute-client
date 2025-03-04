@@ -18,15 +18,24 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create config and log directories
-RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
+# Create non-root user
+RUN useradd -m -s /bin/bash inferoute \
+    && echo "inferoute ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/inferoute
+
+# Create config and log directories with correct permissions
+RUN mkdir -p /home/inferoute/.config/inferoute /home/inferoute/.local/state/inferoute/log \
+    && chown -R inferoute:inferoute /home/inferoute/.config /home/inferoute/.local
 
 # Set working directory
 WORKDIR /app
 
-# Copy scripts
+# Copy scripts and set permissions
 COPY scripts/install.sh scripts/entrypoint.sh /app/
-RUN chmod +x /app/install.sh /app/entrypoint.sh
+RUN chmod +x /app/install.sh /app/entrypoint.sh \
+    && chown -R inferoute:inferoute /app
+
+# Switch to non-root user
+USER inferoute
 
 # Expose ports for inferoute-client and NGROK admin interface
 EXPOSE 8080 4040
@@ -35,4 +44,4 @@ EXPOSE 8080 4040
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
+CMD ["inferoute-client", "--config", "/home/inferoute/.config/inferoute/config.yaml"] 
