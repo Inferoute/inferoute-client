@@ -3,15 +3,13 @@ server:
   port: 8080
   host: "0.0.0.0"
 
-# Ollama configuration
-ollama:
-  url: "http://localhost:11434"
+
 
 # Provider configuration
 provider:
   # Your provider API key from the Inferoute platform
   api_key: "your_api_key_here"
-  # URL of the central Inferoute system. Gees
+  # URL of the central Inferoute system.
   url: "http://192.168.0.3:80"
   provider_type: "ollama"
   llm_url: "http://localhost:11434"

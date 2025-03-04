@@ -250,7 +250,7 @@ curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Infero
 NGROK_AUTHTOKEN=$(check_env_var "NGROK_AUTHTOKEN" "$NGROK_AUTHTOKEN" "")
 PROVIDER_API_KEY=$(check_env_var "PROVIDER_API_KEY" "$PROVIDER_API_KEY" "")
 PROVIDER_TYPE=$(check_env_var "PROVIDER_TYPE" "$PROVIDER_TYPE" "ollama")
-OLLAMA_URL=$(check_env_var "OLLAMA_URL" "$OLLAMA_URL" "http://localhost:11434")
+LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "http://localhost:11434")
 SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
 
 # Configure NGROK authtoken
@@ -328,7 +328,7 @@ if [ "$(uname)" = "Darwin" ]; then
     sed -i '' "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$CONFIG_DIR/config.yaml"
 else
@@ -336,7 +336,7 @@ else
     sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
     sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
     sed -i "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "s|ollama_url: .*|ollama_url: \"$OLLAMA_URL\"|" "$CONFIG_DIR/config.yaml"
+    sed -i "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
     sed -i "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
     sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$CONFIG_DIR/config.yaml"
 fi

@@ -2,6 +2,9 @@
 
 The Inferoute Provider Client is a lightweight Go service that runs on Ollama provider machines. It handles health monitoring, reporting, and inference request handling.
 
+
+We will also add support for exo-labs and llama.cppp in the future. 
+
 ## Features
 
 - **Health Monitoring & Reporting**: Collects local metrics (GPU type, number of GPUs, utilization stats, models available) and reports them to the central system.
@@ -12,7 +15,6 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 ## Requirements
 
 - A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md) 
-
 - Ollama running locally
 - jq (installed automatically by the script if missing)
 
@@ -55,12 +57,14 @@ powershell -Command "& {iwr -useb https://raw.githubusercontent.com/sentnl/infer
 
 ### Docker
 
-The official Ollama Docker image ollama/ollama is available on Docker Hub. Currently we do not support getting GPU information from within a container, but this is makes no difference in how your provider is given inference tasks.
+The officialInferoute Docker image inferoute/inferoute-client is available on Docker Hub. Currently we do not support getting GPU information from within a container, but this is makes no difference in how your provider is given inference tasks.
 
 ```bash
 docker run -d --name inferoute-client \
+  --add-host=host.docker.internal:host-gateway \
   -e NGROK_AUTHTOKEN="your-token" \
   -e PROVIDER_API_KEY="your-key" \
+  -e LLM_URL="http://host.docker.internal:11434" \
   -p 8080:8080 -p 4040:4040 \
   inferoute/inferoute-client:latest
 ```
@@ -82,7 +86,13 @@ sudo docker pull inferoute/inferoute-client:latest
 #### Rerun original command 
 
 ```bash
-docker run -d --name inferoute-client -e NGROK_AUTHTOKEN="your-token" -e PROVIDER_API_KEY="your-key" -p 8080:8080 -p 4040:4040 inferoute/inferoute-client:latest
+docker run -d --name inferoute-client \
+  --add-host=host.docker.internal:host-gateway \
+  -e NGROK_AUTHTOKEN="your-token" \
+  -e PROVIDER_API_KEY="your-key" \
+  -e LLM_URL="http://host.docker.internal:11434" \
+  -p 8080:8080 -p 4040:4040 \
+  inferoute/inferoute-client:latest
 ```
 
 
@@ -101,7 +111,7 @@ docker run -d --name inferoute-client -e NGROK_AUTHTOKEN="your-token" -e PROVIDE
 The configuration file (`config.yaml`) contains the following settings:
 
 - **server**: Server configuration (port, host)
-- **ollama**: Ollama configuration (URL)
+- **llm**: LLM configuration (URL)
 - **provider**: Provider configuration (API key, central system URL)
 - **ngrok**: NGROK configuration (URL, authtoken)
 
