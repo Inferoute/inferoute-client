@@ -1,7 +1,9 @@
-# Base stage for installing ngrok
-FROM alpine:3.19.1 AS ngrok-base
+# Base stages for different architectures
+FROM --platform=linux/amd64 alpine:3.19.1 AS base-amd64
+FROM --platform=linux/arm64 alpine:3.19.1 AS base-arm64
 
-# Install minimal requirements for ngrok
+# Architecture-specific ngrok stage
+FROM base-${TARGETARCH} AS ngrok-base
 RUN apk add --no-cache curl
 
 # Install NGROK based on architecture
@@ -13,13 +15,10 @@ RUN ARCH="$(uname -m)"; \
     esac && \
     curl -Lo /tmp/ngrok.tgz "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-${ARCH_TYPE}.tgz" && \
     tar xzf /tmp/ngrok.tgz -C /usr/local/bin && \
-    rm -f /tmp/ngrok.tgz && \
-    chmod +x /usr/local/bin/ngrok
+    rm -f /tmp/ngrok.tgz
 
-# Stage for downloading inferoute-client
-FROM alpine:3.19.1 AS client-base
-
-# Install minimal requirements
+# Architecture-specific inferoute-client stage
+FROM base-${TARGETARCH} AS client-base
 RUN apk add --no-cache curl unzip
 
 # Download and install inferoute-client binary
@@ -32,29 +31,31 @@ RUN ARCH="$(uname -m)"; \
     BINARY_NAME="inferoute-client-linux-${ARCH_TYPE}" && \
     curl -Lo "/tmp/${BINARY_NAME}.zip" "https://github.com/inferoute/inferoute-client/releases/latest/download/${BINARY_NAME}.zip" && \
     unzip -o "/tmp/${BINARY_NAME}.zip" -d /tmp && \
-    mv "/tmp/${BINARY_NAME}" /usr/local/bin/inferoute-client && \
-    chmod +x /usr/local/bin/inferoute-client && \
-    rm -f "/tmp/${BINARY_NAME}.zip"
+    mv "/tmp/${BINARY_NAME}" /usr/local/bin/inferoute-client
 
-# Final stage
+# Combine binaries into an intermediate archive stage
+FROM scratch AS archive
+COPY --from=ngrok-base /usr/local/bin/ngrok /bin/ngrok
+COPY --from=client-base /usr/local/bin/inferoute-client /bin/inferoute-client
+
+# Final minimal runtime stage
 FROM ubuntu:22.04
+RUN apt-get update \
+    && apt-get install -y ca-certificates curl jq bash \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install minimal requirements
-RUN apt-get update && \
-    apt-get install -y ca-certificates jq && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Copy binaries from archive stage
+COPY --from=archive /bin /usr/local/bin
+RUN chmod +x /usr/local/bin/ngrok /usr/local/bin/inferoute-client
 
-# Create config and log directories
+# Create required directories
 RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
 
-# Copy binaries from previous stages
-COPY --from=ngrok-base /usr/local/bin/ngrok /usr/local/bin/
-COPY --from=client-base /usr/local/bin/inferoute-client /usr/local/bin/
-
-# Copy scripts and config template
-COPY scripts/entrypoint.sh /app/
-RUN chmod +x /app/entrypoint.sh
+# Copy scripts and config
+COPY scripts/install.sh scripts/entrypoint.sh /app/
+COPY config.yaml.example /app/
+RUN chmod +x /app/install.sh /app/entrypoint.sh
 
 # Set working directory
 WORKDIR /app
