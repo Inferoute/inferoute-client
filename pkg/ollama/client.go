@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -84,32 +85,53 @@ func (c *Client) ListModels(ctx context.Context) (*ListModelsResponse, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// DOCKER DEBUG: Pre-request state
+	logger.Debug("About to send request",
+		zap.String("method", req.Method),
+		zap.String("url", req.URL.String()),
+		zap.Bool("context_canceled", ctx.Err() == context.Canceled),
+		zap.Bool("context_timeout", ctx.Err() == context.DeadlineExceeded))
+
 	// Send request
 	resp, err := c.client.Do(req)
+
+	// DOCKER DEBUG: Post-request state
+	logger.Debug("Request completed",
+		zap.Bool("resp_nil", resp == nil),
+		zap.Error(err),
+		zap.Any("context_error", ctx.Err()))
+
 	if err != nil {
-		logger.Error("Failed to send request for listing models", zap.Error(err), zap.String("url", url))
+		logger.Error("Failed to send request for listing models",
+			zap.Error(err),
+			zap.String("url", url),
+			zap.Bool("context_done", ctx.Err() != nil))
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// DOCKER DEBUG: Response details
+	logger.Debug("Got response",
+		zap.Int("status_code", resp.StatusCode),
+		zap.String("status", resp.Status))
+
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		logger.Error("Request failed for listing models",
+		body, _ := io.ReadAll(resp.Body)
+		logger.Error("Unexpected status code",
 			zap.Int("status_code", resp.StatusCode),
-			zap.String("url", url))
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+			zap.String("body", string(body)))
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	// Parse response
 	var response ListModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		logger.Error("Failed to parse response for listing models", zap.Error(err))
+		logger.Error("Failed to parse response", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	logger.Debug("Successfully listed Ollama models",
-		zap.Int("model_count", len(response.Models)),
-		zap.String("url", url))
+	logger.Debug("Successfully listed models", zap.Int("count", len(response.Models)))
 	return &response, nil
 }
 

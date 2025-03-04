@@ -62,11 +62,32 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		logger.Debug("GPU monitor not available, skipping GPU information")
 	}
 
+	// DOCKER DEBUG: Log connection attempt to LLM
+	logger.Debug("About to connect to LLM service",
+		zap.String("llm_url", r.config.Provider.LLMURL),
+		zap.Bool("is_config_nil", r.config == nil),
+		zap.Bool("is_provider_nil", r.config != nil && r.config.Provider.LLMURL == ""))
+
 	// Get available models from Ollama
 	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
+
+	// DOCKER DEBUG: Log before making the request
+	logger.Debug("About to make ListModels request",
+		zap.String("llm_url", r.config.Provider.LLMURL),
+		zap.Bool("context_done", ctx.Err() != nil),
+		zap.Any("context_error", ctx.Err()))
+
 	models, err := ollamaClient.ListModels(ctx)
+
+	// DOCKER DEBUG: Log after making the request
+	logger.Debug("ListModels request completed",
+		zap.Error(err),
+		zap.Bool("models_nil", models == nil))
+
 	if err != nil {
-		logger.Error("Failed to get models from Ollama", zap.Error(err))
+		logger.Error("Failed to get models from Ollama",
+			zap.Error(err),
+			zap.String("llm_url", r.config.Provider.LLMURL))
 		return fmt.Errorf("failed to get models from Ollama: %w", err)
 	}
 
@@ -80,6 +101,12 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		},
 		ProviderType: r.config.Provider.ProviderType,
 	}
+
+	// DOCKER DEBUG: Log before marshaling to JSON
+	logger.Debug("Preparing to marshal health report",
+		zap.Int("models_count", len(models.Models)),
+		zap.Bool("gpu_info_nil", gpuInfo == nil),
+		zap.String("ngrok_url", r.config.NGROK.URL))
 
 	// Marshal report to JSON
 	reportJSON, err := json.Marshal(report)
