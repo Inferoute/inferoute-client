@@ -21,6 +21,9 @@ RUN ARCH="$(uname -m)"; \
 FROM base-${TARGETARCH} AS client-base
 RUN apk add --no-cache curl unzip
 
+# Add build argument for release version
+ARG RELEASE_VERSION=latest
+
 # Download and install inferoute-client binary
 RUN ARCH="$(uname -m)"; \
     case "${ARCH}" in \
@@ -29,7 +32,13 @@ RUN ARCH="$(uname -m)"; \
         *) echo "Unsupported architecture: ${ARCH}" && exit 1 ;; \
     esac && \
     BINARY_NAME="inferoute-client-linux-${ARCH_TYPE}" && \
-    curl -Lo "/tmp/${BINARY_NAME}.zip" "https://github.com/inferoute/inferoute-client/releases/latest/download/${BINARY_NAME}.zip" && \
+    if [ "$RELEASE_VERSION" = "latest" ]; then \
+        DOWNLOAD_URL="https://github.com/inferoute/inferoute-client/releases/latest/download/${BINARY_NAME}.zip"; \
+    else \
+        DOWNLOAD_URL="https://github.com/inferoute/inferoute-client/releases/download/v${RELEASE_VERSION}/${BINARY_NAME}.zip"; \
+    fi && \
+    echo "Downloading from: $DOWNLOAD_URL" && \
+    curl -Lo "/tmp/${BINARY_NAME}.zip" "$DOWNLOAD_URL" && \
     unzip -o "/tmp/${BINARY_NAME}.zip" -d /tmp && \
     mv "/tmp/${BINARY_NAME}" /usr/local/bin/inferoute-client
 
@@ -68,5 +77,5 @@ EXPOSE 8080 4040
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["tail", "-f", "/dev/null"]
-#CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
+#CMD ["tail", "-f", "/dev/null"]
+CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
