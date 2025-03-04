@@ -52,9 +52,8 @@ RUN chmod +x /usr/local/bin/ngrok /usr/local/bin/inferoute-client
 # Create required directories
 RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
 
-# Copy scripts and config
+# Copy scripts
 COPY scripts/install.sh scripts/entrypoint.sh /app/
-COPY config.yaml.example /app/
 RUN chmod +x /app/install.sh /app/entrypoint.sh
 
 # Set working directory
