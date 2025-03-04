@@ -68,5 +68,5 @@ EXPOSE 8080 4040
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command
-CMD ["tail", "-f", "/dev/null"]
-# CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
+#CMD ["tail", "-f", "/dev/null"]
+CMD ["inferoute-client", "--config", "/root/.config/inferoute/config.yaml"] 
