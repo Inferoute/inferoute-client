@@ -256,8 +256,8 @@ SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
 # Configure NGROK authtoken
 echo -e "${BLUE}Configuring NGROK authtoken...${NC}"
 ngrok config add-authtoken "$NGROK_AUTHTOKEN" || {
-    echo -e "${RED}Warning: Failed to configure NGROK authtoken${NC}"
-    echo -e "${YELLOW}Continuing despite NGROK authtoken configuration failure...${NC}"
+    echo -e "${RED}Failed to configure NGROK authtoken${NC}"
+    exit 1
 }
 
 # Check if NGROK is already running
@@ -296,11 +296,9 @@ if [ -z "$NGROK_URL" ]; then
 
         # Check if NGROK is still running
         if ! ps -p $NGROK_PID > /dev/null; then
-            echo -e "${RED}Warning: NGROK failed to start!${NC}"
+            echo -e "${RED}Error: NGROK failed to start!${NC}"
             echo "Check $LOG_DIR/ngrok.log for details"
-            echo -e "${YELLOW}Continuing despite NGROK failure...${NC}"
-            NGROK_URL="ngrok_startup_failed"
-            break
+            exit 1
         fi
 
         # Try to get URL
@@ -316,11 +314,10 @@ if [ -z "$NGROK_URL" ]; then
     done
 
     if [ -z "$NGROK_URL" ]; then
-        echo -e "${RED}Warning: Failed to get NGROK URL after $MAX_ATTEMPTS attempts${NC}"
+        echo -e "${RED}Failed to get NGROK URL after $MAX_ATTEMPTS attempts${NC}"
         echo "Check $LOG_DIR/ngrok.log for details"
         pkill -f ngrok || true
-        echo -e "${YELLOW}Continuing despite NGROK failure...${NC}"
-        NGROK_URL="ngrok_url_not_found"
+        exit 1
     fi
 fi
 
