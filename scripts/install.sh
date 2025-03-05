@@ -296,7 +296,7 @@ if [ -z "$NGROK_URL" ]; then
 
         # Check if NGROK is still running
         if ! ps -p $NGROK_PID > /dev/null; then
-            echo -e "${RED}Error: NGROK failed to start!${NC}"
+            echo -e "${RED}Error: NGROK failed to start GERT!${NC}"
             echo -e "${YELLOW}=== NGROK Log Contents ===${NC}"
             if [ -f "$LOG_DIR/ngrok.log" ]; then
                 cat "$LOG_DIR/ngrok.log"
