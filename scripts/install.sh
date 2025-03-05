@@ -371,7 +371,6 @@ echo -e "Log directory: $LOG_DIR"
 
 echo -e "\n${BLUE}INFEROUTE Start Command (Defaults to $CONFIG_DIR/config.yaml ):${NC}"
 echo -e "${YELLOW}inferoute-client${NC}"
+echo -e "Start with specific config:  ${YELLOW}inferoute-client --config $CONFIG_DIR/config.yaml${NC}"
 
-echo -e "\n${BLUE}INFEROUTE Start with specific config command:${NC}"
-echo -e "${YELLOW}inferoute-client --config $CONFIG_DIR/config.yaml${NC}"
 
