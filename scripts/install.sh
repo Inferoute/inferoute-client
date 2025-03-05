@@ -297,7 +297,13 @@ if [ -z "$NGROK_URL" ]; then
         # Check if NGROK is still running
         if ! ps -p $NGROK_PID > /dev/null; then
             echo -e "${RED}Error: NGROK failed to start!${NC}"
-            echo "Check $LOG_DIR/ngrok.log for details"
+            echo -e "${YELLOW}=== NGROK Log Contents ===${NC}"
+            if [ -f "$LOG_DIR/ngrok.log" ]; then
+                cat "$LOG_DIR/ngrok.log"
+            else
+                echo "Log file not found at $LOG_DIR/ngrok.log"
+            fi
+            echo -e "${YELLOW}=== End of NGROK Log ===${NC}"
             exit 1
         fi
 
@@ -315,7 +321,13 @@ if [ -z "$NGROK_URL" ]; then
 
     if [ -z "$NGROK_URL" ]; then
         echo -e "${RED}Failed to get NGROK URL after $MAX_ATTEMPTS attempts${NC}"
-        echo "Check $LOG_DIR/ngrok.log for details"
+        echo -e "${YELLOW}=== NGROK Log Contents ===${NC}"
+        if [ -f "$LOG_DIR/ngrok.log" ]; then
+            cat "$LOG_DIR/ngrok.log"
+        else
+            echo "Log file not found at $LOG_DIR/ngrok.log"
+        fi
+        echo -e "${YELLOW}=== End of NGROK Log ===${NC}"
         pkill -f ngrok || true
         exit 1
     fi
