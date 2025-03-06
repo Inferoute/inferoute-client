@@ -18,7 +18,7 @@ echo "Commit:  $COMMIT"
 echo "Date:    $DATE"
 
 # Build the binary with version information
-go build -ldflags "-X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" -o inferoute-client ./cmd
+go build -ldflags "-X 'main.version=$VERSION' -X 'main.commit=$COMMIT' -X 'main.date=$DATE'" -o inferoute-client ./cmd
 
 echo "Build complete: $(pwd)/inferoute-client"
 
