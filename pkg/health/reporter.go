@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
