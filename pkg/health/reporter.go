@@ -13,6 +13,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"go.uber.org/zap"
 )
@@ -22,6 +23,7 @@ type Reporter struct {
 	config          *config.Config
 	gpuMonitor      *gpu.Monitor
 	ollamaClient    *ollama.Client
+	ngrokClient     *ngrok.Client
 	client          *http.Client
 	lastUpdateTime  time.Time
 	lastUpdateMutex sync.Mutex
@@ -38,10 +40,14 @@ type HealthReport struct {
 
 // NewReporter creates a new health reporter
 func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *ollama.Client) *Reporter {
+	// Create NGROK client
+	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
+
 	return &Reporter{
 		config:       cfg,
 		gpuMonitor:   gpuMonitor,
 		ollamaClient: ollamaClient,
+		ngrokClient:  ngrokClient,
 		client:       &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -49,6 +55,19 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *olla
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	logger.Debug("Preparing health report")
+
+	// Try to fetch the latest NGROK URL
+	if r.ngrokClient != nil {
+		ngrokURL, err := r.ngrokClient.GetPublicURL()
+		if err != nil {
+			logger.Warn("Failed to fetch NGROK URL for health report", zap.Error(err))
+			// Continue with the existing URL
+		} else if ngrokURL != r.config.NGROK.URL {
+			// Update the config with the new URL
+			r.config.NGROK.URL = ngrokURL
+			logger.Info("NGROK URL updated for health report", zap.String("url", ngrokURL))
+		}
+	}
 
 	// Get GPU information if available
 	var gpuInfo *gpu.GPUInfo
@@ -150,6 +169,19 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 // GetHealthReport returns the current health report
 func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	logger.Debug("Getting health report")
+
+	// Try to fetch the latest NGROK URL
+	if r.ngrokClient != nil {
+		ngrokURL, err := r.ngrokClient.GetPublicURL()
+		if err != nil {
+			logger.Warn("Failed to fetch NGROK URL for health report", zap.Error(err))
+			// Continue with the existing URL
+		} else if ngrokURL != r.config.NGROK.URL {
+			// Update the config with the new URL
+			r.config.NGROK.URL = ngrokURL
+			logger.Info("NGROK URL updated for health report", zap.String("url", ngrokURL))
+		}
+	}
 
 	// Get GPU information if available
 	var gpuInfo *gpu.GPUInfo
