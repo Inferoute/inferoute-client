@@ -10,7 +10,7 @@ provider:
   # Your provider API key from the Inferoute platform
   api_key: "your_api_key_here"
   # URL of the central Inferoute system.
-  url: "http://192.168.0.3:80"
+  url: "http://192.168.0.119:80"
   provider_type: "ollama"
   llm_url: "http://localhost:11434"
 

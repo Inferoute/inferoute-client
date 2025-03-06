@@ -17,13 +17,11 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 - A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md) 
 - Ollama running locally
-- jq (installed automatically by the script if missing)
 - 🚨 Post installation 
     - When your client first starts it will publish your available models and add costs based on the average costs across all providers. 
     - Please remember to log on and change the costs to your preference if you prefer.
 
 ## Optional
-
 - NVIDIA GPU with nvidia-smi installed (for GPU monitoring)
 - AMD GPU with xxxxxx installed (for GPU monitoring)
 
