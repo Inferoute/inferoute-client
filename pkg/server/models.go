@@ -7,6 +7,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 )
 
@@ -16,6 +17,7 @@ type Server struct {
 	gpuMonitor     *gpu.Monitor
 	healthReporter *health.Reporter
 	ollamaClient   *ollama.Client
+	ngrokClient    *ngrok.Client
 	server         *http.Server
 	errorLog       []string
 	errorLogMutex  sync.Mutex

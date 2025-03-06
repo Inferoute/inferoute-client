@@ -15,6 +15,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"go.uber.org/zap"
 )
@@ -34,17 +35,33 @@ func maskStringHelper(s string) string {
 
 // Creates a new server
 func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, ollamaClient *ollama.Client) *Server {
+	// Create NGROK client
+	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
+
 	return &Server{
 		config:         cfg,
 		gpuMonitor:     gpuMonitor,
 		healthReporter: healthReporter,
 		ollamaClient:   ollamaClient,
+		ngrokClient:    ngrokClient,
 		errorLog:       make([]string, 0, 100),
 	}
 }
 
 // Start starts the server
 func (s *Server) Start() error {
+	// Try to fetch the NGROK URL on startup
+	if s.ngrokClient != nil {
+		ngrokURL, err := s.ngrokClient.GetPublicURL()
+		if err != nil {
+			logger.Warn("Failed to fetch NGROK URL on startup", zap.Error(err))
+		} else {
+			// Update the config with the fetched URL
+			s.config.NGROK.URL = ngrokURL
+			logger.Info("NGROK URL fetched on startup", zap.String("url", ngrokURL))
+		}
+	}
+
 	// Create router
 	r := mux.NewRouter()
 

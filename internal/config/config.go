@@ -27,7 +27,9 @@ type Config struct {
 
 	// NGROK configuration (hardcoded for now)
 	NGROK struct {
-		URL string `yaml:"url"`
+		URL       string `yaml:"url"`
+		AuthToken string `yaml:"authtoken"`
+		Port      int    `yaml:"port"`
 	} `yaml:"ngrok"`
 
 	// Logging configuration
@@ -46,8 +48,8 @@ func Load(path string) (*Config, error) {
 	cfg.Provider.ProviderType = "ollama"
 	cfg.Provider.LLMURL = "http://localhost:11434"
 
-	// Hardcode NGROK URL as specified
-	cfg.NGROK.URL = "https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app"
+	// Set default NGROK port
+	cfg.NGROK.Port = 4040
 
 	// Set default logging configuration
 	homeDir, err := os.UserHomeDir()

@@ -16,10 +16,12 @@ provider:
 
 # NGROK configuration
 ngrok:
-  # NGROK public URL (will be automatically updated by the container)
+  # NGROK public URL (will be automatically fetched from the NGROK API)
   url: ""
   # Your NGROK authtoken
   authtoken: "your_ngrok_authtoken_here"
+  # NGROK API port (default: 4040)
+  port: 4040
 
 # Logging configuration
 logging:
