@@ -32,7 +32,7 @@ func maskStringHelper(s string) string {
 	return s[:4] + "****" + s[len(s)-4:]
 }
 
-// NewServer creates a new server
+// Creates a new server
 func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, ollamaClient *ollama.Client) *Server {
 	return &Server{
 		config:         cfg,
