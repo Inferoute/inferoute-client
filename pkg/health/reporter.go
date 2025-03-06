@@ -21,6 +21,7 @@ import (
 type Reporter struct {
 	config          *config.Config
 	gpuMonitor      *gpu.Monitor
+	ollamaClient    *ollama.Client
 	client          *http.Client
 	lastUpdateTime  time.Time
 	lastUpdateMutex sync.Mutex
@@ -36,11 +37,12 @@ type HealthReport struct {
 }
 
 // NewReporter creates a new health reporter
-func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor) *Reporter {
+func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *ollama.Client) *Reporter {
 	return &Reporter{
-		config:     cfg,
-		gpuMonitor: gpuMonitor,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		config:       cfg,
+		gpuMonitor:   gpuMonitor,
+		ollamaClient: ollamaClient,
+		client:       &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -63,8 +65,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	}
 
 	// Get available models from Ollama
-	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
-	models, err := ollamaClient.ListModels(ctx)
+	models, err := r.ollamaClient.ListModels(ctx)
 	if err != nil {
 		logger.Error("Failed to get models from Ollama", zap.Error(err), zap.String("llm_url", r.config.Provider.LLMURL))
 		// Instead of returning an error, continue with an empty models list
@@ -165,8 +166,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	}
 
 	// Get available models from Ollama
-	ollamaClient := ollama.NewClient(r.config.Provider.LLMURL)
-	models, err := ollamaClient.ListModels(ctx)
+	models, err := r.ollamaClient.ListModels(ctx)
 	if err != nil {
 		logger.Error("Failed to get models from Ollama", zap.Error(err), zap.String("llm_url", r.config.Provider.LLMURL))
 		// Instead of returning an error, continue with an empty models list

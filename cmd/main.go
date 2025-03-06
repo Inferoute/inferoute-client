@@ -14,6 +14,8 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
 	"go.uber.org/zap"
 )
@@ -134,8 +136,20 @@ func main() {
 		logger.Warn("Continuing without GPU monitoring")
 	}
 
+	// Initialize Ollama client
+	ollamaClient := ollama.NewClient(cfg.Provider.LLMURL)
+
+	// Initialize pricing client
+	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
+
+	// Register local models with pricing
+	if err := pricing.RegisterLocalModels(ctx, ollamaClient, pricingClient, cfg.Provider.ProviderType); err != nil {
+		logger.Error("Failed to register local models", zap.Error(err))
+		// Continue anyway as this is not critical
+	}
+
 	// Initialize health reporter
-	healthReporter := health.NewReporter(cfg, gpuMonitor)
+	healthReporter := health.NewReporter(cfg, gpuMonitor, ollamaClient)
 
 	// Start health reporting in background
 	go func() {
@@ -160,7 +174,7 @@ func main() {
 	}()
 
 	// Initialize and start HTTP server
-	srv := server.NewServer(cfg, gpuMonitor, healthReporter)
+	srv := server.NewServer(cfg, gpuMonitor, healthReporter, ollamaClient)
 	go func() {
 		if err := srv.Start(); err != nil {
 			logger.Fatal("Failed to start server", zap.Error(err))

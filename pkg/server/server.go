@@ -40,12 +40,12 @@ type Server struct {
 }
 
 // NewServer creates a new server
-func NewServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter) *Server {
+func NewServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, ollamaClient *ollama.Client) *Server {
 	return &Server{
 		config:         cfg,
 		gpuMonitor:     gpuMonitor,
 		healthReporter: healthReporter,
-		ollamaClient:   ollama.NewClient(cfg.Provider.LLMURL),
+		ollamaClient:   ollamaClient,
 		errorLog:       make([]string, 0, 100),
 	}
 }

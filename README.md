@@ -17,6 +17,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 - A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md) 
 - Ollama running locally
 - jq (installed automatically by the script if missing)
+- Post installation - 
 
 ## Optional
 
@@ -25,7 +26,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 
 
-## Installation
+## 💾 Installation
 
 ### Linux/OSX
 
@@ -61,6 +62,8 @@ The official Inferoute Docker image inferoute/inferoute-client is available on D
 
 Please note if running Inferoute within Docker you need to ensure your Ollama instance is running on port 0.0.0.0 (This allows the Docker container to access the Ollama Server - [See Ollama guide for help](https://github.com/inferoute/inferoute-client/blob/main/docs/ollama.md))
 
+We set the LLM_URL to http://host.docker.internal (resolves to the internal IP address used by the Docker host)
+
 
 ```bash
 docker run -d --name inferoute-client \
@@ -68,7 +71,7 @@ docker run -d --name inferoute-client \
   -e NGROK_AUTHTOKEN="your-token" \
   -e PROVIDER_API_KEY="your-key" \
   -e LLM_URL="http://host.docker.internal:11434" \
-  -p 8080:8080 -p 4040:4040 \
+  -p 8080:8080 \
   inferoute/inferoute-client:latest
 ```
 
@@ -94,29 +97,48 @@ docker run -d --name inferoute-client \
   -e NGROK_AUTHTOKEN="your-token" \
   -e PROVIDER_API_KEY="your-key" \
   -e LLM_URL="http://host.docker.internal:11434" \
-  -p 8080:8080 -p 4040:4040 \
+  -p 8080:8080  \
   inferoute/inferoute-client:latest
 ```
 
 
 [Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
 
+## 🚀 Launch Inferoute-client 
+
+**INFEROUTE Start Command:**
+`inferoute-client`
+
+**INFEROUTE Start with specific config:**
+`inferoute-client --config /home/charles/.config/inferoute/config.yaml`
 
 
-## REST API 
+## 💾 Post Installation
 
-- **GET /health**: Returns the current health status of the provider, including GPU information and available models.
+When your client first starts it will publish your available models with default costs. 
+Please rememeber to log on and change the costs to your prefernce.
+
+## 🎓 REST API 
+
+- **GET /health**: Returns the current health status of the provider, including GPU information (if available) and available LLM models.
 - **GET /busy**: Returns whether the GPU is currently busy (TRUE or FALSE).
 
 
-## Configuration
+## 📝 Configuration
 
 The configuration file (`config.yaml`) contains the following settings:
 
-- **server**: Server configuration (port, host)
-- **llm**: LLM configuration (URL)
+- **server**: Server configuration (port, host) to access rest API's. 
 - **provider**: Provider configuration (API key, central system URL)
+  - **provider_type**: Type of LLM provider being used (default: "ollama", future support for "exo-labs" and "llama.cpp")
+  - **llm_url**: URL of the local LLM provider API (default: "http://localhost:11434")
 - **ngrok**: NGROK configuration (URL, authtoken)
+- **logging**: Logging configuration
+  - **level**: Log level (debug, info, warn, error)
+  - **log_dir**: Directory where logs are stored (defaults to ~/.local/state/inferoute/log)
+  - **max_size**: Maximum size of log files in megabytes before rotation (default: 100)
+  - **max_backups**: Maximum number of old log files to retain (default: 5)
+  - **max_age**: Maximum number of days to retain old log files (default: 30)
 
 
 
