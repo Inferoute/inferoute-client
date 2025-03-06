@@ -11,7 +11,9 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Updated install.sh with better logging output.
 - Created build.sh script for testing
 - Added model pricing - First time client launches it will create models and add model pricing for each model based on averages across all providers. Users can still manually update on website.
+- Client now automatically picks up NGROK URL
+- NGROK port is now configurable
 
 ### Fixed
 
-
+- minor code fixes and refactoring
