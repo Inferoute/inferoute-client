@@ -56,8 +56,8 @@ func (s *Server) Start() error {
 	r := mux.NewRouter()
 
 	// Register routes
-	r.HandleFunc("/health", s.handleHealth).Methods(http.MethodGet)
-	r.HandleFunc("/busy", s.handleBusy).Methods(http.MethodGet)
+	r.HandleFunc("/api/health", s.handleHealth).Methods(http.MethodGet)
+	r.HandleFunc("/api/busy", s.handleBusy).Methods(http.MethodGet)
 	r.HandleFunc("/v1/chat/completions", s.handleChatCompletions).Methods(http.MethodPost)
 	r.HandleFunc("/v1/completions", s.handleCompletions).Methods(http.MethodPost)
 

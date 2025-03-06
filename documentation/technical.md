@@ -26,6 +26,60 @@ The Provider Client is a lightweight Go service that runs on Ollama provider mac
    
    This endpoint returns a JSON response with a boolean `busy` field.
 
+### Model Pricing Initialization:
+
+Before starting the health reporting cycle, the client performs a one-time initialization of model pricing:
+
+1. **Model Discovery**:
+   - Queries the local Ollama instance to get a list of all available models
+   - Extracts base model names by removing tags (e.g., "llama2:latest" becomes "llama2")
+
+2. **Price Fetching**:
+   - Makes a request to `/api/model-pricing/get-prices` with the list of discovered models
+   - The response includes:
+     - Model-specific pricing (if available)
+     - Default pricing for models without specific pricing
+   ```json
+   {
+     "model_prices": [
+       {
+         "model_name": "llama2",
+         "avg_input_price": 0.0005,
+         "avg_output_price": 0.0005,
+         "sample_size": 4
+       },
+       {
+         "model_name": "default",
+         "avg_input_price": 0.0005,
+         "avg_output_price": 0.0005,
+         "sample_size": 1
+       }
+     ]
+   }
+   ```
+
+3. **Price Registration**:
+   - For each local model:
+     - If model-specific pricing exists in the API response, uses those prices
+     - If no model-specific pricing exists, uses the default pricing from the API response
+     - Registers the model and its pricing via POST to `/api/provider/models`
+   ```json
+   {
+     "model_name": "llama2",
+     "service_type": "ollama",
+     "input_price_tokens": 0.0005,
+     "output_price_tokens": 0.0005
+   }
+   ```
+   - Gracefully handles cases where models already exist (HTTP 409 Conflict)
+
+4. **Error Handling**:
+   - Continues operation even if pricing initialization fails
+   - Logs detailed information about pricing decisions and any errors
+   - Uses structured logging to track which pricing (specific or default) is used for each model
+
+This initialization ensures that all local models are registered with appropriate pricing before the client begins handling inference requests.
+
 ### Inference Request Handling:
 
 When an inference request is received from the central orchestrator, the provider client:
