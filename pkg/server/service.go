@@ -8,36 +8,16 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"go.uber.org/zap"
 )
-
-// Server represents the HTTP server
-type Server struct {
-	config         *config.Config
-	gpuMonitor     *gpu.Monitor
-	healthReporter *health.Reporter
-	ollamaClient   *ollama.Client
-	server         *http.Server
-	errorLog       []string
-	errorLogMutex  sync.Mutex
-	requestStats   struct {
-		Total        int
-		Success      int
-		Errors       int
-		Unauthorized int
-		LastRequests []string
-		mutex        sync.Mutex
-	}
-}
 
 // NewServer creates a new server
 func NewServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, ollamaClient *ollama.Client) *Server {
@@ -260,6 +240,7 @@ func (s *Server) logError(errMsg string) {
 	timestamp := time.Now().Format("15:04:05.000")
 	logEntry := fmt.Sprintf("%s ERROR: %s", timestamp, errMsg)
 
+	// Add to error log
 	s.errorLogMutex.Lock()
 	s.errorLog = append(s.errorLog, logEntry)
 	if len(s.errorLog) > 10 {
@@ -267,200 +248,8 @@ func (s *Server) logError(errMsg string) {
 	}
 	s.errorLogMutex.Unlock()
 
-	// Also log to zap logger
+	// Log to zap logger
 	logger.Error(errMsg)
-}
-
-// handleHealth handles the /health endpoint
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-
-	// Get health report
-	report, err := s.healthReporter.GetHealthReport(r.Context())
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to get health report: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to get health report: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-		return
-	}
-
-	// Write response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(report)
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
-}
-
-// handleBusy handles the /busy endpoint
-func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-
-	// Check if GPU is busy
-	var isBusy bool
-	var err error
-
-	if s.gpuMonitor != nil {
-		isBusy, err = s.gpuMonitor.IsBusy()
-		if err != nil {
-			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-			return
-		}
-	} else {
-		// If GPU monitor is not available, assume not busy
-		isBusy = false
-	}
-
-	// Write response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"busy": isBusy})
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
-}
-
-// handleChatCompletions handles the /v1/chat/completions endpoint
-func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-
-	// Check if GPU is busy
-	var isBusy bool
-	var err error
-
-	if s.gpuMonitor != nil {
-		isBusy, err = s.gpuMonitor.IsBusy()
-		if err != nil {
-			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-			return
-		}
-	} else {
-		// If GPU monitor is not available, assume not busy
-		isBusy = false
-	}
-
-	// If GPU is busy, return error
-	if isBusy {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "GPU is busy"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
-		return
-	}
-
-	// Validate HMAC from X-Request-Id header
-	hmac := r.Header.Get("X-Request-Id")
-	if hmac != "" {
-		if err := s.validateHMAC(r.Context(), hmac); err != nil {
-			s.logError(fmt.Sprintf("HMAC validation failed: %v", err))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
-			s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-			return
-		}
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-		return
-	}
-
-	// Read request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to read request body: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
-		s.logRequest(r.Method, r.URL.Path, http.StatusBadRequest, startTime)
-		return
-	}
-
-	// Forward request to Ollama
-	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/chat/completions", body)
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to forward request to Ollama: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-		return
-	}
-
-	// Write response
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(ollamaResp)
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
-}
-
-// handleCompletions handles the /v1/completions endpoint
-func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-
-	// Check if GPU is busy
-	var isBusy bool
-	var err error
-
-	if s.gpuMonitor != nil {
-		isBusy, err = s.gpuMonitor.IsBusy()
-		if err != nil {
-			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-			return
-		}
-	} else {
-		// If GPU monitor is not available, assume not busy
-		isBusy = false
-	}
-
-	// If GPU is busy, return error
-	if isBusy {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "GPU is busy"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
-		return
-	}
-
-	// Validate HMAC from X-Request-Id header
-	hmac := r.Header.Get("X-Request-Id")
-	if hmac != "" {
-		if err := s.validateHMAC(r.Context(), hmac); err != nil {
-			s.logError(fmt.Sprintf("HMAC validation failed: %v", err))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Invalid HMAC: %v", err)})
-			s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-			return
-		}
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Missing HMAC in X-Request-Id header"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-		return
-	}
-
-	// Read request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to read request body: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
-		s.logRequest(r.Method, r.URL.Path, http.StatusBadRequest, startTime)
-		return
-	}
-
-	// Forward request to Ollama
-	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/completions", body)
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to forward request to Ollama: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-		return
-	}
-
-	// Write response
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(ollamaResp)
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
 }
 
 // validateHMAC validates an HMAC with the central system
@@ -468,7 +257,7 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/validate_hmac", s.config.Provider.URL)
 
-	reqBody, err := json.Marshal(map[string]string{"hmac": hmac})
+	reqBody, err := json.Marshal(HMACValidationRequest{HMAC: hmac})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -501,9 +290,7 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	}
 
 	// Parse response
-	var response struct {
-		Valid bool `json:"valid"`
-	}
+	var response HMACValidationResponse
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
