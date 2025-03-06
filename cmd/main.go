@@ -174,7 +174,7 @@ func main() {
 	}()
 
 	// Initialize and start HTTP server
-	srv := server.NewServer(cfg, gpuMonitor, healthReporter, ollamaClient)
+	srv := server.CreateServer(cfg, gpuMonitor, healthReporter, ollamaClient)
 	go func() {
 		if err := srv.Start(); err != nil {
 			logger.Fatal("Failed to start server", zap.Error(err))

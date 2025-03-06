@@ -19,8 +19,21 @@ import (
 	"go.uber.org/zap"
 )
 
+// rename this file to server.go since it contains the same methods
+// the original server.go file seems to have been renamed to service.go
+// but there are still references to server.go in the codebase
+// this is causing duplicate method declarations
+
+// maskString Helper function to mask sensitive strings
+func maskStringHelper(s string) string {
+	if len(s) <= 8 {
+		return "****"
+	}
+	return s[:4] + "****" + s[len(s)-4:]
+}
+
 // NewServer creates a new server
-func NewServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, ollamaClient *ollama.Client) *Server {
+func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, ollamaClient *ollama.Client) *Server {
 	return &Server{
 		config:         cfg,
 		gpuMonitor:     gpuMonitor,
@@ -133,7 +146,7 @@ func (s *Server) redrawConsole() {
 	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr))
 	buf.WriteString("\033[1;35mSession Status                \033[0m\033[1;32monline\033[0m\n")
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType))
-	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", maskString(s.config.Provider.APIKey)))
+	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", maskStringHelper(s.config.Provider.APIKey)))
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port))
@@ -341,12 +354,4 @@ func (s *Server) forwardToOllama(ctx context.Context, path string, body []byte) 
 	}
 
 	return respBody, nil
-}
-
-// Helper function to mask sensitive strings
-func maskString(s string) string {
-	if len(s) <= 8 {
-		return "****"
-	}
-	return s[:4] + "..." + s[len(s)-4:]
 }
