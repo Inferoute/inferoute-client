@@ -71,7 +71,7 @@ RUN chmod +x /app/install.sh /app/entrypoint.sh
 WORKDIR /app
 
 # Expose ports
-EXPOSE 8080 4040
+EXPOSE 8080
 
 # Set entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]
