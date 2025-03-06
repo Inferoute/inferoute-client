@@ -105,13 +105,8 @@ func (s *Server) consoleUpdater() {
 		defer debugFile.Close()
 	}
 
-	for {
-		select {
-		case <-ticker.C:
-			// Instead of trying to update parts of the screen, redraw the entire screen
-			// This avoids cursor positioning issues
-			s.redrawConsole()
-		}
+	for range ticker.C {
+		s.redrawConsole()
 	}
 }
 

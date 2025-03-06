@@ -23,7 +23,7 @@ Environment="OLLAMA_HOST=0.0.0.0:11434"
 
 `export OLLAMA_HOST=http://0.0.0.0:11434`
 
-    - For permanent effect - add this line to `.zshrc or .bashrc` file
+**For permanent effect - add the line to .zshrc or .bashrc file**
 
 2. Then stop and restart Ollama
 
@@ -53,6 +53,15 @@ https://stackoverflow.com/questions/603785/environment-variables-in-mac-os-x
 
 
 ### Windows
+
+
+1. Open a command prompt and type:
+```ps1
+set OLLAMA_HOST=0.0.0.0
+ollama serve
+```
+
+2. Windows will prompt for Firewall Permission, allow that
 
 
 
