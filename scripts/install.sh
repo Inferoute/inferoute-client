@@ -81,36 +81,6 @@ echo -e "${BLUE}Detected OS: ${OS_TYPE}, Architecture: ${ARCH} (${ARCH_TYPE})${N
 # Change to installation directory
 cd "$SCRIPT_DIR"
 
-# Check if jq is installed (needed for parsing NGROK API response)
-if ! command -v jq &> /dev/null; then
-    echo -e "${YELLOW}jq is not installed. Installing...${NC}"
-    
-    if [ "$OS_TYPE" = "linux" ]; then
-        if command -v apt-get &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y jq
-        elif command -v yum &> /dev/null; then
-            sudo yum install -y jq
-        elif command -v dnf &> /dev/null; then
-            sudo dnf install -y jq
-        else
-            echo -e "${RED}Could not install jq. Please install it manually.${NC}"
-            exit 1
-        fi
-    elif [ "$OS_TYPE" = "darwin" ]; then
-        if command -v brew &> /dev/null; then
-            brew install jq
-        else
-            echo -e "${RED}Homebrew not found. Please install Homebrew or jq manually.${NC}"
-            echo -e "Visit https://brew.sh/ for Homebrew installation instructions."
-            exit 1
-        fi
-    fi
-    
-    echo -e "${GREEN}jq installed successfully.${NC}"
-else
-    echo -e "${GREEN}jq is already installed.${NC}"
-fi
-
 # Install NGROK if not already installed
 if ! command -v ngrok &> /dev/null; then
     echo -e "${YELLOW}NGROK not found. Installing...${NC}"
@@ -171,8 +141,8 @@ get_binary_version() {
 get_latest_version() {
     local repo="$1"
     local latest_version
-    latest_version=$(curl -s "https://api.github.com/repos/${repo}/releases/latest" | jq -r '.tag_name' | sed 's/^v//')
-    if [ "$latest_version" = "null" ] || [ -z "$latest_version" ]; then
+    latest_version=$(curl -s "https://api.github.com/repos/${repo}/releases/latest" | grep -o '"tag_name": "[^"]*"' | sed 's/"tag_name": "//;s/^v//;s/"$//')
+    if [ -z "$latest_version" ]; then
         echo "0.0.0"
     else
         echo "$latest_version"
@@ -252,6 +222,7 @@ PROVIDER_API_KEY=$(check_env_var "PROVIDER_API_KEY" "$PROVIDER_API_KEY" "")
 PROVIDER_TYPE=$(check_env_var "PROVIDER_TYPE" "$PROVIDER_TYPE" "ollama")
 LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "http://localhost:11434")
 SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
+NGROK_PORT=$(check_env_var "NGROK_PORT" "$NGROK_PORT" "4040")
 
 # Configure NGROK authtoken
 echo -e "${BLUE}Configuring NGROK authtoken...${NC}"
@@ -261,21 +232,9 @@ ngrok config add-authtoken "$NGROK_AUTHTOKEN" || {
 }
 
 # Check if NGROK is already running
-NGROK_URL=""
 if pgrep -f "ngrok http" > /dev/null; then
-    echo -e "${YELLOW}NGROK is already running, getting existing URL...${NC}"
-    # Try to get existing URL
-    TUNNELS_DATA=$(curl -s http://localhost:4040/api/tunnels)
-    if [ $? -eq 0 ]; then
-        NGROK_URL=$(echo "$TUNNELS_DATA" | jq -r '.tunnels[0].public_url' 2>/dev/null)
-        if [ "$NGROK_URL" != "null" ] && [ ! -z "$NGROK_URL" ]; then
-            echo -e "${GREEN}Found existing NGROK URL: $NGROK_URL${NC}"
-        fi
-    fi
-fi
-
-# Start NGROK if not already running or if URL not found
-if [ -z "$NGROK_URL" ]; then
+    echo -e "${GREEN}NGROK is already running.${NC}"
+else
     echo -e "${BLUE}Starting NGROK...${NC}"
     # Kill any existing NGROK processes that might be stuck
     pkill -f ngrok || true
@@ -285,42 +244,12 @@ if [ -z "$NGROK_URL" ]; then
     ngrok http $SERVER_PORT --log=stdout --host-header="localhost:$SERVER_PORT" > "$LOG_DIR/ngrok.log" 2>&1 &
     NGROK_PID=$!
 
-    # Wait for NGROK to start
-    echo "Waiting for NGROK to initialize..."
-    MAX_ATTEMPTS=30
-    ATTEMPT=0
+    # Wait a moment to ensure NGROK starts
+    sleep 5
 
-    while [ -z "$NGROK_URL" ] && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        ATTEMPT=$((ATTEMPT+1))
-        sleep 2
-
-        # Check if NGROK is still running
-        if ! ps -p $NGROK_PID > /dev/null; then
-            echo -e "${RED}Error: NGROK failed to start GERT!${NC}"
-            echo -e "${YELLOW}=== NGROK Log Contents ===${NC}"
-            if [ -f "$LOG_DIR/ngrok.log" ]; then
-                cat "$LOG_DIR/ngrok.log"
-            else
-                echo "Log file not found at $LOG_DIR/ngrok.log"
-            fi
-            echo -e "${YELLOW}=== End of NGROK Log ===${NC}"
-            exit 1
-        fi
-
-        # Try to get URL
-        TUNNELS_DATA=$(curl -s http://localhost:4040/api/tunnels)
-        if [ $? -eq 0 ]; then
-            NGROK_URL=$(echo "$TUNNELS_DATA" | jq -r '.tunnels[0].public_url' 2>/dev/null)
-            if [ "$NGROK_URL" != "null" ] && [ ! -z "$NGROK_URL" ]; then
-                echo -e "${GREEN}NGROK started successfully with URL: $NGROK_URL${NC}"
-                break
-            fi
-        fi
-        echo "Waiting for NGROK URL (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
-    done
-
-    if [ -z "$NGROK_URL" ]; then
-        echo -e "${RED}Failed to get NGROK URL after $MAX_ATTEMPTS attempts${NC}"
+    # Check if NGROK is running
+    if ! ps -p $NGROK_PID > /dev/null; then
+        echo -e "${RED}Error: NGROK failed to start${NC}"
         echo -e "${YELLOW}=== NGROK Log Contents ===${NC}"
         if [ -f "$LOG_DIR/ngrok.log" ]; then
             cat "$LOG_DIR/ngrok.log"
@@ -328,12 +257,14 @@ if [ -z "$NGROK_URL" ]; then
             echo "Log file not found at $LOG_DIR/ngrok.log"
         fi
         echo -e "${YELLOW}=== End of NGROK Log ===${NC}"
-        pkill -f ngrok || true
         exit 1
     fi
+    
+    echo -e "${GREEN}NGROK started successfully.${NC}"
+    echo -e "${BLUE}NGROK admin interface available at: ${GREEN}http://localhost:4040${NC}"
 fi
 
-# Update all configuration values at once
+# Update configuration values
 echo -e "${BLUE}Updating configuration values...${NC}"
 if [ "$(uname)" = "Darwin" ]; then
     # macOS version
@@ -342,7 +273,7 @@ if [ "$(uname)" = "Darwin" ]; then
     sed -i '' "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "/ngrok:/,/port:/ s|port: .*|port: $NGROK_PORT|" "$CONFIG_DIR/config.yaml"
 else
     # Linux version
     sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
@@ -350,14 +281,13 @@ else
     sed -i "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
     sed -i "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
     sed -i "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "/ngrok:/,/url:/ s|url: \".*\"|url: \"$NGROK_URL\"|" "$CONFIG_DIR/config.yaml"
+    sed -i "/ngrok:/,/port:/ s|port: .*|port: $NGROK_PORT|" "$CONFIG_DIR/config.yaml"
 fi
 
 echo -e "${GREEN}Configuration file updated successfully.${NC}"
 
 echo -e "\n${GREEN}Installation complete!${NC}"
 echo -e "\n${BLUE}NGROK is running:${NC}"
-echo -e "URL: ${GREEN}$NGROK_URL${NC}"
 echo -e "Admin interface: ${GREEN}http://localhost:4040${NC}"
 echo -e "Logs: $LOG_DIR/ngrok.log"
 

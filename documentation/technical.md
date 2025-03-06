@@ -142,7 +142,31 @@ The console interface refreshes every 3 seconds to provide up-to-date informatio
 
 ### NGROK Integration:
 
-The provider client includes NGROK URL configuration to create a secure tunnel back to the central system. This allows the provider's local inference engine (Ollama server) to be accessible via a public URL without exposing the machine directly. This public URL is included in the health report data.
+The provider client includes NGROK integration to create a secure tunnel back to the central system. This allows the provider's local inference engine (Ollama server) to be accessible via a public URL without exposing the machine directly.
+
+Key features of the NGROK integration:
+
+1. **Dynamic URL Discovery**:
+   - Instead of hardcoding the NGROK URL, the client dynamically fetches it from the local NGROK API
+   - On startup, it connects to `http://localhost:{port}/api/tunnels` (default port: 4040)
+   - It extracts the first available HTTP/HTTPS tunnel URL
+   - This URL is then used for all communications with the central system
+
+2. **Automatic Updates**:
+   - The NGROK URL is refreshed each time a health report is generated (every 5 minutes)
+   - If the URL changes (e.g., due to NGROK restart or reconnection), the new URL is automatically detected
+   - This ensures the system always uses the current valid tunnel URL
+
+3. **Configuration**:
+   - Only the NGROK API port and authentication token need to be configured
+   - The URL is automatically discovered and doesn't need to be manually updated
+
+4. **Resilience**:
+   - If the NGROK API is temporarily unavailable, the client continues using the last known URL
+   - Detailed logging of URL discovery attempts and failures
+   - Graceful handling of cases where no tunnels are available
+
+This dynamic approach eliminates the need to manually update configuration files when NGROK URLs change, making the system more robust and easier to maintain.
 
 ### Configuration:
 
@@ -150,10 +174,10 @@ The application reads from a YAML configuration file with the following sections
 
 - `server`: Server configuration (port, host)
 - `provider`: Provider configuration (API key, central system URL, provider type, LLM URL)
-- `ngrok`: NGROK configuration (URL)
+- `ngrok`: NGROK configuration (authtoken, port)
 - `logging`: Logging configuration (level, directory, rotation settings)
 
-A default configuration is provided if the file is not found, and the NGROK URL is currently hardcoded as specified in the requirements.
+A default configuration is provided if the file is not found. The NGROK URL is dynamically fetched from the local NGROK API rather than being hardcoded.
 
 ## Key Components
 
@@ -205,6 +229,14 @@ A default configuration is provided if the file is not found, and the NGROK URL 
 - Configures log rotation using lumberjack
 - Provides helper methods for different log levels
 - Supports multiple output destinations
+
+### 7. NGROK Client (`pkg/ngrok/client.go`)
+
+- Dynamically fetches the current NGROK URL from the local NGROK API
+- Automatically detects and adapts to URL changes
+- Provides resilient handling of API connection issues
+- Supports configurable API port
+- Logs detailed information about URL discovery and updates
 
 ## API Endpoints
 

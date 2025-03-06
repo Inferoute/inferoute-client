@@ -11,6 +11,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 - **Inference Request Handling**: Forwards inference requests to the local Ollama instance after checking GPU availability.
 - **HMAC Validation**: Validates HMACs on incoming requests to ensure they are legitimate.
 - **OpenAI API Compatibility**: Implements the OpenAI API for chat completions and completions.
+- **Dynamic NGROK Integration**: Automatically discovers and uses the current NGROK URL, eliminating the need for manual configuration updates when URLs change.
 
 ## Requirements
 
@@ -134,7 +135,9 @@ The configuration file (`config.yaml`) contains the following settings:
 - **provider**: Provider configuration (API key, central system URL)
   - **provider_type**: Type of LLM provider being used (default: "ollama", future support for "exo-labs" and "llama.cpp")
   - **llm_url**: URL of the local LLM provider API (default: "http://localhost:11434")
-- **ngrok**: NGROK configuration (URL, authtoken)
+- **ngrok**: NGROK configuration
+  - **authtoken**: Your NGROK authentication token
+  - **port**: NGROK API port (default: 4040) - used to automatically fetch the current NGROK URL
 - **logging**: Logging configuration
   - **level**: Log level (debug, info, warn, error)
   - **log_dir**: Directory where logs are stored (defaults to ~/.local/state/inferoute/log)

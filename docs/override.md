@@ -16,6 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scr
   PROVIDER_API_KEY="your-key" \
   PROVIDER_TYPE="custom-provider" \
   LLM_URL="http://custom-ollama:11434" \
+  NGROK_PORT="4040" \
   SERVER_PORT="9090" \
   bash
 ```
@@ -35,6 +36,7 @@ docker run -e NGROK_AUTHTOKEN="your-token" \
            -e PROVIDER_API_KEY="your-key" \
            -e PROVIDER_TYPE="custom-provider" \
            -e LLM_URL="http://host.docker.internal:21434" \
+           -e NGROK_PORT="4040" \
            -e SERVER_PORT="9090" \
            -p 9090:9090 \
            inferoute/inferoute-client:latest
