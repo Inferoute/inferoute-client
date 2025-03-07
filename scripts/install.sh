@@ -93,9 +93,13 @@ if ! command -v ngrok &> /dev/null; then
     NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-${OS_TYPE}-${ARCH_TYPE}.zip"
     echo -e "${BLUE}Downloading NGROK from: ${NGROK_URL}${NC}"
     
-    if curl -Lo ngrok.zip "$NGROK_URL"; then
+    # Use a more user-friendly progress display
+    echo -e "${BLUE}Downloading NGROK...${NC}"
+    if curl -#Lo ngrok.zip "$NGROK_URL"; then
+        echo -e "${GREEN}Download complete!${NC}"
         # Extract NGROK
-        unzip -o ngrok.zip
+        echo -e "${BLUE}Extracting NGROK...${NC}"
+        unzip -q -o ngrok.zip
         
         # Move NGROK to /usr/local/bin or ~/bin if not root
         if [ "$EUID" -eq 0 ]; then
@@ -169,9 +173,12 @@ install_binary() {
     
     echo -e "${BLUE}Downloading from: ${DOWNLOAD_URL}${NC}"
     
-    if curl -Lo "${BINARY_NAME}.zip" "$DOWNLOAD_URL"; then
+    # Use a more user-friendly progress display
+    if curl -#Lo "${BINARY_NAME}.zip" "$DOWNLOAD_URL"; then
+        echo -e "${GREEN}Download complete!${NC}"
         # Extract binary
-        unzip -o "${BINARY_NAME}.zip"
+        echo -e "${BLUE}Extracting binary...${NC}"
+        unzip -q -o "${BINARY_NAME}.zip"
         
         # Move binary to /usr/local/bin
         sudo mv $BINARY_NAME /usr/local/bin/inferoute-client
@@ -215,6 +222,7 @@ echo -e "\n${BLUE}=== Configuration Setup ===${NC}"
 # Download config.yaml.example first
 echo -e "${BLUE}Downloading config.yaml.example...${NC}"
 curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
+echo -e "${GREEN}Configuration template downloaded.${NC}"
 
 # Get configuration values from environment variables
 NGROK_AUTHTOKEN=$(check_env_var "NGROK_AUTHTOKEN" "$NGROK_AUTHTOKEN" "")

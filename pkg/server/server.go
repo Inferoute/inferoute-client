@@ -50,15 +50,14 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 
 // Start starts the server
 func (s *Server) Start() error {
-	// Try to fetch the NGROK URL on startup
+	// Try to fetch the NGROK URL on startup just to verify it works
 	if s.ngrokClient != nil {
-		ngrokURL, err := s.ngrokClient.GetPublicURL()
+		_, err := s.ngrokClient.GetPublicURL()
 		if err != nil {
 			logger.Warn("Failed to fetch NGROK URL on startup", zap.Error(err))
+			logger.Warn("NGROK URL will not be available until NGROK is properly configured")
 		} else {
-			// Update the config with the fetched URL
-			s.config.NGROK.URL = ngrokURL
-			logger.Info("NGROK URL fetched on startup", zap.String("url", ngrokURL))
+			logger.Info("NGROK API connection successful, URL will be fetched dynamically when needed")
 		}
 	}
 
@@ -128,18 +127,34 @@ func (s *Server) redrawConsole() {
 		var err error
 		gpuInfo, err = s.gpuMonitor.GetGPUInfo()
 		if err != nil {
-			s.logError(fmt.Sprintf("Failed to get GPU info: %v", err))
-			gpuInfo = nil
+			logger.Error("Failed to get GPU information", zap.Error(err))
+			gpuInfo = &gpu.GPUInfo{
+				ProductName:   "Unknown",
+				DriverVersion: "Unknown",
+				CUDAVersion:   "Unknown",
+				GPUCount:      0,
+			}
 		}
-	}
-
-	// If GPU info is nil, use a default
-	if gpuInfo == nil {
+	} else {
+		// No GPU monitor available
 		gpuInfo = &gpu.GPUInfo{
 			ProductName:   "Unknown",
 			DriverVersion: "Unknown",
 			CUDAVersion:   "Unknown",
 			GPUCount:      0,
+		}
+	}
+
+	// Try to fetch the latest NGROK URL
+	var ngrokURL string
+	if s.ngrokClient != nil {
+		var err error
+		ngrokURL, err = s.ngrokClient.GetPublicURL()
+		if err != nil {
+			logger.Warn("Failed to fetch NGROK URL for console display", zap.Error(err))
+			// Don't display NGROK URL if we can't fetch it
+		} else {
+			logger.Debug("Using NGROK URL for console display", zap.String("url", ngrokURL))
 		}
 	}
 
@@ -167,8 +182,8 @@ func (s *Server) redrawConsole() {
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port))
-	if s.config.NGROK.URL != "" {
-		buf.WriteString(fmt.Sprintf("\033[1;35mNGROK URL                     \033[0m%s\n", s.config.NGROK.URL))
+	if ngrokURL != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35mNGROK URL                     \033[0m%s\n", ngrokURL))
 	}
 
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")

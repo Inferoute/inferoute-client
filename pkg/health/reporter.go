@@ -56,16 +56,16 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *olla
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	logger.Debug("Preparing health report")
 
-	// Try to fetch the latest NGROK URL
+	// Get the current NGROK URL for the health report
+	var ngrokURL string
 	if r.ngrokClient != nil {
-		ngrokURL, err := r.ngrokClient.GetPublicURL()
+		var err error
+		ngrokURL, err = r.ngrokClient.GetPublicURL()
 		if err != nil {
 			logger.Warn("Failed to fetch NGROK URL for health report", zap.Error(err))
-			// Continue with the existing URL
-		} else if ngrokURL != r.config.NGROK.URL {
-			// Update the config with the new URL
-			r.config.NGROK.URL = ngrokURL
-			logger.Info("NGROK URL updated for health report", zap.String("url", ngrokURL))
+			// Continue without NGROK URL
+		} else {
+			logger.Debug("Using NGROK URL for health report", zap.String("url", ngrokURL))
 		}
 	}
 
@@ -100,7 +100,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		Data:   models.Models,
 		GPU:    gpuInfo,
 		NGROK: map[string]interface{}{
-			"url": r.config.NGROK.URL,
+			"url": ngrokURL,
 		},
 		ProviderType: r.config.Provider.ProviderType,
 	}
@@ -170,16 +170,16 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	logger.Debug("Getting health report")
 
-	// Try to fetch the latest NGROK URL
+	// Get the current NGROK URL for the health report
+	var ngrokURL string
 	if r.ngrokClient != nil {
-		ngrokURL, err := r.ngrokClient.GetPublicURL()
+		var err error
+		ngrokURL, err = r.ngrokClient.GetPublicURL()
 		if err != nil {
 			logger.Warn("Failed to fetch NGROK URL for health report", zap.Error(err))
-			// Continue with the existing URL
-		} else if ngrokURL != r.config.NGROK.URL {
-			// Update the config with the new URL
-			r.config.NGROK.URL = ngrokURL
-			logger.Info("NGROK URL updated for health report", zap.String("url", ngrokURL))
+			// Continue without NGROK URL
+		} else {
+			logger.Debug("Using NGROK URL for health report", zap.String("url", ngrokURL))
 		}
 	}
 
@@ -214,7 +214,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		Data:   models.Models,
 		GPU:    gpuInfo,
 		NGROK: map[string]interface{}{
-			"url": r.config.NGROK.URL,
+			"url": ngrokURL,
 		},
 		ProviderType: r.config.Provider.ProviderType,
 	}
