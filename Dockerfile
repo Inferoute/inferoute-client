@@ -53,7 +53,7 @@ FROM debian:12-slim
 # Install minimal requirements (split into multiple steps for better reliability in emulation)
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends ca-certificates 
-RUN apt-get install -y --no-install-recommends curl jq bash procps sudo unzip
+RUN apt-get install -y --no-install-recommends curl bash procps sudo unzip
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy binaries from archive stage

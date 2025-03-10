@@ -80,6 +80,8 @@ Before starting the health reporting cycle, the client performs a one-time initi
 
 This initialization ensures that all local models are registered with appropriate pricing before the client begins handling inference requests.
 
+Note that the API to register models with `/api/provider/models` does not allow updates to models - can only be used for initial creation of models.
+
 ### Inference Request Handling:
 
 When an inference request is received from the central orchestrator, the provider client:
