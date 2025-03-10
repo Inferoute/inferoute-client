@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -173,11 +172,4 @@ func (c *Client) Chat(ctx context.Context, request *ChatRequest) (*ChatResponse,
 		zap.Int("prompt_tokens", response.Usage.PromptTokens),
 		zap.Int("completion_tokens", response.Usage.CompletionTokens))
 	return &response, nil
-}
-
-// GetBaseModelName extracts the base model name from a model ID by removing tags
-func GetBaseModelName(modelID string) string {
-	// Extract base model name (remove tags)
-	parts := strings.Split(modelID, ":")
-	return parts[0]
 }
