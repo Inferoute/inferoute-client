@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"go.uber.org/zap"
 )
 
@@ -24,9 +26,13 @@ type Reporter struct {
 	gpuMonitor      *gpu.Monitor
 	ollamaClient    *ollama.Client
 	ngrokClient     *ngrok.Client
+	pricingClient   *pricing.Client
 	client          *http.Client
 	lastUpdateTime  time.Time
 	lastUpdateMutex sync.Mutex
+	// Track registered models to avoid re-registration
+	registeredModels     map[string]bool
+	registeredModelMutex sync.Mutex
 }
 
 // HealthReport represents a health report to be sent to the central system
@@ -44,11 +50,134 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *olla
 	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
 
 	return &Reporter{
-		config:       cfg,
-		gpuMonitor:   gpuMonitor,
-		ollamaClient: ollamaClient,
-		ngrokClient:  ngrokClient,
-		client:       &http.Client{Timeout: 10 * time.Second},
+		config:           cfg,
+		gpuMonitor:       gpuMonitor,
+		ollamaClient:     ollamaClient,
+		ngrokClient:      ngrokClient,
+		client:           &http.Client{Timeout: 10 * time.Second},
+		registeredModels: make(map[string]bool),
+	}
+}
+
+// SetPricingClient sets the pricing client for model registration
+func (r *Reporter) SetPricingClient(pricingClient *pricing.Client) {
+	r.pricingClient = pricingClient
+}
+
+// AddRegisteredModels adds a list of model names to the registered models map
+func (r *Reporter) AddRegisteredModels(modelNames []string) {
+	r.registeredModelMutex.Lock()
+	defer r.registeredModelMutex.Unlock()
+
+	for _, name := range modelNames {
+		// Extract base model name (remove tags)
+		baseName := ollama.GetBaseModelName(name)
+		r.registeredModels[baseName] = true
+		logger.Debug("Marked model as registered", zap.String("model", baseName))
+	}
+}
+
+// checkAndRegisterNewModels checks for new models and registers them with pricing
+func (r *Reporter) checkAndRegisterNewModels(ctx context.Context, models []ollama.OllamaModel) {
+	if len(models) == 0 {
+		return
+	}
+
+	// Extract model names and check which ones are new
+	newModels := make([]string, 0)
+
+	r.registeredModelMutex.Lock()
+	for _, model := range models {
+		// Extract base model name (remove tags)
+		baseName := ollama.GetBaseModelName(model.ID)
+
+		// Check if this model is already registered
+		if !r.registeredModels[baseName] {
+			newModels = append(newModels, baseName)
+			// Mark as registered immediately to prevent duplicate registration attempts
+			r.registeredModels[baseName] = true
+		}
+	}
+	r.registeredModelMutex.Unlock()
+
+	if len(newModels) == 0 {
+		return
+	}
+
+	logger.Info("Found new models to register", zap.Strings("models", newModels))
+
+	// Get pricing for new models
+	prices, err := r.pricingClient.GetModelPrices(ctx, newModels)
+	if err != nil {
+		logger.Error("Failed to get pricing for new models", zap.Error(err), zap.Strings("models", newModels))
+		return
+	}
+
+	// Create a map of model prices for easy lookup and find default pricing
+	priceMap := make(map[string]pricing.ModelPrice)
+	var defaultPrice pricing.ModelPrice
+	for _, price := range prices.ModelPrices {
+		if price.ModelName == "default" {
+			defaultPrice = price
+			logger.Info("Using default pricing for new models",
+				zap.Float64("default_input_price", defaultPrice.AvgInputPrice),
+				zap.Float64("default_output_price", defaultPrice.AvgOutputPrice))
+			continue
+		}
+		priceMap[price.ModelName] = price
+	}
+
+	if defaultPrice.ModelName == "" {
+		logger.Warn("No default pricing found in API response, using hardcoded defaults")
+		defaultPrice = pricing.ModelPrice{
+			ModelName:      "default",
+			AvgInputPrice:  0.0002,
+			AvgOutputPrice: 0.0003,
+		}
+	}
+
+	// Register each new model
+	for _, modelName := range newModels {
+		price, exists := priceMap[modelName]
+		if !exists {
+			logger.Info("No specific pricing found for model, using default pricing",
+				zap.String("model", modelName),
+				zap.Float64("default_input_price", defaultPrice.AvgInputPrice),
+				zap.Float64("default_output_price", defaultPrice.AvgOutputPrice))
+
+			if err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType, defaultPrice.AvgInputPrice, defaultPrice.AvgOutputPrice); err != nil {
+				// Check if error is because model already exists (400 Bad Request)
+				if strings.Contains(err.Error(), "already exists") {
+					logger.Info("Model already registered", zap.String("model", modelName))
+					continue
+				}
+
+				logger.Error("Failed to register model with default pricing",
+					zap.String("model", modelName),
+					zap.Error(err))
+				continue
+			}
+		} else {
+			logger.Info("Registering model with specific pricing",
+				zap.String("model", modelName),
+				zap.Float64("input_price", price.AvgInputPrice),
+				zap.Float64("output_price", price.AvgOutputPrice),
+				zap.Int("sample_size", price.SampleSize))
+
+			if err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType, price.AvgInputPrice, price.AvgOutputPrice); err != nil {
+				// Check if error is because model already exists (400 Bad Request)
+				if strings.Contains(err.Error(), "already exists") {
+					logger.Info("Model already registered", zap.String("model", modelName))
+					continue
+				}
+
+				logger.Error("Failed to register model",
+					zap.String("model", modelName),
+					zap.Error(err))
+				continue
+			}
+		}
+		logger.Info("Successfully registered new model", zap.String("model", modelName))
 	}
 }
 
@@ -92,6 +221,11 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 			Object: "list",
 			Models: []ollama.OllamaModel{},
 		}
+	}
+
+	// Check for new models and register them if pricing client is available
+	if r.pricingClient != nil {
+		r.checkAndRegisterNewModels(ctx, models.Models)
 	}
 
 	// Create health report
@@ -206,6 +340,11 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 			Object: "list",
 			Models: []ollama.OllamaModel{},
 		}
+	}
+
+	// Check for new models and register them if pricing client is available
+	if r.pricingClient != nil {
+		r.checkAndRegisterNewModels(ctx, models.Models)
 	}
 
 	// Create health report
