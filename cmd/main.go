@@ -142,32 +142,26 @@ func main() {
 	// Initialize pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
-	// Initialize health reporter
-	healthReporter := health.NewReporter(cfg, gpuMonitor, ollamaClient)
-
-	// Set pricing client for health reporter
-	healthReporter.SetPricingClient(pricingClient)
-
 	// Register local models with pricing
+	var registeredModelIDs []string
 	if err := pricing.RegisterLocalModels(ctx, ollamaClient, pricingClient, cfg.Provider.ProviderType); err != nil {
 		logger.Error("Failed to register local models", zap.Error(err))
 		// Continue anyway as this is not critical
 	} else {
-		// Get list of local models to initialize the registered models list
+		// Get the list of registered model IDs
 		models, err := ollamaClient.ListModels(ctx)
-		if err != nil {
-			logger.Error("Failed to list local models for tracking", zap.Error(err))
-		} else {
-			// Extract model names
-			modelNames := make([]string, 0, len(models.Models))
+		if err == nil {
 			for _, model := range models.Models {
-				modelNames = append(modelNames, model.ID)
+				registeredModelIDs = append(registeredModelIDs, model.ID)
 			}
-			// Add models to the registered models list
-			healthReporter.AddRegisteredModels(modelNames)
-			logger.Info("Initialized registered models list", zap.Int("count", len(modelNames)))
 		}
 	}
+
+	// Initialize health reporter
+	healthReporter := health.NewReporter(cfg, gpuMonitor, ollamaClient)
+
+	// Initialize the registered models tracker
+	healthReporter.InitializeRegisteredModels(registeredModelIDs)
 
 	// Start health reporting in background
 	go func() {

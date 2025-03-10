@@ -3,7 +3,6 @@ package pricing
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
@@ -28,9 +27,8 @@ func RegisterLocalModels(ctx context.Context, ollamaClient *ollama.Client, prici
 	// Extract model names
 	modelNames := make([]string, 0, len(models.Models))
 	for _, model := range models.Models {
-		// Extract base model name (remove tags)
-		baseName := strings.Split(model.ID, ":")[0]
-		modelNames = append(modelNames, baseName)
+		// Use full model ID including tags
+		modelNames = append(modelNames, model.ID)
 	}
 
 	// Get pricing for all models

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -30,9 +29,9 @@ type Reporter struct {
 	client          *http.Client
 	lastUpdateTime  time.Time
 	lastUpdateMutex sync.Mutex
-	// Track registered models to avoid re-registration
-	registeredModels     map[string]bool
-	registeredModelMutex sync.Mutex
+	// Track registered models to avoid duplicate registrations
+	registeredModels   map[string]bool
+	registeredModelsMu sync.Mutex
 }
 
 // HealthReport represents a health report to be sent to the central system
@@ -49,67 +48,65 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *olla
 	// Create NGROK client
 	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
 
+	// Create pricing client
+	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
+
 	return &Reporter{
 		config:           cfg,
 		gpuMonitor:       gpuMonitor,
 		ollamaClient:     ollamaClient,
 		ngrokClient:      ngrokClient,
+		pricingClient:    pricingClient,
 		client:           &http.Client{Timeout: 10 * time.Second},
 		registeredModels: make(map[string]bool),
 	}
 }
 
-// SetPricingClient sets the pricing client for model registration
-func (r *Reporter) SetPricingClient(pricingClient *pricing.Client) {
-	r.pricingClient = pricingClient
-}
+// InitializeRegisteredModels initializes the set of registered models
+// This should be called after the initial model registration at startup
+func (r *Reporter) InitializeRegisteredModels(modelIDs []string) {
+	r.registeredModelsMu.Lock()
+	defer r.registeredModelsMu.Unlock()
 
-// AddRegisteredModels adds a list of model names to the registered models map
-func (r *Reporter) AddRegisteredModels(modelNames []string) {
-	r.registeredModelMutex.Lock()
-	defer r.registeredModelMutex.Unlock()
-
-	for _, name := range modelNames {
-		// Extract base model name (remove tags)
-		baseName := ollama.GetBaseModelName(name)
-		r.registeredModels[baseName] = true
-		logger.Debug("Marked model as registered", zap.String("model", baseName))
-	}
-}
-
-// checkAndRegisterNewModels checks for new models and registers them with pricing
-func (r *Reporter) checkAndRegisterNewModels(ctx context.Context, models []ollama.OllamaModel) {
-	if len(models) == 0 {
-		return
+	for _, id := range modelIDs {
+		r.registeredModels[id] = true
 	}
 
-	// Extract model names and check which ones are new
-	newModels := make([]string, 0)
+	logger.Info("Initialized registered models tracker",
+		zap.Int("model_count", len(modelIDs)))
+}
 
-	r.registeredModelMutex.Lock()
+// registerNewModels checks for new models and registers them with pricing
+func (r *Reporter) registerNewModels(ctx context.Context, models []ollama.OllamaModel) {
+	// Get the current list of model IDs
+	currentModelIDs := make([]string, 0, len(models))
 	for _, model := range models {
-		// Extract base model name (remove tags)
-		baseName := ollama.GetBaseModelName(model.ID)
+		currentModelIDs = append(currentModelIDs, model.ID)
+	}
 
-		// Check if this model is already registered
-		if !r.registeredModels[baseName] {
-			newModels = append(newModels, baseName)
-			// Mark as registered immediately to prevent duplicate registration attempts
-			r.registeredModels[baseName] = true
+	// Find new models that need to be registered
+	newModels := make([]string, 0)
+	r.registeredModelsMu.Lock()
+	for _, id := range currentModelIDs {
+		if !r.registeredModels[id] {
+			newModels = append(newModels, id)
 		}
 	}
-	r.registeredModelMutex.Unlock()
+	r.registeredModelsMu.Unlock()
 
 	if len(newModels) == 0 {
-		return
+		return // No new models to register
 	}
 
-	logger.Info("Found new models to register", zap.Strings("models", newModels))
+	logger.Info("Found new models to register",
+		zap.Strings("new_models", newModels))
 
-	// Get pricing for new models
+	// Get pricing for the new models
 	prices, err := r.pricingClient.GetModelPrices(ctx, newModels)
 	if err != nil {
-		logger.Error("Failed to get pricing for new models", zap.Error(err), zap.Strings("models", newModels))
+		logger.Error("Failed to get model prices for new models",
+			zap.Error(err),
+			zap.Strings("models", newModels))
 		return
 	}
 
@@ -119,9 +116,6 @@ func (r *Reporter) checkAndRegisterNewModels(ctx context.Context, models []ollam
 	for _, price := range prices.ModelPrices {
 		if price.ModelName == "default" {
 			defaultPrice = price
-			logger.Info("Using default pricing for new models",
-				zap.Float64("default_input_price", defaultPrice.AvgInputPrice),
-				zap.Float64("default_output_price", defaultPrice.AvgOutputPrice))
 			continue
 		}
 		priceMap[price.ModelName] = price
@@ -145,10 +139,19 @@ func (r *Reporter) checkAndRegisterNewModels(ctx context.Context, models []ollam
 				zap.Float64("default_input_price", defaultPrice.AvgInputPrice),
 				zap.Float64("default_output_price", defaultPrice.AvgOutputPrice))
 
-			if err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType, defaultPrice.AvgInputPrice, defaultPrice.AvgOutputPrice); err != nil {
-				// Check if error is because model already exists (400 Bad Request)
-				if strings.Contains(err.Error(), "already exists") {
-					logger.Info("Model already registered", zap.String("model", modelName))
+			err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType,
+				defaultPrice.AvgInputPrice, defaultPrice.AvgOutputPrice)
+
+			if err != nil {
+				// Check if it's a 400 error (model already exists)
+				if resp, ok := err.(*pricing.ErrorResponse); ok && resp.StatusCode == 400 {
+					logger.Info("Model already registered elsewhere",
+						zap.String("model", modelName))
+
+					// Still mark it as registered in our tracker
+					r.registeredModelsMu.Lock()
+					r.registeredModels[modelName] = true
+					r.registeredModelsMu.Unlock()
 					continue
 				}
 
@@ -164,10 +167,19 @@ func (r *Reporter) checkAndRegisterNewModels(ctx context.Context, models []ollam
 				zap.Float64("output_price", price.AvgOutputPrice),
 				zap.Int("sample_size", price.SampleSize))
 
-			if err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType, price.AvgInputPrice, price.AvgOutputPrice); err != nil {
-				// Check if error is because model already exists (400 Bad Request)
-				if strings.Contains(err.Error(), "already exists") {
-					logger.Info("Model already registered", zap.String("model", modelName))
+			err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType,
+				price.AvgInputPrice, price.AvgOutputPrice)
+
+			if err != nil {
+				// Check if it's a 400 error (model already exists)
+				if resp, ok := err.(*pricing.ErrorResponse); ok && resp.StatusCode == 400 {
+					logger.Info("Model already registered elsewhere",
+						zap.String("model", modelName))
+
+					// Still mark it as registered in our tracker
+					r.registeredModelsMu.Lock()
+					r.registeredModels[modelName] = true
+					r.registeredModelsMu.Unlock()
 					continue
 				}
 
@@ -177,7 +189,14 @@ func (r *Reporter) checkAndRegisterNewModels(ctx context.Context, models []ollam
 				continue
 			}
 		}
-		logger.Info("Successfully registered new model", zap.String("model", modelName))
+
+		// Mark model as registered
+		r.registeredModelsMu.Lock()
+		r.registeredModels[modelName] = true
+		r.registeredModelsMu.Unlock()
+
+		logger.Info("Successfully registered new model",
+			zap.String("model", modelName))
 	}
 }
 
@@ -223,10 +242,8 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		}
 	}
 
-	// Check for new models and register them if pricing client is available
-	if r.pricingClient != nil {
-		r.checkAndRegisterNewModels(ctx, models.Models)
-	}
+	// Check for and register new models
+	r.registerNewModels(ctx, models.Models)
 
 	// Create health report
 	report := HealthReport{
@@ -340,11 +357,6 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 			Object: "list",
 			Models: []ollama.OllamaModel{},
 		}
-	}
-
-	// Check for new models and register them if pricing client is available
-	if r.pricingClient != nil {
-		r.checkAndRegisterNewModels(ctx, models.Models)
 	}
 
 	// Create health report
