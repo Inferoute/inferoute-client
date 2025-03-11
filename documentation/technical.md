@@ -32,7 +32,7 @@ Before starting the health reporting cycle, the client performs a one-time initi
 
 1. **Model Discovery**:
    - Queries the local Ollama instance to get a list of all available models
-   - Extracts base model names by removing tags (e.g., "llama2:latest" becomes "llama2")
+   - Uses full model IDs including tags (e.g., "llama2:latest")
 
 2. **Price Fetching**:
    - Makes a request to `/api/model-pricing/get-prices` with the list of discovered models
@@ -81,6 +81,34 @@ Before starting the health reporting cycle, the client performs a one-time initi
 This initialization ensures that all local models are registered with appropriate pricing before the client begins handling inference requests.
 
 Note that the API to register models with `/api/provider/models` does not allow updates to models - can only be used for initial creation of models.
+
+### Automatic Model Registration:
+
+The provider client now includes automatic registration of new models that are added to Ollama after the application has started:
+
+1. **Model Tracking**:
+   - The client maintains a registry of models that have already been registered with pricing
+   - This registry is initialized at startup with the list of models registered during initialization
+   - The registry is thread-safe to handle concurrent access
+
+2. **Periodic Model Discovery**:
+   - During each health report cycle (every 5 minutes), the client checks for new models
+   - It compares the current list of models from Ollama with the tracked registry
+   - Any models that exist in Ollama but not in the registry are identified as new models
+
+3. **Automatic Registration**:
+   - For each newly discovered model, the client:
+     - Fetches pricing information from the central system
+     - Uses model-specific pricing if available, or falls back to default pricing
+     - Registers the model with the central system via `/api/provider/models`
+     - Adds the model to the tracked registry upon successful registration
+   
+4. **Error Handling**:
+   - If a model already exists (HTTP 400 Bad Request), it's marked as registered in the local registry
+   - Registration failures are logged but don't interrupt the health reporting process
+   - Detailed logging provides visibility into the registration process
+
+This automatic registration ensures that any models added to Ollama after the client has started will be properly registered with pricing information without requiring a restart of the provider client.
 
 ### Inference Request Handling:
 

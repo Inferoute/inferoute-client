@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -38,6 +39,17 @@ type RegisterModelRequest struct {
 	ServiceType       string  `json:"service_type"`
 	InputPriceTokens  float64 `json:"input_price_tokens"`
 	OutputPriceTokens float64 `json:"output_price_tokens"`
+}
+
+// ErrorResponse represents an error response from the API
+type ErrorResponse struct {
+	Message    string `json:"error"`
+	StatusCode int    `json:"-"` // Not part of the JSON response, added for context
+}
+
+// Error implements the error interface
+func (e *ErrorResponse) Error() string {
+	return fmt.Sprintf("API error (status %d): %s", e.StatusCode, e.Message)
 }
 
 func NewClient(baseURL, apiKey string) *Client {
@@ -118,14 +130,16 @@ func (c *Client) RegisterModel(ctx context.Context, model string, serviceType st
 	}
 	defer resp.Body.Close()
 
-	// If model already exists, that's okay - just log and continue
-	if resp.StatusCode == http.StatusConflict {
-		logger.Info("Model already exists", zap.String("model", model))
-		return nil
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+	// Check for error responses
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		var errResp ErrorResponse
+		if err := json.Unmarshal(body, &errResp); err != nil {
+			// If we can't parse the error response, return a generic error
+			return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		}
+		errResp.StatusCode = resp.StatusCode
+		return &errResp
 	}
 
 	return nil

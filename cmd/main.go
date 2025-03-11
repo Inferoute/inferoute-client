@@ -143,13 +143,25 @@ func main() {
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	// Register local models with pricing
+	var registeredModelIDs []string
 	if err := pricing.RegisterLocalModels(ctx, ollamaClient, pricingClient, cfg.Provider.ProviderType); err != nil {
 		logger.Error("Failed to register local models", zap.Error(err))
 		// Continue anyway as this is not critical
+	} else {
+		// Get the list of registered model IDs
+		models, err := ollamaClient.ListModels(ctx)
+		if err == nil {
+			for _, model := range models.Models {
+				registeredModelIDs = append(registeredModelIDs, model.ID)
+			}
+		}
 	}
 
 	// Initialize health reporter
 	healthReporter := health.NewReporter(cfg, gpuMonitor, ollamaClient)
+
+	// Initialize the registered models tracker
+	healthReporter.InitializeRegisteredModels(registeredModelIDs)
 
 	// Start health reporting in background
 	go func() {
