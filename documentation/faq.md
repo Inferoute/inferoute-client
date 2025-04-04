@@ -29,6 +29,17 @@ The Provider Client performs a one-time initialization of model pricing at start
 Yes you can use the /api/provider/models/{model_id} API - see documentation here 
 You can also log onto to your user profile and make changes to model pricing.
 
+### What are GGUF models and how do they compare to FP16?
+GGUF (GPT-Generated Unified Format) is a model format optimized for CPU and GPU inference:
+
+- **Efficiency**: GGUF models are typically more memory-efficient than FP16 models, using quantization to reduce model size while maintaining quality
+- **Performance**: They often provide faster inference on consumer hardware compared to standard FP16 models
+- **Compatibility**: GGUF is the native format for Ollama, replacing the older GGML format
+- **Quantization Levels**: Available in various quantization levels (Q4_K_M, Q5_K_M, Q6_K, Q8_0) offering different trade-offs between model size and accuracy
+- **Memory Usage**: A GGUF model might use 4-8 bits per parameter instead of 16 bits in FP16, resulting in 2-4x smaller memory footprint
+
+When using models through the Inferoute client, GGUF models are identified with the `gguf/` prefix in requests.
+
 ## NGROK Integration
 
 ### How does the NGROK URL get updated?
