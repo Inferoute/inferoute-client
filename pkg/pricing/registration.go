@@ -3,18 +3,30 @@ package pricing
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"go.uber.org/zap"
 )
 
-// RegisterLocalModels registers all local Ollama models with their pricing
-func RegisterLocalModels(ctx context.Context, ollamaClient *ollama.Client, pricingClient *Client, serviceType string) error {
-	logger.Info("Starting initial model registration")
+// RegisterLocalModels registers all local models with their pricing
+func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string) error {
+	// Normalize service type to match API expectations
+	normalizedServiceType := strings.ToLower(serviceType)
+	if normalizedServiceType != "vllm" && normalizedServiceType != "ollama" {
+		logger.Warn("Invalid service type, defaulting to vllm",
+			zap.String("original_service_type", serviceType),
+			zap.String("normalized_service_type", "vllm"))
+		normalizedServiceType = "vllm"
+	}
+
+	logger.Info("Starting initial model registration",
+		zap.String("original_service_type", serviceType),
+		zap.String("normalized_service_type", normalizedServiceType))
 
 	// Get list of local models
-	models, err := ollamaClient.ListModels(ctx)
+	models, err := llmClient.ListModels(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list local models: %w", err)
 	}
@@ -77,9 +89,14 @@ func RegisterLocalModels(ctx context.Context, ollamaClient *ollama.Client, prici
 				zap.Float64("default_input_price", defaultPrice.AvgInputPrice),
 				zap.Float64("default_output_price", defaultPrice.AvgOutputPrice))
 
-			if err := pricingClient.RegisterModel(ctx, modelName, serviceType, defaultPrice.AvgInputPrice, defaultPrice.AvgOutputPrice); err != nil {
+			logger.Debug("Registering model with service type",
+				zap.String("model", modelName),
+				zap.String("service_type", normalizedServiceType))
+
+			if err := pricingClient.RegisterModel(ctx, modelName, normalizedServiceType, defaultPrice.AvgInputPrice, defaultPrice.AvgOutputPrice); err != nil {
 				logger.Error("Failed to register model with default pricing",
 					zap.String("model", modelName),
+					zap.String("service_type", normalizedServiceType),
 					zap.Error(err))
 				continue
 			}
@@ -90,9 +107,14 @@ func RegisterLocalModels(ctx context.Context, ollamaClient *ollama.Client, prici
 				zap.Float64("output_price", price.AvgOutputPrice),
 				zap.Int("sample_size", price.SampleSize))
 
-			if err := pricingClient.RegisterModel(ctx, modelName, serviceType, price.AvgInputPrice, price.AvgOutputPrice); err != nil {
+			logger.Debug("Registering model with service type",
+				zap.String("model", modelName),
+				zap.String("service_type", normalizedServiceType))
+
+			if err := pricingClient.RegisterModel(ctx, modelName, normalizedServiceType, price.AvgInputPrice, price.AvgOutputPrice); err != nil {
 				logger.Error("Failed to register model",
 					zap.String("model", modelName),
+					zap.String("service_type", normalizedServiceType),
 					zap.Error(err))
 				continue
 			}

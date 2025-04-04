@@ -5,13 +5,13 @@ The Inferoute Provider Client is a lightweight Go service that runs on Ollama pr
 
 We will also add support for exo-labs and llama.cppp in the future. 
 
-## Features
+🔥 What do we do?
 
-- **Health Monitoring & Reporting**: Collects local metrics (GPU type, number of GPUs, utilization stats, models available) and reports them to the central system.
-- **Inference Request Handling**: Forwards inference requests to the local Ollama instance after checking GPU availability.
-- **HMAC Validation**: Validates HMACs on incoming requests to ensure they are legitimate.
-- **OpenAI API Compatibility**: Implements the OpenAI API for chat completions and completions.
-- **Dynamic NGROK Integration**: Automatically discovers and uses the current NGROK URL, eliminating the need for manual configuration updates when URLs change.
+
+
+
+
+
 
 ## Requirements
 
@@ -24,7 +24,6 @@ We will also add support for exo-labs and llama.cppp in the future.
 ## Optional
 - NVIDIA GPU with nvidia-smi installed (for GPU monitoring)
 - AMD GPU with xxxxxx installed (for GPU monitoring)
-
 
 
 ## 💾 Installation

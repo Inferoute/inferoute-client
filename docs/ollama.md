@@ -64,5 +64,30 @@ ollama serve
 2. Windows will prompt for Firewall Permission, allow that
 
 
+### Using Ollama Models
+
+When making requests to Ollama models through the Inferoute client, you need to prefix the model name with `gguf/`. For example:
+
+```json
+{
+  "model": "gguf/llama2",  // NOT just "llama2"
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello!"
+    }
+  ]
+}
+```
+
+This prefix is required because Inferoute uses it to identify Ollama models internally. The client will automatically strip this prefix when making requests to the Ollama server.
+
+Common examples:
+- `gguf/llama2` 
+- `gguf/mistral`
+- `gguf/codellama`
+- `gguf/neural-chat`
+
+
 
 

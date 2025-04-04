@@ -7,8 +7,8 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 ### Added
 
-- 
+- When a new model is added to Ollama it will now automatically be picked up by the client and default pricing will be set.
 
 ### Fixed
 
- - Remoced jq from Docker instance as no longer required.
+ - Removed jq from Docker instance as no longer required.

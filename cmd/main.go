@@ -13,8 +13,8 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
 	"go.uber.org/zap"
@@ -136,20 +136,20 @@ func main() {
 		logger.Warn("Continuing without GPU monitoring")
 	}
 
-	// Initialize Ollama client
-	ollamaClient := ollama.NewClient(cfg.Provider.LLMURL)
+	// Initialize LLM client
+	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL)
 
 	// Initialize pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	// Register local models with pricing
 	var registeredModelIDs []string
-	if err := pricing.RegisterLocalModels(ctx, ollamaClient, pricingClient, cfg.Provider.ProviderType); err != nil {
+	if err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType); err != nil {
 		logger.Error("Failed to register local models", zap.Error(err))
 		// Continue anyway as this is not critical
 	} else {
 		// Get the list of registered model IDs
-		models, err := ollamaClient.ListModels(ctx)
+		models, err := llmClient.ListModels(ctx)
 		if err == nil {
 			for _, model := range models.Models {
 				registeredModelIDs = append(registeredModelIDs, model.ID)
@@ -158,7 +158,7 @@ func main() {
 	}
 
 	// Initialize health reporter
-	healthReporter := health.NewReporter(cfg, gpuMonitor, ollamaClient)
+	healthReporter := health.NewReporter(cfg, gpuMonitor, llmClient)
 
 	// Initialize the registered models tracker
 	healthReporter.InitializeRegisteredModels(registeredModelIDs)
@@ -186,7 +186,7 @@ func main() {
 	}()
 
 	// Initialize and start HTTP server
-	srv := server.CreateServer(cfg, gpuMonitor, healthReporter, ollamaClient)
+	srv := server.CreateServer(cfg, gpuMonitor, healthReporter)
 	go func() {
 		if err := srv.Start(); err != nil {
 			logger.Fatal("Failed to start server", zap.Error(err))
