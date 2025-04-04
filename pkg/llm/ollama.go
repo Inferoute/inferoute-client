@@ -19,6 +19,21 @@ type OllamaClient struct {
 	client  *http.Client
 }
 
+// OllamaModel represents the Ollama-specific model format
+type OllamaModel struct {
+	Name       string                 `json:"name"`
+	Model      string                 `json:"model"`
+	ModifiedAt string                 `json:"modified_at"`
+	Size       int64                  `json:"size"`
+	Digest     string                 `json:"digest"`
+	Details    map[string]interface{} `json:"details"`
+}
+
+// OllamaListModelsResponse represents the Ollama-specific response format
+type OllamaListModelsResponse struct {
+	Models []OllamaModel `json:"models"`
+}
+
 // NewOllamaClient creates a new Ollama client
 func NewOllamaClient(baseURL string) Client {
 	logger.Debug("Creating new Ollama client", zap.String("base_url", baseURL))
@@ -30,7 +45,7 @@ func NewOllamaClient(baseURL string) Client {
 
 // ListModels lists all available models
 func (c *OllamaClient) ListModels(ctx context.Context) (*ListModelsResponse, error) {
-	url := fmt.Sprintf("%s/v1/models", c.baseURL)
+	url := fmt.Sprintf("%s/api/tags", c.baseURL)
 	logger.Debug("Listing Ollama models", zap.String("url", url))
 
 	// Create request
@@ -56,17 +71,36 @@ func (c *OllamaClient) ListModels(ctx context.Context) (*ListModelsResponse, err
 		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
 
-	// Parse response
-	var response ListModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	// Parse response into Ollama format
+	var ollamaResponse OllamaListModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResponse); err != nil {
 		logger.Error("Failed to parse response for listing models", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Convert to standard format
+	response := &ListModelsResponse{
+		Models: make([]Model, len(ollamaResponse.Models)),
+	}
+
+	for i, ollamaModel := range ollamaResponse.Models {
+		format := "unknown"
+		if details, ok := ollamaModel.Details["format"]; ok {
+			format = fmt.Sprintf("%v", details)
+		}
+
+		response.Models[i] = Model{
+			ID:      fmt.Sprintf("%s/%s", format, ollamaModel.Model),
+			Object:  "model",
+			Created: time.Now().Unix(), // Using current time as Created is not provided
+			OwnedBy: "ollama",
+		}
 	}
 
 	logger.Debug("Successfully listed Ollama models",
 		zap.Int("model_count", len(response.Models)),
 		zap.String("url", url))
-	return &response, nil
+	return response, nil
 }
 
 // Chat sends a chat request to the Ollama API
