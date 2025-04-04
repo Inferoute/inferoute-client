@@ -185,6 +185,31 @@ func (c *OllamaClient) Chat(ctx context.Context, request *ChatRequest) (*ChatRes
 func (c *OllamaClient) ForwardRequest(ctx context.Context, path string, body []byte) ([]byte, error) {
 	url := fmt.Sprintf("%s%s", c.baseURL, path)
 
+	// Parse the request body to transform model name if needed
+	var requestData map[string]interface{}
+	if err := json.Unmarshal(body, &requestData); err != nil {
+		logger.Debug("Failed to parse request body for model transformation", zap.Error(err))
+	} else {
+		// If we have a model field and it's a string, check for gguf/ prefix
+		if modelName, ok := requestData["model"].(string); ok {
+			if strings.HasPrefix(modelName, "gguf/") {
+				// Strip the prefix
+				requestData["model"] = strings.TrimPrefix(modelName, "gguf/")
+				logger.Debug("Stripped gguf/ prefix from model name in forwarded request",
+					zap.String("original_model", modelName),
+					zap.String("transformed_model", requestData["model"].(string)))
+
+				// Re-encode the modified request
+				var err error
+				body, err = json.Marshal(requestData)
+				if err != nil {
+					logger.Error("Failed to re-encode request body after model transformation", zap.Error(err))
+					return nil, fmt.Errorf("failed to re-encode request body: %w", err)
+				}
+			}
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -192,6 +217,11 @@ func (c *OllamaClient) ForwardRequest(ctx context.Context, path string, body []b
 
 	// Add headers
 	req.Header.Set("Content-Type", "application/json")
+
+	// Log the final request that will be sent
+	logger.Debug("Sending request to Ollama",
+		zap.String("url", url),
+		zap.String("request", string(body)))
 
 	// Send request
 	resp, err := c.client.Do(req)
