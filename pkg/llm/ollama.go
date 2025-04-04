@@ -106,32 +106,35 @@ func (c *OllamaClient) ListModels(ctx context.Context) (*ListModelsResponse, err
 
 // Chat sends a chat request to the Ollama API
 func (c *OllamaClient) Chat(ctx context.Context, request *ChatRequest) (*ChatResponse, error) {
+	logger.Debug("Received chat request",
+		zap.String("original_model", request.Model),
+		zap.Int("message_count", len(request.Messages)),
+		zap.Bool("stream", request.Stream))
+
 	// Strip out gguf/ prefix if present for Ollama compatibility
 	modelName := request.Model
 	if strings.HasPrefix(modelName, "gguf/") {
 		modelName = strings.TrimPrefix(modelName, "gguf/")
-		logger.Debug("Stripped gguf/ prefix from model name for Ollama compatibility",
+		logger.Debug("Stripped gguf/ prefix from model name",
 			zap.String("original_model", request.Model),
-			zap.String("ollama_model", modelName))
+			zap.String("transformed_model", modelName))
 	}
 
 	url := fmt.Sprintf("%s/v1/chat/completions", c.baseURL)
-	logger.Debug("Sending chat request to Ollama",
-		zap.String("url", url),
-		zap.String("model", modelName),
-		zap.Int("message_count", len(request.Messages)),
-		zap.Bool("stream", request.Stream))
 
 	// Create a copy of the request with the modified model name
 	ollamaRequest := *request
 	ollamaRequest.Model = modelName
 
-	// Marshal request to JSON
+	// Log the final request that will be sent to Ollama
 	requestJSON, err := json.Marshal(ollamaRequest)
 	if err != nil {
 		logger.Error("Failed to marshal chat request", zap.Error(err))
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+	logger.Debug("Sending request to Ollama",
+		zap.String("url", url),
+		zap.String("request", string(requestJSON)))
 
 	// Create request
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(requestJSON))
