@@ -112,18 +112,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward request to Ollama
-	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/chat/completions", body)
+	// Forward request to LLM provider
+	llmResp, err := s.forwardToLLM(r.Context(), "/v1/chat/completions", body)
 	if err != nil {
-		s.logError(fmt.Sprintf("Failed to forward request to Ollama: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
+		s.logError(fmt.Sprintf("Failed to forward request to LLM provider: %v", err))
+		http.Error(w, fmt.Sprintf("Failed to forward request to LLM provider: %v", err), http.StatusInternalServerError)
 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
 		return
 	}
 
 	// Write response
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(ollamaResp)
+	w.Write(llmResp)
 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
 }
 
@@ -185,17 +185,17 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward request to Ollama
-	ollamaResp, err := s.forwardToOllama(r.Context(), "/v1/completions", body)
+	// Forward request to LLM provider
+	llmResp, err := s.forwardToLLM(r.Context(), "/v1/completions", body)
 	if err != nil {
-		s.logError(fmt.Sprintf("Failed to forward request to Ollama: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to forward request to Ollama: %v", err), http.StatusInternalServerError)
+		s.logError(fmt.Sprintf("Failed to forward request to LLM provider: %v", err))
+		http.Error(w, fmt.Sprintf("Failed to forward request to LLM provider: %v", err), http.StatusInternalServerError)
 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
 		return
 	}
 
 	// Write response
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(ollamaResp)
+	w.Write(llmResp)
 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
 }

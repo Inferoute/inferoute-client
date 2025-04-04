@@ -14,9 +14,9 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"go.uber.org/zap"
 )
 
@@ -34,15 +34,18 @@ func maskStringHelper(s string) string {
 }
 
 // Creates a new server
-func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, ollamaClient *ollama.Client) *Server {
+func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter) *Server {
 	// Create NGROK client
 	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
+
+	// Create LLM client based on provider type
+	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL)
 
 	return &Server{
 		config:         cfg,
 		gpuMonitor:     gpuMonitor,
 		healthReporter: healthReporter,
-		ollamaClient:   ollamaClient,
+		llmClient:      llmClient,
 		ngrokClient:    ngrokClient,
 		errorLog:       make([]string, 0, 100),
 	}
@@ -353,37 +356,7 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	return nil
 }
 
-// forwardToOllama forwards a request to Ollama
-func (s *Server) forwardToOllama(ctx context.Context, path string, body []byte) ([]byte, error) {
-	// Create request
-	url := fmt.Sprintf("%s%s", s.config.Provider.LLMURL, path)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add headers
-	req.Header.Set("Content-Type", "application/json")
-
-	// Send request
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
-	}
-
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	return respBody, nil
+// forwardToLLM forwards a request to the LLM provider
+func (s *Server) forwardToLLM(ctx context.Context, path string, body []byte) ([]byte, error) {
+	return s.llmClient.ForwardRequest(ctx, path, body)
 }

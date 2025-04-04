@@ -4,17 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"go.uber.org/zap"
 )
 
-// RegisterLocalModels registers all local Ollama models with their pricing
-func RegisterLocalModels(ctx context.Context, ollamaClient *ollama.Client, pricingClient *Client, serviceType string) error {
+// RegisterLocalModels registers all local models with their pricing
+func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string) error {
 	logger.Info("Starting initial model registration")
 
 	// Get list of local models
-	models, err := ollamaClient.ListModels(ctx)
+	models, err := llmClient.ListModels(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list local models: %w", err)
 	}

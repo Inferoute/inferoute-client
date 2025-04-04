@@ -12,9 +12,9 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"go.uber.org/zap"
 )
@@ -23,7 +23,7 @@ import (
 type Reporter struct {
 	config          *config.Config
 	gpuMonitor      *gpu.Monitor
-	ollamaClient    *ollama.Client
+	llmClient       llm.Client
 	ngrokClient     *ngrok.Client
 	pricingClient   *pricing.Client
 	client          *http.Client
@@ -37,14 +37,14 @@ type Reporter struct {
 // HealthReport represents a health report to be sent to the central system
 type HealthReport struct {
 	Object       string                 `json:"object"`
-	Data         []ollama.OllamaModel   `json:"data"`
+	Data         []llm.Model            `json:"data"`
 	GPU          *gpu.GPUInfo           `json:"gpu"`
 	NGROK        map[string]interface{} `json:"ngrok"`
 	ProviderType string                 `json:"provider_type"`
 }
 
 // NewReporter creates a new health reporter
-func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *ollama.Client) *Reporter {
+func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Client) *Reporter {
 	// Create NGROK client
 	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
 
@@ -54,7 +54,7 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, ollamaClient *olla
 	return &Reporter{
 		config:           cfg,
 		gpuMonitor:       gpuMonitor,
-		ollamaClient:     ollamaClient,
+		llmClient:        llmClient,
 		ngrokClient:      ngrokClient,
 		pricingClient:    pricingClient,
 		client:           &http.Client{Timeout: 10 * time.Second},
@@ -77,7 +77,7 @@ func (r *Reporter) InitializeRegisteredModels(modelIDs []string) {
 }
 
 // registerNewModels checks for new models and registers them with pricing
-func (r *Reporter) registerNewModels(ctx context.Context, models []ollama.OllamaModel) {
+func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
 	// Get the current list of model IDs
 	currentModelIDs := make([]string, 0, len(models))
 	for _, model := range models {
@@ -202,84 +202,25 @@ func (r *Reporter) registerNewModels(ctx context.Context, models []ollama.Ollama
 
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
-	logger.Debug("Preparing health report")
-
-	// Get the current NGROK URL for the health report
-	var ngrokURL string
-	if r.ngrokClient != nil {
-		var err error
-		ngrokURL, err = r.ngrokClient.GetPublicURL()
-		if err != nil {
-			logger.Warn("Failed to fetch NGROK URL for health report", zap.Error(err))
-			// Continue without NGROK URL
-		} else {
-			logger.Debug("Using NGROK URL for health report", zap.String("url", ngrokURL))
-		}
-	}
-
-	// Get GPU information if available
-	var gpuInfo *gpu.GPUInfo
-	var err error
-	if r.gpuMonitor != nil {
-		gpuInfo, err = r.gpuMonitor.GetGPUInfo()
-		if err != nil {
-			logger.Error("Failed to get GPU information", zap.Error(err))
-			// Continue with nil GPU info
-			gpuInfo = nil
-		}
-	} else {
-		logger.Debug("GPU monitor not available, skipping GPU information")
-	}
-
-	// Get available models from Ollama
-	models, err := r.ollamaClient.ListModels(ctx)
+	// Get health report
+	report, err := r.GetHealthReport(ctx)
 	if err != nil {
-		logger.Error("Failed to get models from Ollama", zap.Error(err), zap.String("llm_url", r.config.Provider.LLMURL))
-		// Instead of returning an error, continue with an empty models list
-		models = &ollama.ListModelsResponse{
-			Object: "list",
-			Models: []ollama.OllamaModel{},
-		}
+		return fmt.Errorf("failed to get health report: %w", err)
 	}
 
-	// Check for and register new models
-	r.registerNewModels(ctx, models.Models)
-
-	// Create health report
-	report := HealthReport{
-		Object: "list",
-		Data:   models.Models,
-		GPU:    gpuInfo,
-		NGROK: map[string]interface{}{
-			"url": ngrokURL,
-		},
-		ProviderType: r.config.Provider.ProviderType,
-	}
+	// Register any new models
+	r.registerNewModels(ctx, report.Data)
 
 	// Marshal report to JSON
 	reportJSON, err := json.Marshal(report)
 	if err != nil {
-		logger.Error("Failed to marshal health report", zap.Error(err))
-		return fmt.Errorf("failed to marshal health report: %w", err)
+		return fmt.Errorf("failed to marshal report: %w", err)
 	}
 
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
-	if gpuInfo != nil {
-		logger.Debug("Sending health report",
-			zap.String("url", url),
-			zap.Int("models_count", len(models.Models)),
-			zap.String("gpu", gpuInfo.ProductName))
-	} else {
-		logger.Debug("Sending health report",
-			zap.String("url", url),
-			zap.Int("models_count", len(models.Models)),
-			zap.String("gpu", "none"))
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reportJSON))
 	if err != nil {
-		logger.Error("Failed to create request", zap.Error(err))
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -290,101 +231,88 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Send request
 	resp, err := r.client.Do(req)
 	if err != nil {
-		logger.Error("Failed to send health report", zap.Error(err))
-		return fmt.Errorf("failed to send health report: %w", err)
+		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		// Read response body for error details
-		body, _ := io.ReadAll(resp.Body)
-		logger.Error("Health report failed",
-			zap.Int("status_code", resp.StatusCode),
-			zap.String("response", string(body)))
-		return fmt.Errorf("health report failed with status code: %d, response: %s", resp.StatusCode, string(body))
+		// Read and log response body for debugging
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr == nil {
+			logger.Error("Health report error response",
+				zap.String("response", string(respBody)))
+		}
+		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
 
-	// Update the last update time
+	// Update last update time
 	r.lastUpdateMutex.Lock()
 	r.lastUpdateTime = time.Now()
 	r.lastUpdateMutex.Unlock()
 
-	logger.Info("Health report sent successfully",
-		zap.Time("timestamp", r.lastUpdateTime),
-		zap.Int("models_count", len(models.Models)))
-
+	logger.Info("Successfully sent health report")
 	return nil
 }
 
-// GetHealthReport returns the current health report
+// GetHealthReport gets the current health report
 func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
-	logger.Debug("Getting health report")
-
-	// Get the current NGROK URL for the health report
-	var ngrokURL string
-	if r.ngrokClient != nil {
-		var err error
-		ngrokURL, err = r.ngrokClient.GetPublicURL()
-		if err != nil {
-			logger.Warn("Failed to fetch NGROK URL for health report", zap.Error(err))
-			// Continue without NGROK URL
-		} else {
-			logger.Debug("Using NGROK URL for health report", zap.String("url", ngrokURL))
-		}
+	// Get list of models
+	models, err := r.llmClient.ListModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models: %w", err)
 	}
 
-	// Get GPU information if available
+	// Get GPU info if available
 	var gpuInfo *gpu.GPUInfo
-	var err error
 	if r.gpuMonitor != nil {
 		gpuInfo, err = r.gpuMonitor.GetGPUInfo()
 		if err != nil {
 			logger.Error("Failed to get GPU information", zap.Error(err))
-			// Continue with nil GPU info rather than returning an error
-			gpuInfo = nil
+			gpuInfo = &gpu.GPUInfo{
+				ProductName:   "Unknown",
+				DriverVersion: "Unknown",
+				CUDAVersion:   "Unknown",
+				GPUCount:      0,
+			}
 		}
 	} else {
-		logger.Debug("GPU monitor not available, skipping GPU information")
-	}
-
-	// Get available models from Ollama
-	models, err := r.ollamaClient.ListModels(ctx)
-	if err != nil {
-		logger.Error("Failed to get models from Ollama", zap.Error(err), zap.String("llm_url", r.config.Provider.LLMURL))
-		// Instead of returning an error, continue with an empty models list
-		models = &ollama.ListModelsResponse{
-			Object: "list",
-			Models: []ollama.OllamaModel{},
+		// No GPU monitor available
+		gpuInfo = &gpu.GPUInfo{
+			ProductName:   "Unknown",
+			DriverVersion: "Unknown",
+			CUDAVersion:   "Unknown",
+			GPUCount:      0,
 		}
 	}
 
-	// Create health report
+	// Get NGROK info if available
+	var ngrokInfo map[string]interface{}
+	if r.ngrokClient != nil {
+		ngrokURL, err := r.ngrokClient.GetPublicURL()
+		if err != nil {
+			logger.Warn("Failed to get NGROK URL for health report", zap.Error(err))
+			// Don't include NGROK info if we can't get it
+		} else {
+			ngrokInfo = map[string]interface{}{
+				"url": ngrokURL,
+			}
+		}
+	}
+
+	// Create report
 	report := &HealthReport{
-		Object: "list",
-		Data:   models.Models,
-		GPU:    gpuInfo,
-		NGROK: map[string]interface{}{
-			"url": ngrokURL,
-		},
+		Object:       "list",
+		Data:         models.Models,
+		GPU:          gpuInfo,
+		NGROK:        ngrokInfo,
 		ProviderType: r.config.Provider.ProviderType,
-	}
-
-	// Add null check for GPU info before logging
-	if gpuInfo != nil {
-		logger.Debug("Health report generated",
-			zap.Int("models_count", len(models.Models)),
-			zap.String("gpu", gpuInfo.ProductName))
-	} else {
-		logger.Debug("Health report generated",
-			zap.Int("models_count", len(models.Models)),
-			zap.String("gpu", "none"))
 	}
 
 	return report, nil
 }
 
-// GetLastUpdateTime returns the time of the last successful health report
+// GetLastUpdateTime gets the time of the last successful health update
 func (r *Reporter) GetLastUpdateTime() time.Time {
 	r.lastUpdateMutex.Lock()
 	defer r.lastUpdateMutex.Unlock()

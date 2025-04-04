@@ -7,8 +7,8 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ollama"
 )
 
 // Server represents the HTTP server
@@ -16,7 +16,7 @@ type Server struct {
 	config         *config.Config
 	gpuMonitor     *gpu.Monitor
 	healthReporter *health.Reporter
-	ollamaClient   *ollama.Client
+	llmClient      llm.Client
 	ngrokClient    *ngrok.Client
 	server         *http.Server
 	errorLog       []string
