@@ -228,7 +228,15 @@ echo -e "${GREEN}Configuration template downloaded.${NC}"
 NGROK_AUTHTOKEN=$(check_env_var "NGROK_AUTHTOKEN" "$NGROK_AUTHTOKEN" "")
 PROVIDER_API_KEY=$(check_env_var "PROVIDER_API_KEY" "$PROVIDER_API_KEY" "")
 PROVIDER_TYPE=$(check_env_var "PROVIDER_TYPE" "$PROVIDER_TYPE" "ollama")
-LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "http://localhost:11434")
+
+# Set default LLM_URL based on provider type
+if [ "$PROVIDER_TYPE" = "vllm" ]; then
+    DEFAULT_LLM_URL="http://127.0.0.1:8000"
+else
+    DEFAULT_LLM_URL="http://localhost:11434"
+fi
+
+LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "$DEFAULT_LLM_URL")
 SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
 NGROK_PORT=$(check_env_var "NGROK_PORT" "$NGROK_PORT" "4040")
 
