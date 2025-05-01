@@ -10,7 +10,7 @@ provider:
   # Your provider API key from the Inferoute platform
   api_key: "your_api_key_here"
   # URL of the central Inferoute system.
-  url: "https://core.ineferoute.com"
+  url: "https://core.inferoute.com"
   provider_type: "vllm"
   llm_url: "http://localhost:8000"
 
