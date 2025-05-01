@@ -1,6 +1,6 @@
 # Inferoute Provider Client
 
-The Inferoute Provider Client is a lightweight Go service that runs on Ollama provider machines. It handles health monitoring, reporting, and inference request handling.
+The Inferoute Provider Client is a lightweight Go service that runs on vllm or Ollama provider machines. It handles health monitoring, reporting, and inference request handling.
 
 
 We will also add support for exo-labs and llama.cppp in the future. 
@@ -16,7 +16,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 ## Requirements
 
 - A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md) 
-- Ollama running locally
+- Ollama or vllm running locally
 - 🚨 Post installation 
     - When your client first starts it will publish your available models and add costs based on the average costs across all providers. 
     - Please remember to log on and change the costs to your preference if you prefer.
@@ -29,6 +29,8 @@ We will also add support for exo-labs and llama.cppp in the future.
 ## 💾 Installation
 
 ### Linux/OSX
+
+The defaults will connect to your vllm running on http://localhost:8000.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | \
@@ -49,7 +51,7 @@ inferoute-client
 
 ### Windows
 
-Please mak sure to run you command prompt with administrator privileges
+Please make sure to run you command prompt with administrator privileges
 
 ```ps
 powershell -Command "& {iwr -useb https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/windows-install.bat -OutFile windows-install.bat}" && windows-install.bat
