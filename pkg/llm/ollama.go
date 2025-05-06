@@ -218,7 +218,7 @@ func (c *OllamaClient) ForwardRequest(ctx context.Context, path string, body []b
 	// Add headers
 	req.Header.Set("Content-Type", "application/json")
 
-	// Log the final request that will be sent
+	// Log the final request that will be sents
 	logger.Debug("Sending request to Ollama",
 		zap.String("url", url),
 		zap.String("request", string(body)))
