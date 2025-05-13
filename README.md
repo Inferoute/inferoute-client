@@ -30,7 +30,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 ### Linux/OSX
 
-The defaults will connect to your vllm running on http://localhost:8000.
+The defaults will connect to your ollama running on http://localhost:11434.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | \
