@@ -163,12 +163,31 @@ func main() {
 	// Initialize the registered models tracker
 	healthReporter.InitializeRegisteredModels(registeredModelIDs)
 
-	// Start health reporting in background
+	// Initialize and start HTTP server (which sets up Cloudflare tunnel)
+	srv := server.CreateServer(cfg, gpuMonitor, healthReporter)
+
+	// Start server in background and wait for Cloudflare tunnel to be ready
+	serverReady := make(chan error, 1)
+	go func() {
+		if err := srv.Start(); err != nil {
+			serverReady <- err
+		}
+	}()
+
+	// Give the server a moment to establish the Cloudflare tunnel
+	// The tunnel setup happens at the beginning of srv.Start()
+	time.Sleep(3 * time.Second)
+
+	// Update health reporter to use the server's Cloudflare client
+	// This ensures both use the same client instance with the established tunnel
+	healthReporter.SetCloudflareClient(srv.GetCloudflareClient())
+
+	// Now start health reporting after Cloudflare tunnel is established
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 
-		// Send initial health report
+		// Send initial health report (now with proper Cloudflare URL)
 		if err := healthReporter.SendHealthReport(ctx); err != nil {
 			logger.Error("Failed to send initial health report", zap.Error(err))
 		}
@@ -185,13 +204,13 @@ func main() {
 		}
 	}()
 
-	// Initialize and start HTTP server
-	srv := server.CreateServer(cfg, gpuMonitor, healthReporter)
-	go func() {
-		if err := srv.Start(); err != nil {
-			logger.Fatal("Failed to start server", zap.Error(err))
-		}
-	}()
+	// Check if server failed to start
+	select {
+	case err := <-serverReady:
+		logger.Fatal("Failed to start server", zap.Error(err))
+	case <-time.After(100 * time.Millisecond):
+		// Server started successfully, continue
+	}
 
 	// Wait for termination signal
 	quit := make(chan os.Signal, 1)

@@ -11,24 +11,24 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"go.uber.org/zap"
 )
 
 // Reporter handles health reporting to the central system
 type Reporter struct {
-	config          *config.Config
-	gpuMonitor      *gpu.Monitor
-	llmClient       llm.Client
-	ngrokClient     *ngrok.Client
-	pricingClient   *pricing.Client
-	client          *http.Client
-	lastUpdateTime  time.Time
-	lastUpdateMutex sync.Mutex
+	config           *config.Config
+	gpuMonitor       *gpu.Monitor
+	llmClient        llm.Client
+	cloudflareClient *cloudflare.Client
+	pricingClient    *pricing.Client
+	client           *http.Client
+	lastUpdateTime   time.Time
+	lastUpdateMutex  sync.Mutex
 	// Track registered models to avoid duplicate registrations
 	registeredModels   map[string]bool
 	registeredModelsMu sync.Mutex
@@ -39,14 +39,14 @@ type HealthReport struct {
 	Object       string                 `json:"object"`
 	Data         []llm.Model            `json:"data"`
 	GPU          *gpu.GPUInfo           `json:"gpu"`
-	NGROK        map[string]interface{} `json:"ngrok"`
+	Cloudflare   map[string]interface{} `json:"cloudflare"`
 	ProviderType string                 `json:"provider_type"`
 }
 
 // NewReporter creates a new health reporter
 func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Client) *Reporter {
-	// Create NGROK client
-	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
+	// Create Cloudflare client using provider API key
+	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.Cloudflare.ServiceURL)
 
 	// Create pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
@@ -55,7 +55,7 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Clie
 		config:           cfg,
 		gpuMonitor:       gpuMonitor,
 		llmClient:        llmClient,
-		ngrokClient:      ngrokClient,
+		cloudflareClient: cloudflareClient,
 		pricingClient:    pricingClient,
 		client:           &http.Client{Timeout: 10 * time.Second},
 		registeredModels: make(map[string]bool),
@@ -211,11 +211,19 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Register any new models
 	r.registerNewModels(ctx, report.Data)
 
+	// Log the Cloudflare section of the report before sending
+	logger.Info("Preparing to send health report with Cloudflare info",
+		zap.Any("cloudflare_section", report.Cloudflare))
+
 	// Marshal report to JSON
 	reportJSON, err := json.Marshal(report)
 	if err != nil {
 		return fmt.Errorf("failed to marshal report: %w", err)
 	}
+
+	// Log the full JSON payload (for debugging)
+	logger.Debug("Health report JSON payload",
+		zap.String("json_payload", string(reportJSON)))
 
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
@@ -227,6 +235,9 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Add headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", r.config.Provider.APIKey))
+
+	logger.Info("Sending health report to provider",
+		zap.String("url", url))
 
 	// Send request
 	resp, err := r.client.Do(req)
@@ -286,18 +297,29 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		}
 	}
 
-	// Get NGROK info if available
-	var ngrokInfo map[string]interface{}
-	if r.ngrokClient != nil {
-		ngrokURL, err := r.ngrokClient.GetPublicURL()
-		if err != nil {
-			logger.Warn("Failed to get NGROK URL for health report", zap.Error(err))
-			// Don't include NGROK info if we can't get it
-		} else {
-			ngrokInfo = map[string]interface{}{
-				"url": ngrokURL,
+	// Get Cloudflare info if available
+	var cloudflareInfo map[string]interface{}
+	if r.cloudflareClient != nil {
+		tunnelURL := r.cloudflareClient.GetTunnelURL()
+		hostname := r.cloudflareClient.GetHostname()
+		isRunning := r.cloudflareClient.IsRunning()
+
+		logger.Info("Gathering Cloudflare information for health report",
+			zap.String("tunnel_url", tunnelURL),
+			zap.String("hostname", hostname),
+			zap.Bool("is_running", isRunning))
+
+		if tunnelURL != "" {
+			cloudflareInfo = map[string]interface{}{
+				"url": tunnelURL,
 			}
+			logger.Info("Cloudflare info will be included in health report",
+				zap.Any("cloudflare_info", cloudflareInfo))
+		} else {
+			logger.Warn("No Cloudflare tunnel URL available for health report")
 		}
+	} else {
+		logger.Warn("No Cloudflare client available for health report")
 	}
 
 	// Create report
@@ -305,7 +327,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		Object:       "list",
 		Data:         models.Models,
 		GPU:          gpuInfo,
-		NGROK:        ngrokInfo,
+		Cloudflare:   cloudflareInfo,
 		ProviderType: r.config.Provider.ProviderType,
 	}
 
@@ -317,4 +339,9 @@ func (r *Reporter) GetLastUpdateTime() time.Time {
 	r.lastUpdateMutex.Lock()
 	defer r.lastUpdateMutex.Unlock()
 	return r.lastUpdateTime
+}
+
+// SetCloudflareClient updates the Cloudflare client used by the health reporter
+func (r *Reporter) SetCloudflareClient(client *cloudflare.Client) {
+	r.cloudflareClient = client
 }

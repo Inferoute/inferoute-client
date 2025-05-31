@@ -2,7 +2,7 @@
 
 By default we assume:
 
-- your provider type is Ollama  and that it's running on http://locslhost:11434
+- your provider type is Ollama  and that it's running on http://localhost:11434
 - Inferoute-client server port will run on port 8080
 
 If you would like to override these default parameters follow the below.
@@ -12,11 +12,9 @@ If you would like to override these default parameters follow the below.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | \
-  NGROK_AUTHTOKEN="your-token" \
   PROVIDER_API_KEY="your-key" \
   PROVIDER_TYPE="custom-provider" \
   LLM_URL="http://custom-ollama:11434" \
-  NGROK_PORT="4040" \
   SERVER_PORT="9090" \
   bash
 ```
@@ -32,11 +30,9 @@ Note that in docker we use `host.docker.internal` which automatically points to 
 
 To pass additional parameters use the below.
 ```
-docker run -e NGROK_AUTHTOKEN="your-token" \
-           -e PROVIDER_API_KEY="your-key" \
+docker run -e PROVIDER_API_KEY="your-key" \
            -e PROVIDER_TYPE="custom-provider" \
            -e LLM_URL="http://host.docker.internal:21434" \
-           -e NGROK_PORT="4040" \
            -e SERVER_PORT="9090" \
            -p 9090:9090 \
            inferoute/inferoute-client:latest
