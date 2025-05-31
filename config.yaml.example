@@ -14,14 +14,10 @@ provider:
   provider_type: "vllm"
   llm_url: "http://localhost:8000"
 
-# NGROK configuration
-ngrok:
-  # NGROK public URL (will be automatically fetched from the NGROK API)
-  url: ""
-  # Your NGROK authtoken
-  authtoken: "your_ngrok_authtoken_here"
-  # NGROK API port (default: 4040)
-  port: 4040
+# Cloudflare configuration
+cloudflare:
+  # Local service URL to tunnel (defaults to llm_url if not specified)
+  service_url: "http://localhost:11434"
 
 # Logging configuration
 logging:

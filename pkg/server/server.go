@@ -12,11 +12,11 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/ngrok"
 	"go.uber.org/zap"
 )
 
@@ -35,33 +35,44 @@ func maskStringHelper(s string) string {
 
 // Creates a new server
 func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter) *Server {
-	// Create NGROK client
-	ngrokClient := ngrok.NewClient(cfg.NGROK.Port)
+	// Create Cloudflare client using provider API key
+	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.Cloudflare.ServiceURL)
 
 	// Create LLM client based on provider type
 	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL)
 
 	return &Server{
-		config:         cfg,
-		gpuMonitor:     gpuMonitor,
-		healthReporter: healthReporter,
-		llmClient:      llmClient,
-		ngrokClient:    ngrokClient,
-		errorLog:       make([]string, 0, 100),
+		config:           cfg,
+		gpuMonitor:       gpuMonitor,
+		healthReporter:   healthReporter,
+		llmClient:        llmClient,
+		cloudflareClient: cloudflareClient,
+		errorLog:         make([]string, 0, 100),
 	}
 }
 
 // Start starts the server
 func (s *Server) Start() error {
-	// Try to fetch the NGROK URL on startup just to verify it works
-	if s.ngrokClient != nil {
-		_, err := s.ngrokClient.GetPublicURL()
-		if err != nil {
-			logger.Warn("Failed to fetch NGROK URL on startup", zap.Error(err))
-			logger.Warn("NGROK URL will not be available until NGROK is properly configured")
-		} else {
-			logger.Info("NGROK API connection successful, URL will be fetched dynamically when needed")
+	// Request and start Cloudflare tunnel on startup
+	if s.cloudflareClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		logger.Info("Requesting Cloudflare tunnel...")
+		if err := s.cloudflareClient.RequestTunnel(ctx); err != nil {
+			logger.Error("Failed to request Cloudflare tunnel", zap.Error(err))
+			return fmt.Errorf("failed to request tunnel: %w", err)
 		}
+
+		logger.Info("Starting Cloudflare tunnel...")
+		if err := s.cloudflareClient.StartTunnel(ctx); err != nil {
+			logger.Error("Failed to start Cloudflare tunnel", zap.Error(err))
+			return fmt.Errorf("failed to start tunnel: %w", err)
+		}
+
+		logger.Info("Cloudflare tunnel is running",
+			zap.String("hostname", s.cloudflareClient.GetHostname()),
+			zap.String("url", s.cloudflareClient.GetTunnelURL()))
 	}
 
 	// Create router
@@ -101,6 +112,15 @@ func (s *Server) Start() error {
 // Stop stops the server
 func (s *Server) Stop(ctx context.Context) error {
 	logger.Info("Stopping HTTP server")
+
+	// Stop Cloudflare tunnel
+	if s.cloudflareClient != nil {
+		logger.Info("Stopping Cloudflare tunnel")
+		if err := s.cloudflareClient.StopTunnel(); err != nil {
+			logger.Error("Failed to stop Cloudflare tunnel", zap.Error(err))
+		}
+	}
+
 	return s.server.Shutdown(ctx)
 }
 
@@ -148,16 +168,14 @@ func (s *Server) redrawConsole() {
 		}
 	}
 
-	// Try to fetch the latest NGROK URL
-	var ngrokURL string
-	if s.ngrokClient != nil {
-		var err error
-		ngrokURL, err = s.ngrokClient.GetPublicURL()
-		if err != nil {
-			logger.Warn("Failed to fetch NGROK URL for console display", zap.Error(err))
-			// Don't display NGROK URL if we can't fetch it
+	// Get the current Cloudflare tunnel URL
+	var tunnelURL string
+	if s.cloudflareClient != nil {
+		tunnelURL = s.cloudflareClient.GetTunnelURL()
+		if tunnelURL == "" {
+			logger.Warn("Cloudflare tunnel URL not available")
 		} else {
-			logger.Debug("Using NGROK URL for console display", zap.String("url", ngrokURL))
+			logger.Debug("Using Cloudflare tunnel URL for console display", zap.String("url", tunnelURL))
 		}
 	}
 
@@ -185,8 +203,8 @@ func (s *Server) redrawConsole() {
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mWeb Interface                 \033[0m\033[4mhttp://%s:%d\033[0m\n", s.config.Server.Host, s.config.Server.Port))
-	if ngrokURL != "" {
-		buf.WriteString(fmt.Sprintf("\033[1;35mNGROK URL                     \033[0m%s\n", ngrokURL))
+	if tunnelURL != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35mCloudflare Tunnel URL         \033[0m%s\n", tunnelURL))
 	}
 
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")

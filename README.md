@@ -28,26 +28,28 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 ## 💾 Installation
 
-### Linux/OSX
+### Quick Start with Installation Script
 
-The defaults will connect to your ollama running on http://localhost:11434.
+### Prerequisites
+- Get your API key from the [Inferoute platform](https://core.inferoute.com)
 
+### Linux/macOS One-liner Installation
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | \
-  NGROK_AUTHTOKEN="your-token" \
-  PROVIDER_API_KEY="your-key" \
-  bash
+curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | \
+PROVIDER_API_KEY="your-key" \
+bash
 ```
 
-
-After installation, start the client with:
+### Manual Environment Variables
 ```bash
-inferoute-client 
+export PROVIDER_API_KEY="your-provider-api-key"
+export PROVIDER_TYPE="ollama"  # or "vllm"
+export LLM_URL="http://localhost:11434"  # or "http://localhost:8000" for vllm
+export SERVER_PORT="8080"
+
+# Then run the install script
+curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
-
-[Manual install instructions](https://github.com/inferoute/inferoute-client/blob/main/docs/linux.md)
-
-[Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
 
 ### Windows
 
@@ -67,44 +69,41 @@ Please note if running Inferoute within Docker you need to ensure your Ollama in
 We set the LLM_URL to http://host.docker.internal (resolves to the internal IP address used by the Docker host)
 
 
+### Quick Start
 ```bash
-docker run -d --name inferoute-client \
-  --add-host=host.docker.internal:host-gateway \
-  -e NGROK_AUTHTOKEN="your-token" \
-  -e PROVIDER_API_KEY="your-key" \
-  -e LLM_URL="http://host.docker.internal:11434" \
+docker run -d \
+  --name inferoute-client \
   -p 8080:8080 \
-  inferoute/inferoute-client:latest
-```
-
-#### To see your logs for you Inferoute-client on Docker 
-
-```bash
-sudo docker logs -f --since 1m inferoute-client 
-```
-
-### Docker upgrade
-
-####  Pull the new image first.
-
-```bash
-sudo docker pull inferoute/inferoute-client:latest
-```
-
-#### Rerun original command 
-
-```bash
-docker run -d --name inferoute-client \
-  --add-host=host.docker.internal:host-gateway \
-  -e NGROK_AUTHTOKEN="your-token" \
   -e PROVIDER_API_KEY="your-key" \
+  -e PROVIDER_TYPE="ollama" \
   -e LLM_URL="http://host.docker.internal:11434" \
-  -p 8080:8080  \
   inferoute/inferoute-client:latest
 ```
 
+### Docker Compose
+```yaml
+version: '3.8'
+services:
+  inferoute-client:
+    image: inferoute/inferoute-client:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - PROVIDER_API_KEY=your-key
+      - PROVIDER_TYPE=ollama
+      - LLM_URL=http://host.docker.internal:11434
+    restart: unless-stopped
+```
 
-[Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
+### Build from Source
+```bash
+docker build -t inferoute-client .
+docker run -d \
+  --name inferoute-client \
+  -p 8080:8080 \
+  -e PROVIDER_API_KEY="your-key" \
+  inferoute-client
+```
 
 ## 🚀 Launch Inferoute-client 
 
@@ -134,9 +133,8 @@ The configuration file (`config.yaml`) contains the following settings:
 - **provider**: Provider configuration (API key, central system URL)
   - **provider_type**: Type of LLM provider being used (default: "ollama", future support for "exo-labs" and "llama.cpp")
   - **llm_url**: URL of the local LLM provider API (default: "http://localhost:11434")
-- **ngrok**: NGROK configuration
-  - **authtoken**: Your NGROK authentication token
-  - **port**: NGROK API port (default: 4040) - used to automatically fetch the current NGROK URL
+- **cloudflare**: Cloudflare tunnel configuration
+  - **service_url**: Local service URL to tunnel (defaults to llm_url if not specified)
 - **logging**: Logging configuration
   - **level**: Log level (debug, info, warn, error)
   - **log_dir**: Directory where logs are stored (defaults to ~/.local/state/inferoute/log)

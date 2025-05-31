@@ -25,12 +25,10 @@ type Config struct {
 		LLMURL       string `yaml:"llm_url"`
 	} `yaml:"provider"`
 
-	// NGROK configuration (hardcoded for now)
-	NGROK struct {
-		URL       string `yaml:"url"`
-		AuthToken string `yaml:"authtoken"`
-		Port      int    `yaml:"port"`
-	} `yaml:"ngrok"`
+	// Cloudflare configuration
+	Cloudflare struct {
+		ServiceURL string `yaml:"service_url"`
+	} `yaml:"cloudflare"`
 
 	// Logging configuration
 	Logging logger.Config `yaml:"logging"`
@@ -48,8 +46,8 @@ func Load(path string) (*Config, error) {
 	cfg.Provider.ProviderType = "ollama"
 	cfg.Provider.LLMURL = "http://localhost:11434"
 
-	// Set default NGROK port
-	cfg.NGROK.Port = 4040
+	// Set default Cloudflare service URL to match LLM URL
+	cfg.Cloudflare.ServiceURL = cfg.Provider.LLMURL
 
 	// Set default logging configuration
 	homeDir, err := os.UserHomeDir()
@@ -75,6 +73,11 @@ func Load(path string) (*Config, error) {
 	// Parse YAML
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse configuration file: %w", err)
+	}
+
+	// If Cloudflare service URL is not set, default to LLM URL
+	if cfg.Cloudflare.ServiceURL == "" {
+		cfg.Cloudflare.ServiceURL = cfg.Provider.LLMURL
 	}
 
 	return cfg, nil

@@ -81,32 +81,73 @@ echo -e "${BLUE}Detected OS: ${OS_TYPE}, Architecture: ${ARCH} (${ARCH_TYPE})${N
 # Change to installation directory
 cd "$SCRIPT_DIR"
 
-# Install NGROK if not already installed
-if ! command -v ngrok &> /dev/null; then
-    echo -e "${YELLOW}NGROK not found. Installing...${NC}"
+# Install cloudflared if not already installed
+if ! command -v cloudflared &> /dev/null; then
+    echo -e "${YELLOW}cloudflared not found. Installing...${NC}"
     
-    # Create temp directory
-    TEMP_DIR=$(mktemp -d)
-    cd $TEMP_DIR
-    
-    # Download NGROK based on OS and architecture
-    NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-${OS_TYPE}-${ARCH_TYPE}.zip"
-    echo -e "${BLUE}Downloading NGROK from: ${NGROK_URL}${NC}"
-    
-    # Use a more user-friendly progress display
-    echo -e "${BLUE}Downloading NGROK...${NC}"
-    if curl -#Lo ngrok.zip "$NGROK_URL"; then
-        echo -e "${GREEN}Download complete!${NC}"
-        # Extract NGROK
-        echo -e "${BLUE}Extracting NGROK...${NC}"
-        unzip -q -o ngrok.zip
+    # For Debian/Ubuntu systems, use the official package
+    if command -v apt-get &> /dev/null; then
+        echo -e "${BLUE}Installing cloudflared via apt...${NC}"
+        # Add cloudflare GPG key and repository
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared jammy main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+        sudo apt-get update && sudo apt-get install -y cloudflared
         
-        # Move NGROK to /usr/local/bin or ~/bin if not root
+        if ! command -v cloudflared &> /dev/null; then
+            echo -e "${RED}Failed to install cloudflared via apt${NC}"
+            exit 1
+        fi
+        
+        echo -e "${GREEN}cloudflared installed successfully via apt.${NC}"
+    else
+        # For other systems, download binary directly
+        echo -e "${BLUE}Installing cloudflared via direct download...${NC}"
+        
+        # Create temp directory
+        TEMP_DIR=$(mktemp -d)
+        cd $TEMP_DIR
+        
+        # Download cloudflared based on OS and architecture
+        case "${OS_TYPE}-${ARCH_TYPE}" in
+            "linux-amd64")
+                CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+                ;;
+            "linux-arm64")
+                CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+                ;;
+            "darwin-amd64")
+                CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+                ;;
+            "darwin-arm64")
+                CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+                ;;
+            *)
+                echo -e "${RED}Unsupported OS/architecture combination: ${OS_TYPE}-${ARCH_TYPE}${NC}"
+                exit 1
+                ;;
+        esac
+        
+        echo -e "${BLUE}Downloading cloudflared from: ${CLOUDFLARED_URL}${NC}"
+        
+        # Download cloudflared
+        if [[ "${CLOUDFLARED_URL}" == *.tgz ]]; then
+            # Handle tarball for macOS
+            curl -#Lo cloudflared.tgz "$CLOUDFLARED_URL"
+            tar -xzf cloudflared.tgz
+            mv cloudflared cloudflared-binary
+        else
+            # Handle direct binary for Linux
+            curl -#Lo cloudflared-binary "$CLOUDFLARED_URL"
+        fi
+        
+        # Make executable and move to bin
+        chmod +x cloudflared-binary
+        
         if [ "$EUID" -eq 0 ]; then
-            mv ngrok /usr/local/bin/
+            mv cloudflared-binary /usr/local/bin/cloudflared
         else
             mkdir -p $HOME/bin
-            mv ngrok $HOME/bin/
+            mv cloudflared-binary $HOME/bin/cloudflared
             
             # Add to PATH if not already there
             if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
@@ -117,18 +158,19 @@ if ! command -v ngrok &> /dev/null; then
             fi
         fi
         
-        echo -e "${GREEN}NGROK installed successfully.${NC}"
-    else
-        echo -e "${RED}Failed to download NGROK. Please install it manually.${NC}"
-        echo -e "Visit https://ngrok.com/download for installation instructions."
-        exit 1
+        # Clean up
+        cd - > /dev/null
+        rm -rf $TEMP_DIR
+        
+        if ! command -v cloudflared &> /dev/null; then
+            echo -e "${RED}Failed to install cloudflared${NC}"
+            exit 1
+        fi
+        
+        echo -e "${GREEN}cloudflared installed successfully.${NC}"
     fi
-    
-    # Clean up
-    cd - > /dev/null
-    rm -rf $TEMP_DIR
 else
-    echo -e "${GREEN}NGROK is already installed.${NC}"
+    echo -e "${GREEN}cloudflared is already installed.${NC}"
 fi
 
 # Function to get version from binary
@@ -225,7 +267,6 @@ curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Infero
 echo -e "${GREEN}Configuration template downloaded.${NC}"
 
 # Get configuration values from environment variables
-NGROK_AUTHTOKEN=$(check_env_var "NGROK_AUTHTOKEN" "$NGROK_AUTHTOKEN" "")
 PROVIDER_API_KEY=$(check_env_var "PROVIDER_API_KEY" "$PROVIDER_API_KEY" "")
 PROVIDER_TYPE=$(check_env_var "PROVIDER_TYPE" "$PROVIDER_TYPE" "ollama")
 
@@ -238,47 +279,18 @@ fi
 
 LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "$DEFAULT_LLM_URL")
 SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
-NGROK_PORT=$(check_env_var "NGROK_PORT" "$NGROK_PORT" "4040")
+CLOUDFLARE_SERVICE_URL=$(check_env_var "CLOUDFLARE_SERVICE_URL" "$CLOUDFLARE_SERVICE_URL" "$LLM_URL")
 
-# Configure NGROK authtoken
-echo -e "${BLUE}Configuring NGROK authtoken...${NC}"
-ngrok config add-authtoken "$NGROK_AUTHTOKEN" || {
-    echo -e "${RED}Failed to configure NGROK authtoken${NC}"
+# Verify required configuration
+if [ -z "$PROVIDER_API_KEY" ]; then
+    echo -e "${RED}Error: PROVIDER_API_KEY environment variable is required${NC}"
+    echo -e "Please set it before running the install script:"
+    echo -e "export PROVIDER_API_KEY=\"your-api-key\""
     exit 1
-}
-
-# Check if NGROK is already running
-if pgrep -f "ngrok http" > /dev/null; then
-    echo -e "${GREEN}NGROK is already running.${NC}"
-else
-    echo -e "${BLUE}Starting NGROK...${NC}"
-    # Kill any existing NGROK processes that might be stuck
-    pkill -f ngrok || true
-    sleep 2
-
-    # Start NGROK with the configured port
-    ngrok http $SERVER_PORT --log=stdout --host-header="localhost:$SERVER_PORT" > "$LOG_DIR/ngrok.log" 2>&1 &
-    NGROK_PID=$!
-
-    # Wait a moment to ensure NGROK starts
-    sleep 5
-
-    # Check if NGROK is running
-    if ! ps -p $NGROK_PID > /dev/null; then
-        echo -e "${RED}Error: NGROK failed to start${NC}"
-        echo -e "${YELLOW}=== NGROK Log Contents ===${NC}"
-        if [ -f "$LOG_DIR/ngrok.log" ]; then
-            cat "$LOG_DIR/ngrok.log"
-        else
-            echo "Log file not found at $LOG_DIR/ngrok.log"
-        fi
-        echo -e "${YELLOW}=== End of NGROK Log ===${NC}"
-        exit 1
-    fi
-    
-    echo -e "${GREEN}NGROK started successfully.${NC}"
-    echo -e "${BLUE}NGROK admin interface available at: ${GREEN}http://localhost:4040${NC}"
 fi
+
+echo -e "${GREEN}Cloudflared is installed and configuration is ready.${NC}"
+echo -e "${BLUE}Note: Cloudflare tunnel will be automatically started by the inferoute-client.${NC}"
 
 # Update configuration values
 echo -e "${BLUE}Updating configuration values...${NC}"
@@ -286,30 +298,25 @@ if [ "$(uname)" = "Darwin" ]; then
     # macOS version
     sed -i '' "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "/ngrok:/,/port:/ s|port: .*|port: $NGROK_PORT|" "$CONFIG_DIR/config.yaml"
+    sed -i '' "/cloudflare:/,/service_url:/ s|service_url: .*|service_url: \"$CLOUDFLARE_SERVICE_URL\"|" "$CONFIG_DIR/config.yaml"
 else
     # Linux version
     sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
     sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "s|type: .*|type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
+    sed -i "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
     sed -i "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "s|authtoken: .*|authtoken: \"$NGROK_AUTHTOKEN\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "/ngrok:/,/port:/ s|port: .*|port: $NGROK_PORT|" "$CONFIG_DIR/config.yaml"
+    sed -i "/cloudflare:/,/service_url:/ s|service_url: .*|service_url: \"$CLOUDFLARE_SERVICE_URL\"|" "$CONFIG_DIR/config.yaml"
 fi
 
 echo -e "${GREEN}Configuration file updated successfully.${NC}"
 
 echo -e "\n${GREEN}Installation complete!${NC}"
-echo -e "\n${BLUE}NGROK is running:${NC}"
-echo -e "Admin interface: ${GREEN}http://localhost:4040${NC}"
-echo -e "Logs: $LOG_DIR/ngrok.log"
-
-echo -e "\n${BLUE}NGROK manual control:${NC}"
-echo -e "Start: ${YELLOW}ngrok http $SERVER_PORT --log=stdout --host-header=\"localhost:$SERVER_PORT\" > $LOG_DIR/ngrok.log 2>&1 &${NC}"
-echo -e "Stop:  ${YELLOW}pkill -f ngrok${NC}"
+echo -e "\n${BLUE}Cloudflare tunnel setup:${NC}"
+echo -e "Tunnel will be automatically managed by inferoute-client"
+echo -e "API Key: ${YELLOW}${PROVIDER_API_KEY:0:8}...${NC}"
+echo -e "Service URL: ${YELLOW}$CLOUDFLARE_SERVICE_URL${NC}"
 
 echo -e "\n${BLUE}INFEROUTE Files:${NC}"
 echo -e "Config file: $CONFIG_DIR/config.yaml"
