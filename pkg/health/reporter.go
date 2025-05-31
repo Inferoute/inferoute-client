@@ -211,11 +211,19 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Register any new models
 	r.registerNewModels(ctx, report.Data)
 
+	// Log the Cloudflare section of the report before sending
+	logger.Info("Preparing to send health report with Cloudflare info",
+		zap.Any("cloudflare_section", report.Cloudflare))
+
 	// Marshal report to JSON
 	reportJSON, err := json.Marshal(report)
 	if err != nil {
 		return fmt.Errorf("failed to marshal report: %w", err)
 	}
+
+	// Log the full JSON payload (for debugging)
+	logger.Debug("Health report JSON payload",
+		zap.String("json_payload", string(reportJSON)))
 
 	// Create request
 	url := fmt.Sprintf("%s/api/provider/health", r.config.Provider.URL)
@@ -227,6 +235,9 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Add headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", r.config.Provider.APIKey))
+
+	logger.Info("Sending health report to provider",
+		zap.String("url", url))
 
 	// Send request
 	resp, err := r.client.Do(req)
@@ -293,13 +304,24 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		hostname := r.cloudflareClient.GetHostname()
 		isRunning := r.cloudflareClient.IsRunning()
 
+		logger.Info("Gathering Cloudflare information for health report",
+			zap.String("tunnel_url", tunnelURL),
+			zap.String("hostname", hostname),
+			zap.Bool("is_running", isRunning))
+
 		if tunnelURL != "" || hostname != "" {
 			cloudflareInfo = map[string]interface{}{
 				"url":        tunnelURL,
 				"hostname":   hostname,
 				"is_running": isRunning,
 			}
+			logger.Info("Cloudflare info will be included in health report",
+				zap.Any("cloudflare_info", cloudflareInfo))
+		} else {
+			logger.Warn("No Cloudflare tunnel URL or hostname available for health report")
 		}
+	} else {
+		logger.Warn("No Cloudflare client available for health report")
 	}
 
 	// Create report
