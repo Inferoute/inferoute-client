@@ -124,6 +124,11 @@ func (s *Server) Stop(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
+// GetCloudflareClient returns the server's Cloudflare client
+func (s *Server) GetCloudflareClient() *cloudflare.Client {
+	return s.cloudflareClient
+}
+
 // consoleUpdater periodically updates the console with request stats and errors
 func (s *Server) consoleUpdater() {
 	ticker := time.NewTicker(3 * time.Second)

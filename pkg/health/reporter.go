@@ -342,3 +342,8 @@ func (r *Reporter) GetLastUpdateTime() time.Time {
 	defer r.lastUpdateMutex.Unlock()
 	return r.lastUpdateTime
 }
+
+// SetCloudflareClient updates the Cloudflare client used by the health reporter
+func (r *Reporter) SetCloudflareClient(client *cloudflare.Client) {
+	r.cloudflareClient = client
+}

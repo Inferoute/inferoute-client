@@ -178,6 +178,10 @@ func main() {
 	// The tunnel setup happens at the beginning of srv.Start()
 	time.Sleep(3 * time.Second)
 
+	// Update health reporter to use the server's Cloudflare client
+	// This ensures both use the same client instance with the established tunnel
+	healthReporter.SetCloudflareClient(srv.GetCloudflareClient())
+
 	// Now start health reporting after Cloudflare tunnel is established
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
