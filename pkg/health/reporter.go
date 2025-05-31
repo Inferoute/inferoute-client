@@ -309,16 +309,14 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 			zap.String("hostname", hostname),
 			zap.Bool("is_running", isRunning))
 
-		if tunnelURL != "" || hostname != "" {
+		if tunnelURL != "" {
 			cloudflareInfo = map[string]interface{}{
-				"url":        tunnelURL,
-				"hostname":   hostname,
-				"is_running": isRunning,
+				"url": tunnelURL,
 			}
 			logger.Info("Cloudflare info will be included in health report",
 				zap.Any("cloudflare_info", cloudflareInfo))
 		} else {
-			logger.Warn("No Cloudflare tunnel URL or hostname available for health report")
+			logger.Warn("No Cloudflare tunnel URL available for health report")
 		}
 	} else {
 		logger.Warn("No Cloudflare client available for health report")
