@@ -163,15 +163,8 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 func (c *Client) startTunnelProcess() error {
 	appLogger.Info("Starting cloudflared process", zap.String("hostname", c.hostname))
 
-	// Create the command with more robust options
-	c.cmd = exec.CommandContext(c.ctx, "cloudflared", "tunnel", "run",
-		"--token", c.token,
-		"--no-autoupdate",        // Prevent auto-updates that might cause restarts
-		"--no-tls-verify",        // Sometimes needed for corporate networks
-		"--retry-timeout", "60s", // Longer retry timeout
-		"--grace-period", "30s", // Graceful shutdown period
-		"--protocol", "http2", // Force HTTP/2 for stability
-	)
+	// Create the most basic command - token contains all config
+	c.cmd = exec.CommandContext(c.ctx, "cloudflared", "tunnel", "run", "--token", c.token)
 
 	// Set up process attributes for better control
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{
