@@ -214,6 +214,10 @@ func (c *Client) startTunnelProcess() error {
 
 	c.process = c.cmd.Process
 
+	appLogger.Info("Cloudflared process started",
+		zap.Int("pid", c.process.Pid),
+		zap.String("hostname", c.hostname))
+
 	// Log cloudflared output in real-time
 	go c.logOutput("stdout", stdoutPipe)
 	go c.logOutput("stderr", stderrPipe)
@@ -253,11 +257,13 @@ func (c *Client) logOutput(stream string, pipe io.ReadCloser) {
 		lower := strings.ToLower(line)
 
 		// Determine log level based on content
-		if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "fatal") {
+		if strings.Contains(lower, "fatal") ||
+			(strings.Contains(lower, "error") && !strings.Contains(lower, "wrn") && !strings.Contains(lower, "warn")) ||
+			(strings.Contains(lower, "failed") && !strings.Contains(lower, "wrn") && !strings.Contains(lower, "warn")) {
 			cloudflaredLogger.Error("cloudflared error",
 				zap.String("stream", stream),
 				zap.String("output", line))
-		} else if strings.Contains(lower, "warn") || strings.Contains(lower, "warning") {
+		} else if strings.Contains(lower, "wrn") || strings.Contains(lower, "warn") || strings.Contains(lower, "warning") {
 			cloudflaredLogger.Warn("cloudflared warning",
 				zap.String("stream", stream),
 				zap.String("output", line))
@@ -310,6 +316,13 @@ func (c *Client) monitorProcessExit() {
 
 		// Specific exit code handling
 		switch exitCode {
+		case -1:
+			if strings.Contains(err.Error(), "signal: killed") {
+				appLogger.Error("Process was forcefully killed (SIGKILL) - external termination detected")
+				// This suggests something else is killing our process
+			} else if strings.Contains(err.Error(), "signal: terminated") {
+				appLogger.Warn("Process was terminated (SIGTERM) - likely graceful shutdown")
+			}
 		case 1:
 			appLogger.Warn("Exit code 1: Likely token expiration or authentication failure")
 		case 2:
