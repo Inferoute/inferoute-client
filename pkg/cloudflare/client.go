@@ -177,6 +177,14 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 		return fmt.Errorf("failed to start initial tunnel process: %w", err)
 	}
 
+	// Monitor context cancellation that might kill cloudflared
+	go func() {
+		<-c.ctx.Done()
+		appLogger.Warn("Cloudflared context was cancelled",
+			zap.Error(c.ctx.Err()),
+			zap.String("reason", "context_cancellation"))
+	}()
+
 	c.running = true
 	appLogger.Info("Cloudflare tunnel supervision started", zap.String("hostname", c.hostname))
 
@@ -187,13 +195,18 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 func (c *Client) startTunnelProcess() error {
 	appLogger.Info("Starting cloudflared process", zap.String("hostname", c.hostname))
 
-	// Create the most basic command - token contains all config
-	c.cmd = exec.CommandContext(c.ctx, "cloudflared", "tunnel", "run", "--token", c.token)
+	// Create the command with cloudflared's own logging to debug the issue
+	// NOT using CommandContext to test if context cancellation is the issue
+	c.cmd = exec.Command("cloudflared", "tunnel", "run",
+		"--token", c.token,
+		"--logfile", "/tmp/cloudflared-debug.log", // Let cloudflared log to its own file
+		"--loglevel", "debug", // Maximum cloudflared logging
+	)
 
-	// Set up process attributes for better control
-	c.cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true, // Create new process group for clean shutdown
-	}
+	// Remove process group setting that might interfere
+	// c.cmd.SysProcAttr = &syscall.SysProcAttr{
+	//     Setpgid: true, // This might be causing issues
+	// }
 
 	// Capture stdout and stderr to see what's happening
 	stdoutPipe, err := c.cmd.StdoutPipe()
@@ -216,7 +229,8 @@ func (c *Client) startTunnelProcess() error {
 
 	appLogger.Info("Cloudflared process started",
 		zap.Int("pid", c.process.Pid),
-		zap.String("hostname", c.hostname))
+		zap.String("hostname", c.hostname),
+		zap.String("debug_log", "/tmp/cloudflared-debug.log"))
 
 	// Log cloudflared output in real-time
 	go c.logOutput("stdout", stdoutPipe)
