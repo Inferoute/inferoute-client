@@ -195,13 +195,12 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 func (c *Client) startTunnelProcess() error {
 	appLogger.Info("Starting cloudflared process", zap.String("hostname", c.hostname))
 
-	// Create the command with cloudflared's own logging to debug the issue
+	// Create the command with correct flag order: tunnel [options] run [suboptions]
 	// NOT using CommandContext to test if context cancellation is the issue
-	c.cmd = exec.Command("cloudflared", "tunnel", "run",
-		"--token", c.token,
-		"--logfile", "/tmp/cloudflared-debug.log", // Let cloudflared log to its own file
-		"--loglevel", "debug", // Maximum cloudflared logging
-	)
+	c.cmd = exec.Command("cloudflared", "tunnel",
+		"--loglevel", "debug",
+		"--logfile", "/tmp/cloudflared-debug.log",
+		"run", "--token", c.token)
 
 	// Remove process group setting that might interfere
 	// c.cmd.SysProcAttr = &syscall.SysProcAttr{
