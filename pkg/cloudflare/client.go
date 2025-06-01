@@ -19,6 +19,27 @@ import (
 	"go.uber.org/zap"
 )
 
+// cloudflaredLogger is a separate logger for cloudflared output that goes to files only
+var cloudflaredLogger *zap.Logger
+
+func init() {
+	// Create a cloudflared-specific logger that only writes to files (no stdout)
+	config := zap.NewProductionConfig()
+	config.OutputPaths = []string{}      // No stdout
+	config.ErrorOutputPaths = []string{} // No stderr
+
+	// This will be overridden once we have access to the main logger config
+	logger, _ := config.Build()
+	cloudflaredLogger = logger
+}
+
+// initCloudflaredLogger initializes the cloudflared logger using the main app logger config
+func initCloudflaredLogger() {
+	// Get the default logger and create a child logger for cloudflared
+	defaultLogger := appLogger.GetDefaultLogger()
+	cloudflaredLogger = defaultLogger.Named("cloudflared")
+}
+
 // Client represents a production-grade cloudflared tunnel client with supervision
 type Client struct {
 	httpClient  *http.Client
@@ -61,6 +82,9 @@ type TunnelResponse struct {
 
 // NewClient creates a new supervised Cloudflare client
 func NewClient(coreURL, bearerToken, serviceURL string) *Client {
+	// Initialize cloudflared logger
+	initCloudflaredLogger()
+
 	return &Client{
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
@@ -212,27 +236,48 @@ func (c *Client) startTunnelProcess() error {
 	return nil
 }
 
-// logOutput captures and logs cloudflared output
+// logOutput captures and logs cloudflared output to files only
 func (c *Client) logOutput(stream string, pipe io.ReadCloser) {
 	defer pipe.Close()
+
+	// Initialize cloudflared logger if not done yet
+	if cloudflaredLogger == nil {
+		initCloudflaredLogger()
+	}
 
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
 		line := scanner.Text()
-		appLogger.Info("cloudflared output",
-			zap.String("stream", stream),
-			zap.String("line", line))
 
-		// Check for specific error patterns
-		if strings.Contains(line, "error") || strings.Contains(line, "failed") || strings.Contains(line, "fatal") {
-			appLogger.Error("cloudflared error detected",
+		// Categorize log levels based on content
+		lower := strings.ToLower(line)
+
+		// Determine log level based on content
+		if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "fatal") {
+			cloudflaredLogger.Error("cloudflared error",
 				zap.String("stream", stream),
-				zap.String("error_line", line))
+				zap.String("output", line))
+		} else if strings.Contains(lower, "warn") || strings.Contains(lower, "warning") {
+			cloudflaredLogger.Warn("cloudflared warning",
+				zap.String("stream", stream),
+				zap.String("output", line))
+		} else if strings.Contains(lower, "registered tunnel connection") ||
+			strings.Contains(lower, "updated to new configuration") ||
+			strings.Contains(lower, "starting metrics server") {
+			// Important connection events as info
+			cloudflaredLogger.Info("cloudflared connection",
+				zap.String("stream", stream),
+				zap.String("output", line))
+		} else {
+			// Everything else as debug (to keep files clean)
+			cloudflaredLogger.Debug("cloudflared output",
+				zap.String("stream", stream),
+				zap.String("output", line))
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		appLogger.Error("Error reading cloudflared output",
+		cloudflaredLogger.Error("Error reading cloudflared output",
 			zap.String("stream", stream),
 			zap.Error(err))
 	}
@@ -251,10 +296,31 @@ func (c *Client) monitorProcessExit() {
 	shouldRestart := c.shouldRestart
 	c.mu.RUnlock()
 
+	// Get exit code for better diagnostics
+	exitCode := -1
+	if exitError, ok := err.(*exec.ExitError); ok {
+		exitCode = exitError.ExitCode()
+	}
+
 	if err != nil {
 		appLogger.Error("Cloudflared process exited with error",
 			zap.Error(err),
+			zap.Int("exit_code", exitCode),
 			zap.Bool("should_restart", shouldRestart))
+
+		// Specific exit code handling
+		switch exitCode {
+		case 1:
+			appLogger.Warn("Exit code 1: Likely token expiration or authentication failure")
+		case 2:
+			appLogger.Warn("Exit code 2: Likely configuration error")
+		case 130:
+			appLogger.Info("Exit code 130: Process interrupted (SIGINT)")
+		case 143:
+			appLogger.Info("Exit code 143: Process terminated (SIGTERM)")
+		default:
+			appLogger.Warn("Unknown exit code", zap.Int("code", exitCode))
+		}
 	} else {
 		appLogger.Info("Cloudflared process exited normally",
 			zap.Bool("should_restart", shouldRestart))
@@ -264,7 +330,7 @@ func (c *Client) monitorProcessExit() {
 	if shouldRestart {
 		select {
 		case c.restartCh <- struct{}{}:
-			appLogger.Info("Triggered restart due to process exit")
+			appLogger.Info("Triggered restart due to process exit", zap.Int("exit_code", exitCode))
 		default:
 			appLogger.Debug("Restart already queued")
 		}
@@ -350,6 +416,15 @@ func (c *Client) handleRestart() {
 
 	// Clean up old process
 	c.cleanupProcess()
+
+	// Request a fresh token before restarting (in case old token expired)
+	appLogger.Info("Requesting fresh token before restart")
+	if err := c.RequestTunnel(context.Background()); err != nil {
+		appLogger.Error("Failed to get fresh token for restart", zap.Error(err))
+		// Continue with old token as fallback
+	} else {
+		appLogger.Info("Got fresh token for restart", zap.String("hostname", c.hostname))
+	}
 
 	// Start new process
 	if err := c.startTunnelProcess(); err != nil {
