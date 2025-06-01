@@ -12,3 +12,5 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 ### Fixed
 
+- Cloudflare disconnecting after 30 seconds.
+
