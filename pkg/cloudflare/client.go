@@ -331,7 +331,7 @@ func (c *Client) healthCheck() {
 		select {
 		case c.restartCh <- struct{}{}:
 		default:
-			// Channel full, restart already queued
+			// Channel full, restart already queued.
 		}
 	}
 }
