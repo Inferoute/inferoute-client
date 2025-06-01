@@ -35,8 +35,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 ### Linux/macOS One-liner Installation
 ```bash
-curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | \
-PROVIDER_API_KEY="your-key" \
+PROVIDER_API_KEY="your-key" curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | \
 bash
 ```
 
