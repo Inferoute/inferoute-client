@@ -1,13 +1,16 @@
 package cloudflare
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -160,12 +163,30 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 func (c *Client) startTunnelProcess() error {
 	appLogger.Info("Starting cloudflared process", zap.String("hostname", c.hostname))
 
-	// Create the command
-	c.cmd = exec.CommandContext(c.ctx, "cloudflared", "tunnel", "run", "--token", c.token)
+	// Create the command with more robust options
+	c.cmd = exec.CommandContext(c.ctx, "cloudflared", "tunnel", "run",
+		"--token", c.token,
+		"--no-autoupdate",        // Prevent auto-updates that might cause restarts
+		"--no-tls-verify",        // Sometimes needed for corporate networks
+		"--retry-timeout", "60s", // Longer retry timeout
+		"--grace-period", "30s", // Graceful shutdown period
+		"--protocol", "http2", // Force HTTP/2 for stability
+	)
 
 	// Set up process attributes for better control
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true, // Create new process group for clean shutdown
+	}
+
+	// Capture stdout and stderr to see what's happening
+	stdoutPipe, err := c.cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderrPipe, err := c.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
 	// Start the process
@@ -176,10 +197,19 @@ func (c *Client) startTunnelProcess() error {
 
 	c.process = c.cmd.Process
 
-	// Wait a moment and verify it's still running
-	time.Sleep(2 * time.Second)
-	if !c.isProcessRunning() {
-		return fmt.Errorf("cloudflared process died immediately after start")
+	// Log cloudflared output in real-time
+	go c.logOutput("stdout", stdoutPipe)
+	go c.logOutput("stderr", stderrPipe)
+
+	// Monitor the process exit
+	go c.monitorProcessExit()
+
+	// Wait a bit longer for startup and check multiple times
+	for i := 0; i < 10; i++ {
+		time.Sleep(1 * time.Second)
+		if !c.isProcessRunning() {
+			return fmt.Errorf("cloudflared process died during startup (attempt %d/10)", i+1)
+		}
 	}
 
 	appLogger.Info("Cloudflared process started successfully",
@@ -187,6 +217,65 @@ func (c *Client) startTunnelProcess() error {
 		zap.Int("pid", c.process.Pid))
 
 	return nil
+}
+
+// logOutput captures and logs cloudflared output
+func (c *Client) logOutput(stream string, pipe io.ReadCloser) {
+	defer pipe.Close()
+
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+		appLogger.Info("cloudflared output",
+			zap.String("stream", stream),
+			zap.String("line", line))
+
+		// Check for specific error patterns
+		if strings.Contains(line, "error") || strings.Contains(line, "failed") || strings.Contains(line, "fatal") {
+			appLogger.Error("cloudflared error detected",
+				zap.String("stream", stream),
+				zap.String("error_line", line))
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		appLogger.Error("Error reading cloudflared output",
+			zap.String("stream", stream),
+			zap.Error(err))
+	}
+}
+
+// monitorProcessExit monitors when the process exits and logs the reason
+func (c *Client) monitorProcessExit() {
+	if c.cmd == nil {
+		return
+	}
+
+	// Wait for the process to exit
+	err := c.cmd.Wait()
+
+	c.mu.RLock()
+	shouldRestart := c.shouldRestart
+	c.mu.RUnlock()
+
+	if err != nil {
+		appLogger.Error("Cloudflared process exited with error",
+			zap.Error(err),
+			zap.Bool("should_restart", shouldRestart))
+	} else {
+		appLogger.Info("Cloudflared process exited normally",
+			zap.Bool("should_restart", shouldRestart))
+	}
+
+	// If we should restart, trigger it
+	if shouldRestart {
+		select {
+		case c.restartCh <- struct{}{}:
+			appLogger.Info("Triggered restart due to process exit")
+		default:
+			appLogger.Debug("Restart already queued")
+		}
+	}
 }
 
 // supervisionLoop continuously monitors and restarts the tunnel process
