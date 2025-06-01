@@ -8,14 +8,15 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	appLogger "github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"go.uber.org/zap"
 )
 
-// Client represents a client for interacting with Cloudflare tunnels
+// Client represents a production-grade cloudflared tunnel client with supervision
 type Client struct {
 	httpClient  *http.Client
 	coreURL     string
@@ -25,7 +26,23 @@ type Client struct {
 	// Runtime state
 	token    string
 	hostname string
+	cmd      *exec.Cmd
 	process  *os.Process
+
+	// Control and monitoring
+	ctx              context.Context
+	cancel           context.CancelFunc
+	monitoringCtx    context.Context
+	monitoringCancel context.CancelFunc
+	restartCh        chan struct{}
+	shutdownCh       chan struct{}
+
+	// State management
+	mu            sync.RWMutex
+	running       bool
+	shouldRestart bool
+	restartCount  int
+	lastRestart   time.Time
 }
 
 // TunnelRequest represents the request to create a tunnel
@@ -39,15 +56,18 @@ type TunnelResponse struct {
 	Hostname string `json:"hostname"`
 }
 
-// NewClient creates a new Cloudflare client
+// NewClient creates a new supervised Cloudflare client
 func NewClient(coreURL, bearerToken, serviceURL string) *Client {
 	return &Client{
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		coreURL:     coreURL,
-		bearerToken: bearerToken,
-		serviceURL:  serviceURL,
+		coreURL:       coreURL,
+		bearerToken:   bearerToken,
+		serviceURL:    serviceURL,
+		restartCh:     make(chan struct{}, 1),
+		shutdownCh:    make(chan struct{}),
+		shouldRestart: true,
 	}
 }
 
@@ -64,7 +84,7 @@ func (c *Client) RequestTunnel(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	logger.Debug("Requesting Cloudflare tunnel",
+	appLogger.Debug("Requesting Cloudflare tunnel",
 		zap.String("url", url),
 		zap.String("service_url", c.serviceURL))
 
@@ -78,83 +98,223 @@ func (c *Client) RequestTunnel(ctx context.Context) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		logger.Error("Failed to request Cloudflare tunnel", zap.Error(err))
+		appLogger.Error("Failed to request Cloudflare tunnel", zap.Error(err))
 		return fmt.Errorf("failed to request tunnel: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Error("Cloudflare tunnel API returned non-OK status", zap.Int("status_code", resp.StatusCode))
+		appLogger.Error("Cloudflare tunnel API returned non-OK status", zap.Int("status_code", resp.StatusCode))
 		return fmt.Errorf("tunnel API returned status code: %d", resp.StatusCode)
 	}
 
 	var tunnelResp TunnelResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tunnelResp); err != nil {
-		logger.Error("Failed to decode tunnel response", zap.Error(err))
+		appLogger.Error("Failed to decode tunnel response", zap.Error(err))
 		return fmt.Errorf("failed to decode tunnel response: %w", err)
 	}
 
 	c.token = tunnelResp.Token
 	c.hostname = tunnelResp.Hostname
 
-	logger.Info("Cloudflare tunnel requested successfully",
+	appLogger.Info("Cloudflare tunnel requested successfully",
 		zap.String("hostname", c.hostname))
 
 	return nil
 }
 
-// StartTunnel starts the cloudflared process with the obtained token
+// StartTunnel starts the cloudflared process with comprehensive supervision
 func (c *Client) StartTunnel(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.token == "" {
 		return fmt.Errorf("no tunnel token available, call RequestTunnel first")
 	}
 
-	// Stop existing tunnel if running
-	if err := c.StopTunnel(); err != nil {
-		logger.Warn("Failed to stop existing tunnel", zap.Error(err))
+	if c.running {
+		return fmt.Errorf("tunnel is already running")
 	}
 
-	logger.Info("Starting cloudflared tunnel", zap.String("hostname", c.hostname))
+	// Create contexts for tunnel and monitoring
+	c.ctx, c.cancel = context.WithCancel(ctx)
+	c.monitoringCtx, c.monitoringCancel = context.WithCancel(ctx)
 
-	cmd := exec.CommandContext(ctx, "cloudflared", "tunnel", "run", "--token", c.token)
+	// Start the monitoring goroutine
+	go c.supervisionLoop()
 
-	// Start the process
-	if err := cmd.Start(); err != nil {
-		logger.Error("Failed to start cloudflared", zap.Error(err))
-		return fmt.Errorf("failed to start cloudflared: %w", err)
+	// Start the tunnel for the first time
+	if err := c.startTunnelProcess(); err != nil {
+		c.cancel()
+		c.monitoringCancel()
+		return fmt.Errorf("failed to start initial tunnel process: %w", err)
 	}
 
-	c.process = cmd.Process
+	c.running = true
+	appLogger.Info("Cloudflare tunnel supervision started", zap.String("hostname", c.hostname))
 
-	// Give it a moment to start
-	time.Sleep(2 * time.Second)
-
-	// Check if process is still running
-	if c.process != nil {
-		if err := c.process.Signal(syscall.Signal(0)); err != nil {
-			logger.Error("Cloudflared process died after start", zap.Error(err))
-			return fmt.Errorf("cloudflared process died: %w", err)
-		}
-	}
-
-	logger.Info("Cloudflared tunnel started successfully", zap.String("hostname", c.hostname))
 	return nil
 }
 
-// StopTunnel stops the cloudflared process
-func (c *Client) StopTunnel() error {
+// startTunnelProcess starts the actual cloudflared process
+func (c *Client) startTunnelProcess() error {
+	appLogger.Info("Starting cloudflared process", zap.String("hostname", c.hostname))
+
+	// Create the command
+	c.cmd = exec.CommandContext(c.ctx, "cloudflared", "tunnel", "run", "--token", c.token)
+
+	// Set up process attributes for better control
+	c.cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // Create new process group for clean shutdown
+	}
+
+	// Start the process
+	if err := c.cmd.Start(); err != nil {
+		appLogger.Error("Failed to start cloudflared process", zap.Error(err))
+		return fmt.Errorf("failed to start cloudflared: %w", err)
+	}
+
+	c.process = c.cmd.Process
+
+	// Wait a moment and verify it's still running
+	time.Sleep(2 * time.Second)
+	if !c.isProcessRunning() {
+		return fmt.Errorf("cloudflared process died immediately after start")
+	}
+
+	appLogger.Info("Cloudflared process started successfully",
+		zap.String("hostname", c.hostname),
+		zap.Int("pid", c.process.Pid))
+
+	return nil
+}
+
+// supervisionLoop continuously monitors and restarts the tunnel process
+func (c *Client) supervisionLoop() {
+	ticker := time.NewTicker(600 * time.Second) // Health check every 5 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.monitoringCtx.Done():
+			appLogger.Info("Supervision loop terminating")
+			return
+
+		case <-c.shutdownCh:
+			appLogger.Info("Received shutdown signal")
+			return
+
+		case <-c.restartCh:
+			c.handleRestart()
+
+		case <-ticker.C:
+			c.healthCheck()
+		}
+	}
+}
+
+// healthCheck monitors the process health and triggers restart if needed
+func (c *Client) healthCheck() {
+	c.mu.RLock()
+	shouldRestart := c.shouldRestart
+	c.mu.RUnlock()
+
+	if !shouldRestart {
+		return
+	}
+
+	if !c.isProcessRunning() {
+		appLogger.Warn("Cloudflared process died, triggering restart")
+		select {
+		case c.restartCh <- struct{}{}:
+		default:
+			// Channel full, restart already queued
+		}
+	}
+}
+
+// handleRestart manages the restart logic with exponential backoff
+func (c *Client) handleRestart() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.shouldRestart {
+		appLogger.Debug("Restart requested but shouldRestart is false, ignoring")
+		return
+	}
+
+	// Implement exponential backoff
+	now := time.Now()
+	if now.Sub(c.lastRestart) < time.Minute {
+		c.restartCount++
+	} else {
+		c.restartCount = 0
+	}
+	c.lastRestart = now
+
+	// Calculate backoff delay
+	delay := time.Duration(c.restartCount) * time.Second
+	if delay > 30*time.Second {
+		delay = 30 * time.Second
+	}
+
+	if delay > 0 {
+		appLogger.Info("Backing off before restart",
+			zap.Duration("delay", delay),
+			zap.Int("restart_count", c.restartCount))
+
+		time.Sleep(delay)
+	}
+
+	// Clean up old process
+	c.cleanupProcess()
+
+	// Start new process
+	if err := c.startTunnelProcess(); err != nil {
+		appLogger.Error("Failed to restart cloudflared process",
+			zap.Error(err),
+			zap.Int("restart_count", c.restartCount))
+
+		// Schedule another restart attempt
+		go func() {
+			time.Sleep(5 * time.Second)
+			select {
+			case c.restartCh <- struct{}{}:
+			default:
+			}
+		}()
+	} else {
+		appLogger.Info("Cloudflared process restarted successfully",
+			zap.String("hostname", c.hostname),
+			zap.Int("restart_count", c.restartCount))
+	}
+}
+
+// isProcessRunning checks if the cloudflared process is still alive
+func (c *Client) isProcessRunning() bool {
 	if c.process == nil {
-		return nil
+		return false
 	}
 
-	logger.Info("Stopping cloudflared tunnel")
+	// Check if process is still alive by sending signal 0
+	err := c.process.Signal(syscall.Signal(0))
+	return err == nil
+}
 
-	// Send SIGTERM first
+// cleanupProcess properly terminates and cleans up the current process
+func (c *Client) cleanupProcess() {
+	if c.process == nil {
+		return
+	}
+
+	appLogger.Debug("Cleaning up cloudflared process", zap.Int("pid", c.process.Pid))
+
+	// Try graceful termination first
 	if err := c.process.Signal(syscall.SIGTERM); err != nil {
-		logger.Warn("Failed to send SIGTERM to cloudflared", zap.Error(err))
+		appLogger.Warn("Failed to send SIGTERM", zap.Error(err))
 	}
 
-	// Give it time to shut down gracefully
+	// Wait for graceful shutdown
 	done := make(chan error, 1)
 	go func() {
 		_, err := c.process.Wait()
@@ -162,23 +322,78 @@ func (c *Client) StopTunnel() error {
 	}()
 
 	select {
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		// Force kill if it doesn't stop gracefully
-		logger.Warn("Cloudflared didn't stop gracefully, force killing")
+		appLogger.Warn("Process didn't terminate gracefully, force killing")
 		if err := c.process.Kill(); err != nil {
-			logger.Error("Failed to kill cloudflared", zap.Error(err))
-			return err
+			appLogger.Error("Failed to force kill process", zap.Error(err))
 		}
 		c.process.Wait()
 	case err := <-done:
 		if err != nil {
-			logger.Warn("Cloudflared exited with error", zap.Error(err))
+			appLogger.Debug("Process exited with error", zap.Error(err))
 		}
 	}
 
 	c.process = nil
-	logger.Info("Cloudflared tunnel stopped")
+	c.cmd = nil
+}
+
+// StopTunnel stops the cloudflared process and supervision
+func (c *Client) StopTunnel() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.running {
+		return nil
+	}
+
+	appLogger.Info("Stopping cloudflared tunnel supervision")
+
+	// Stop restart behavior
+	c.shouldRestart = false
+
+	// Signal monitoring to stop
+	if c.monitoringCancel != nil {
+		c.monitoringCancel()
+	}
+
+	// Signal shutdown
+	select {
+	case c.shutdownCh <- struct{}{}:
+	default:
+	}
+
+	// Cancel tunnel context
+	if c.cancel != nil {
+		c.cancel()
+	}
+
+	// Clean up the current process
+	c.cleanupProcess()
+
+	c.running = false
+	appLogger.Info("Cloudflare tunnel stopped")
 	return nil
+}
+
+// RestartTunnel manually triggers a tunnel restart
+func (c *Client) RestartTunnel() error {
+	c.mu.RLock()
+	running := c.running
+	c.mu.RUnlock()
+
+	if !running {
+		return fmt.Errorf("tunnel is not running")
+	}
+
+	appLogger.Info("Manual tunnel restart requested")
+	select {
+	case c.restartCh <- struct{}{}:
+		return nil
+	default:
+		return fmt.Errorf("restart already queued")
+	}
 }
 
 // GetHostname returns the current tunnel hostname
@@ -194,13 +409,34 @@ func (c *Client) GetTunnelURL() string {
 	return fmt.Sprintf("https://%s", c.hostname)
 }
 
-// IsRunning checks if the cloudflared process is still running
+// IsRunning checks if the tunnel supervision is active
 func (c *Client) IsRunning() bool {
-	if c.process == nil {
-		return false
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.running && c.isProcessRunning()
+}
+
+// GetStatus returns detailed tunnel status information
+func (c *Client) GetStatus() map[string]interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	status := map[string]interface{}{
+		"supervision_active": c.running,
+		"process_running":    c.isProcessRunning(),
+		"hostname":           c.hostname,
+		"url":                c.GetTunnelURL(),
+		"restart_count":      c.restartCount,
+		"should_restart":     c.shouldRestart,
 	}
 
-	// Check if process is still alive
-	err := c.process.Signal(syscall.Signal(0))
-	return err == nil
+	if c.process != nil {
+		status["pid"] = c.process.Pid
+	}
+
+	if !c.lastRestart.IsZero() {
+		status["last_restart"] = c.lastRestart.Format(time.RFC3339)
+	}
+
+	return status
 }
