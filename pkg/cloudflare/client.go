@@ -1,12 +1,10 @@
 package cloudflare
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -198,25 +196,9 @@ func (c *Client) startTunnelProcess() error {
 	// Create the command with correct flag order: tunnel [options] run [suboptions]
 	// NOT using CommandContext to test if context cancellation is the issue
 	c.cmd = exec.Command("cloudflared", "tunnel",
-		"--loglevel", "debug",
+		"--loglevel", "error",
 		"--logfile", "/tmp/cloudflared-debug.log",
 		"run", "--token", c.token)
-
-	// Remove process group setting that might interfere
-	// c.cmd.SysProcAttr = &syscall.SysProcAttr{
-	//     Setpgid: true, // This might be causing issues
-	// }
-
-	// Capture stdout and stderr to see what's happening
-	stdoutPipe, err := c.cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	stderrPipe, err := c.cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
 
 	// Start the process
 	if err := c.cmd.Start(); err != nil {
@@ -230,10 +212,6 @@ func (c *Client) startTunnelProcess() error {
 		zap.Int("pid", c.process.Pid),
 		zap.String("hostname", c.hostname),
 		zap.String("debug_log", "/tmp/cloudflared-debug.log"))
-
-	// Log cloudflared output in real-time
-	go c.logOutput("stdout", stdoutPipe)
-	go c.logOutput("stderr", stderrPipe)
 
 	// Monitor the process exit
 	go c.monitorProcessExit()
@@ -251,55 +229,6 @@ func (c *Client) startTunnelProcess() error {
 		zap.Int("pid", c.process.Pid))
 
 	return nil
-}
-
-// logOutput captures and logs cloudflared output to files only
-func (c *Client) logOutput(stream string, pipe io.ReadCloser) {
-	defer pipe.Close()
-
-	// Initialize cloudflared logger if not done yet
-	if cloudflaredLogger == nil {
-		initCloudflaredLogger()
-	}
-
-	scanner := bufio.NewScanner(pipe)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Categorize log levels based on content
-		lower := strings.ToLower(line)
-
-		// Determine log level based on content
-		if strings.Contains(lower, "fatal") ||
-			(strings.Contains(lower, "error") && !strings.Contains(lower, "wrn") && !strings.Contains(lower, "warn")) ||
-			(strings.Contains(lower, "failed") && !strings.Contains(lower, "wrn") && !strings.Contains(lower, "warn")) {
-			cloudflaredLogger.Error("cloudflared error",
-				zap.String("stream", stream),
-				zap.String("output", line))
-		} else if strings.Contains(lower, "wrn") || strings.Contains(lower, "warn") || strings.Contains(lower, "warning") {
-			cloudflaredLogger.Warn("cloudflared warning",
-				zap.String("stream", stream),
-				zap.String("output", line))
-		} else if strings.Contains(lower, "registered tunnel connection") ||
-			strings.Contains(lower, "updated to new configuration") ||
-			strings.Contains(lower, "starting metrics server") {
-			// Important connection events as info
-			cloudflaredLogger.Info("cloudflared connection",
-				zap.String("stream", stream),
-				zap.String("output", line))
-		} else {
-			// Everything else as debug (to keep files clean)
-			cloudflaredLogger.Debug("cloudflared output",
-				zap.String("stream", stream),
-				zap.String("output", line))
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		cloudflaredLogger.Error("Error reading cloudflared output",
-			zap.String("stream", stream),
-			zap.Error(err))
-	}
 }
 
 // monitorProcessExit monitors when the process exits and logs the reason
@@ -365,7 +294,7 @@ func (c *Client) monitorProcessExit() {
 
 // supervisionLoop continuously monitors and restarts the tunnel process
 func (c *Client) supervisionLoop() {
-	ticker := time.NewTicker(600 * time.Second) // Health check every 5 seconds
+	ticker := time.NewTicker(10 * time.Second) // Health check every 10 seconds
 	defer ticker.Stop()
 
 	for {
