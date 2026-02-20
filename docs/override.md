@@ -2,7 +2,7 @@
 
 By default we assume:
 
-- your provider type is Ollama  and that it's running on http://localhost:11434
+- your provider type is Vllm  and that it's running on http://localhost:8000
 - Inferoute-client server port will run on port 8080
 
 If you would like to override these default parameters follow the below.

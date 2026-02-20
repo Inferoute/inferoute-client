@@ -16,7 +16,7 @@ The Provider Client is a lightweight Go service that runs on Ollama provider mac
    - On Linux systems with NVIDIA GPUs, details are collected using `nvidia-smi -x -q` command and parsing the XML output to extract GPU type, driver version, CUDA version, memory usage, and utilization.
    - On macOS systems, GPU details are collected using `system_profiler SPDisplaysDataType` command to extract GPU model and core count information.
    - Available models are retrieved from the local Ollama instance via the REST API by calling `/api/models`.
-   - The health report includes GPU information, available models, and the NGROK URL.
+   - The health report includes GPU information, available models, and the Cloudflare tunnel URL.
 
    Health reports are sent every 5 minutes automatically, and there is also an API endpoint `/health` that returns this information on demand.
 
@@ -156,7 +156,7 @@ The provider client features a real-time console interface that displays:
    - Last health update timestamp
    - Session status
    - Provider configuration details
-   - NGROK URL (if configured)
+   - Cloudflare tunnel URL (if configured)
 
 2. **GPU Information**:
    - GPU model
@@ -170,33 +170,31 @@ The provider client features a real-time console interface that displays:
 
 The console interface refreshes every 3 seconds to provide up-to-date information without excessive flickering.
 
-### NGROK Integration:
+### Cloudflare Tunnel Integration:
 
-The provider client includes NGROK integration to create a secure tunnel back to the central system. This allows the provider's local inference engine (Ollama server) to be accessible via a public URL without exposing the machine directly.
+The provider client **automatically runs Cloudflare Tunnel (cloudflared) for you**. You do not need to start or manage cloudflared yourself — the client spawns the cloudflared process (via `os/exec`) at startup and supervises it for the lifetime of the client. This allows the provider's local inference engine (Ollama or vLLM server) to be accessible via a public URL without exposing the machine directly.
 
-Key features of the NGROK integration:
+Key features of the Cloudflare integration:
 
-1. **Dynamic URL Discovery**:
-   - Instead of hardcoding the NGROK URL, the client dynamically fetches it from the local NGROK API
-   - On startup, it connects to `http://localhost:{port}/api/tunnels` (default port: 4040)
-   - It extracts the first available HTTP/HTTPS tunnel URL
-   - This URL is then used for all communications with the central system
+1. **Automatic tunnel lifecycle**:
+   - On startup, the client requests a tunnel from the central system via `POST /api/cloudflare/tunnel/request` with the local service URL
+   - The central system returns a one-time token and hostname
+   - The client **starts the cloudflared binary itself** (`exec.Command("cloudflared", "tunnel", "run", "--token", ...)`) and keeps it running
+   - The tunnel URL (hostname) is then used for all communications with the central system
+   - When the client exits, it stops the cloudflared process
 
-2. **Automatic Updates**:
-   - The NGROK URL is refreshed each time a health report is generated (every 5 minutes)
-   - If the URL changes (e.g., due to NGROK restart or reconnection), the new URL is automatically detected
-   - This ensures the system always uses the current valid tunnel URL
+2. **Supervision**:
+   - The client supervises the cloudflared process (health check every 10s), restarts it if it exits, and uses exponential backoff on restart failures
+   - Tunnel credentials are managed by the central system; no manual tunnel URL configuration is required
 
 3. **Configuration**:
-   - Only the NGROK API port and authentication token need to be configured
-   - The URL is automatically discovered and doesn't need to be manually updated
+   - Only the Cloudflare service URL (local URL to tunnel, e.g. the LLM server) needs to be set; it defaults to the provider's LLM URL
+   - The provider API key is used to authenticate tunnel requests to the central system
 
 4. **Resilience**:
-   - If the NGROK API is temporarily unavailable, the client continues using the last known URL
-   - Detailed logging of URL discovery attempts and failures
-   - Graceful handling of cases where no tunnels are available
-
-This dynamic approach eliminates the need to manually update configuration files when NGROK URLs change, making the system more robust and easier to maintain.
+   - If cloudflared exits unexpectedly, the client can restart it (when supervision is enabled)
+   - Detailed logging of tunnel request, start, and process lifecycle
+   - Graceful shutdown stops the tunnel when the client exits
 
 ### Configuration:
 
@@ -204,10 +202,10 @@ The application reads from a YAML configuration file with the following sections
 
 - `server`: Server configuration (port, host)
 - `provider`: Provider configuration (API key, central system URL, provider type, LLM URL)
-- `ngrok`: NGROK configuration (authtoken, port)
+- `cloudflare`: Cloudflare configuration (service_url — local URL to expose via tunnel; defaults to LLM URL)
 - `logging`: Logging configuration (level, directory, rotation settings)
 
-A default configuration is provided if the file is not found. The NGROK URL is dynamically fetched from the local NGROK API rather than being hardcoded.
+A default configuration is provided if the file is not found. The Cloudflare tunnel is requested from the central system at startup and cloudflared is started with the returned token; the tunnel URL is not hardcoded.
 
 ## Key Components
 
@@ -260,13 +258,14 @@ A default configuration is provided if the file is not found. The NGROK URL is d
 - Provides helper methods for different log levels
 - Supports multiple output destinations
 
-### 7. NGROK Client (`pkg/ngrok/client.go`)
+### 7. Cloudflare Client (`pkg/cloudflare/client.go`)
 
-- Dynamically fetches the current NGROK URL from the local NGROK API
-- Automatically detects and adapts to URL changes
-- Provides resilient handling of API connection issues
-- Supports configurable API port
-- Logs detailed information about URL discovery and updates
+- **Runs cloudflared automatically** — spawns the cloudflared process via `os/exec`; you do not run cloudflared yourself
+- Requests a tunnel from the central system via `/api/cloudflare/tunnel/request`, then starts cloudflared with the returned token
+- Supervises the cloudflared process (periodic health check, restart on exit with exponential backoff)
+- Exposes the tunnel hostname for health reports and central system routing
+- Handles tunnel process lifecycle (graceful shutdown and process cleanup when the client exits)
+- Logs detailed information about tunnel request, start, and process state
 
 ## API Endpoints
 

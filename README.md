@@ -15,15 +15,20 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 ## Requirements
 
-- A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md) 
-- Ollama or vllm running locally
-- 🚨 Post installation 
-    - When your client first starts it will publish your available models and add costs based on the average costs across all providers. 
+- A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md)
+- Ollama or vLLM running locally
+- **Linux with NVIDIA GPU:** `nvidia-smi` must be installed and available on `PATH` (required for GPU monitoring and busy-state detection). The install script does not install it; install the [NVIDIA driver](https://www.nvidia.com/drivers) for your system.
+- 🚨 Post installation
+    - When your client first starts it will publish your available models and add costs based on the average costs across all providers.
     - Please remember to log on and change the costs to your preference if you prefer.
 
-## Optional
-- NVIDIA GPU with nvidia-smi installed (for GPU monitoring)
-- AMD GPU with xxxxxx installed (for GPU monitoring)
+## Exposing your machine via Cloudflare (secure HTTPS)
+
+The client **exposes your machine to the internet** so the Inferoute platform can send inference requests to your local Ollama or vLLM server. This is done securely using **Cloudflare Tunnel** (cloudflared):
+
+- **Secure & HTTPS:** Traffic between the internet and your provider goes through Cloudflare's network over HTTPS. Your home IP and ports are not exposed; Cloudflare provides a stable, TLS-terminated URL which tunnels back to your IP.
+- **Why we install cloudflared:** The install script installs the `cloudflared` binary on your host so the client can run it automatically. When you start the client, it requests a tunnel from the Inferoute platform, then starts and supervises the cloudflared process. You do not need to run or configure cloudflared yourself—the client manages the tunnel for you.
+- **No open firewall ports** are required on your side; outbound HTTPS to Cloudflare is sufficient.
 
 
 ## 💾 Installation
@@ -49,13 +54,6 @@ export SERVER_PORT="8080"
 curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
 
-### Windows
-
-Please make sure to run you command prompt with administrator privileges
-
-```ps
-powershell -Command "& {iwr -useb https://raw.githubusercontent.com/sentnl/inferoute-client/main/scripts/windows-install.bat -OutFile windows-install.bat}" && windows-install.bat
-```
 [Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
 
 ### Docker
