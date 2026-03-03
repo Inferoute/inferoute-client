@@ -10,9 +10,6 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 
 
-
-
-
 ## Requirements
 
 - A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md)
@@ -56,7 +53,17 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 
 [Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
 
-### Docker
+
+## 🚀 Launch Inferoute-client 
+
+**INFEROUTE Start Command:**
+`inferoute-client`
+
+**INFEROUTE Start with specific config:**
+`inferoute-client --config /home/charles/.config/inferoute/config.yaml`
+
+
+## Docker Installation
 
 The official Inferoute Docker image inferoute/inferoute-client is available on Docker Hub. 
 
@@ -65,7 +72,7 @@ Please note if running Inferoute within Docker you need to ensure your Ollama in
 We set the LLM_URL to http://host.docker.internal (resolves to the internal IP address used by the Docker host)
 
 
-### Quick Start
+### Docker Quick Start
 ```bash
 docker run -d \
   --name inferoute-client \
@@ -101,19 +108,11 @@ docker run -d \
   inferoute-client
 ```
 
-## 🚀 Launch Inferoute-client 
-
-**INFEROUTE Start Command:**
-`inferoute-client`
-
-**INFEROUTE Start with specific config:**
-`inferoute-client --config /home/charles/.config/inferoute/config.yaml`
-
 
 ## 💾 Post Installation
 
 When your client first starts it will publish your available models with default costs. 
-Please rememeber to log on and change the costs to your preference.
+Please remember to visit inferoute.com and change the costs to your preference.
 
 ## 🎓 REST API 
 
@@ -137,6 +136,11 @@ The configuration file (`config.yaml`) contains the following settings:
   - **max_size**: Maximum size of log files in megabytes before rotation (default: 100)
   - **max_backups**: Maximum number of old log files to retain (default: 5)
   - **max_age**: Maximum number of days to retain old log files (default: 30)
+
+**Log file locations** (under `log_dir`, default `~/.local/state/inferoute/log`):
+
+- **inferoute.log** — main application log (all levels)
+- **error.log** — error-level entries only
 
 
 

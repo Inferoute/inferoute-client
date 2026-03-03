@@ -1,0 +1,279 @@
+{
+  "info": {
+    "name": "Inferoute API",
+    "description": "External APIs for Inferoute (via Traefik at http://localhost:80). Use variables: my_bearer_token, X-Internal-Key, base_url (http://localhost:80).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:80" },
+    { "key": "my_bearer_token", "value": "" },
+    { "key": "X-Internal-Key", "value": "" },
+    { "key": "model_name", "value": "Qwen/Qwen2.5-1.5B-Instruct" }
+  ],
+  "item": [
+    {
+      "name": "Orchestrator",
+      "description": "Consumer inference (chat/completions). Auth: Bearer token (consumer API key).",
+      "item": [
+        {
+          "name": "Chat Completions",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{model_name}}\",\n  \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}],\n  \"max_tokens\": 100\n}"
+            },
+            "url": "{{base_url}}/v1/chat/completions",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Completions",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{model_name}}\",\n  \"prompt\": \"Hello\",\n  \"max_tokens\": 100\n}"
+            },
+            "url": "{{base_url}}/v1/completions",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "API Chat",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{model_name}}\",\n  \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}],\n  \"max_tokens\": 100\n}"
+            },
+            "url": "{{base_url}}/api/chat",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "API Generate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"{{model_name}}\",\n  \"prompt\": \"Hello\",\n  \"max_tokens\": 100\n}"
+            },
+            "url": "{{base_url}}/api/generate",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider Management",
+      "description": "Provider model/health/pause/API URL. Auth: Bearer token (provider API key).",
+      "item": [
+        {
+          "name": "Add Model",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_name\": \"{{model_name}}\",\n  \"service_type\": \"ollama\",\n  \"input_price_tokens\": 0.0001,\n  \"output_price_tokens\": 0.0002\n}"
+            },
+            "url": "{{base_url}}/api/provider/models",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "List Models",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/provider/models",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Update Model",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_name\": \"{{model_name}}\",\n  \"service_type\": \"ollama\",\n  \"input_price_tokens\": 0.0001,\n  \"output_price_tokens\": 0.0002\n}"
+            },
+            "url": "{{base_url}}/api/provider/models/:model_id",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Delete Model",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/provider/models/:model_id",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Push Health",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"list\",\n  \"data\": [{\"id\": \"model-1\", \"object\": \"model\", \"created\": 0, \"owned_by\": \"me\"}]\n}"
+            },
+            "url": "{{base_url}}/api/provider/health",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Get Provider Health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/provider/health",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Update Pause",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"paused\": true\n}" },
+            "url": "{{base_url}}/api/provider/pause",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Validate HMAC",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"hmac\": \"base64_hmac_string\"\n}" },
+            "url": "{{base_url}}/api/provider/validate_hmac",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Update API URL",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"api_url\": \"https://my-provider.example.com/v1\"\n}" },
+            "url": "{{base_url}}/api/provider/api_url",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider Health",
+      "description": "Read-only health endpoints. No auth.",
+      "item": [
+        {
+          "name": "Get Healthy Nodes",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/health/providers/healthy"
+          }
+        },
+        {
+          "name": "Get Provider Health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/health/provider/:provider_id"
+          }
+        },
+        {
+          "name": "Filter Providers",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/health/providers/filter?max_cost=0.001&model_name={{model_name}}"
+          }
+        },
+        {
+          "name": "Filter User Providers",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/health/providers/user?user_id=:user_id&model_name={{model_name}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cloudflare",
+      "description": "Tunnel request/refresh. Auth: Bearer (provider API key).",
+      "item": [
+        {
+          "name": "Request Tunnel",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"service_url\": \"http://localhost:11434\"\n}" },
+            "url": "{{base_url}}/api/cloudflare/tunnel/request",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refresh\": true\n}" },
+            "url": "{{base_url}}/api/cloudflare/tunnel/refresh-token",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Model Pricing",
+      "description": "Model prices and pricing data. Auth: Bearer (consumer or provider API key).",
+      "item": [
+        {
+          "name": "Get Prices",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"models\": [\"{{model_name}}\", \"gpt-4o\"]\n}"
+            },
+            "url": "{{base_url}}/api/model-pricing/get-prices",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        },
+        {
+          "name": "Get Pricing Data",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/model-pricing/pricing-data/{{model_name}}",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{my_bearer_token}}", "type": "string" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Applications",
+      "description": "List models (OpenAI-style). No auth.",
+      "item": [
+        {
+          "name": "Get Models",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/models"
+          }
+        }
+      ]
+    }
+  ]
+}
