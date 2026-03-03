@@ -63,7 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 `inferoute-client --config /home/charles/.config/inferoute/config.yaml`
 
 
-## Docker Installation
+## 📦 Docker Installation
 
 The official Inferoute Docker image inferoute/inferoute-client is available on Docker Hub. 
 
