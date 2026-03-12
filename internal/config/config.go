@@ -25,11 +25,6 @@ type Config struct {
 		LLMURL       string `yaml:"llm_url"`
 	} `yaml:"provider"`
 
-	// Cloudflare configuration
-	Cloudflare struct {
-		ServiceURL string `yaml:"service_url"`
-	} `yaml:"cloudflare"`
-
 	// Logging configuration
 	Logging logger.Config `yaml:"logging"`
 }
@@ -45,9 +40,6 @@ func Load(path string) (*Config, error) {
 	cfg.Provider.URL = "http://localhost:80"
 	cfg.Provider.ProviderType = "ollama"
 	cfg.Provider.LLMURL = "http://localhost:11434"
-
-	// Set default Cloudflare service URL to match LLM URL
-	cfg.Cloudflare.ServiceURL = cfg.Provider.LLMURL
 
 	// Set default logging configuration
 	homeDir, err := os.UserHomeDir()
@@ -75,10 +67,15 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse configuration file: %w", err)
 	}
 
-	// If Cloudflare service URL is not set, default to LLM URL
-	if cfg.Cloudflare.ServiceURL == "" {
-		cfg.Cloudflare.ServiceURL = cfg.Provider.LLMURL
-	}
-
 	return cfg, nil
+}
+
+// TunnelServiceURL returns the URL the Cloudflare tunnel should target (the proxy).
+// Uses localhost when Server.Host is 0.0.0.0 so cloudflared connects to the proxy on the same machine.
+func (c *Config) TunnelServiceURL() string {
+	host := c.Server.Host
+	if host == "0.0.0.0" || host == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("http://%s:%d", host, c.Server.Port)
 }

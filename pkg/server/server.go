@@ -36,7 +36,7 @@ func maskStringHelper(s string) string {
 // Creates a new server
 func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter) *Server {
 	// Create Cloudflare client using provider API key
-	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.Cloudflare.ServiceURL)
+	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.TunnelServiceURL())
 
 	// Create LLM client based on provider type
 	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL)

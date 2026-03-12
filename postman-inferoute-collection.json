@@ -1,6 +1,7 @@
 {
   "info": {
     "name": "Inferoute API",
+    "_postman_id": "960e8d06-4874-4fc0-a732-49dbf5dad992",
     "description": "External APIs for Inferoute (via Traefik at http://localhost:80). Use variables: my_bearer_token, X-Internal-Key, base_url (http://localhost:80).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
@@ -12,10 +13,12 @@
   ],
   "item": [
     {
+      "id": "f1-orch-0000000000000001",
       "name": "Orchestrator",
       "description": "Consumer inference (chat/completions). Auth: Bearer token (consumer API key).",
       "item": [
         {
+          "id": "r1-chat-compl",
           "name": "Chat Completions",
           "request": {
             "method": "POST",
@@ -29,6 +32,7 @@
           }
         },
         {
+          "id": "r2-compl",
           "name": "Completions",
           "request": {
             "method": "POST",
@@ -42,6 +46,7 @@
           }
         },
         {
+          "id": "r3-api-chat",
           "name": "API Chat",
           "request": {
             "method": "POST",
@@ -55,6 +60,7 @@
           }
         },
         {
+          "id": "r4-api-gen",
           "name": "API Generate",
           "request": {
             "method": "POST",
@@ -70,10 +76,12 @@
       ]
     },
     {
+      "id": "f2-prov-mgmt",
       "name": "Provider Management",
       "description": "Provider model/health/pause/API URL. Auth: Bearer token (provider API key).",
       "item": [
         {
+          "id": "r5-add-model",
           "name": "Add Model",
           "request": {
             "method": "POST",
@@ -87,6 +95,7 @@
           }
         },
         {
+          "id": "r6-list-models",
           "name": "List Models",
           "request": {
             "method": "GET",
@@ -95,6 +104,7 @@
           }
         },
         {
+          "id": "r7-upd-model",
           "name": "Update Model",
           "request": {
             "method": "PUT",
@@ -108,6 +118,7 @@
           }
         },
         {
+          "id": "r8-del-model",
           "name": "Delete Model",
           "request": {
             "method": "DELETE",
@@ -116,6 +127,7 @@
           }
         },
         {
+          "id": "r9-push-health",
           "name": "Push Health",
           "request": {
             "method": "POST",
@@ -129,6 +141,7 @@
           }
         },
         {
+          "id": "r10-get-prov-health",
           "name": "Get Provider Health",
           "request": {
             "method": "GET",
@@ -137,6 +150,7 @@
           }
         },
         {
+          "id": "r11-upd-pause",
           "name": "Update Pause",
           "request": {
             "method": "PUT",
@@ -147,6 +161,7 @@
           }
         },
         {
+          "id": "r12-validate-hmac",
           "name": "Validate HMAC",
           "request": {
             "method": "POST",
@@ -157,6 +172,7 @@
           }
         },
         {
+          "id": "r13-upd-api-url",
           "name": "Update API URL",
           "request": {
             "method": "PUT",
@@ -169,10 +185,12 @@
       ]
     },
     {
+      "id": "f3-prov-health",
       "name": "Provider Health",
       "description": "Read-only health endpoints. No auth.",
       "item": [
         {
+          "id": "r14-get-healthy",
           "name": "Get Healthy Nodes",
           "request": {
             "method": "GET",
@@ -180,6 +198,7 @@
           }
         },
         {
+          "id": "r15-get-prov-health",
           "name": "Get Provider Health",
           "request": {
             "method": "GET",
@@ -187,6 +206,7 @@
           }
         },
         {
+          "id": "r16-filter-prov",
           "name": "Filter Providers",
           "request": {
             "method": "GET",
@@ -194,6 +214,7 @@
           }
         },
         {
+          "id": "r17-filter-user",
           "name": "Filter User Providers",
           "request": {
             "method": "GET",
@@ -203,10 +224,12 @@
       ]
     },
     {
+      "id": "f4-cloudflare",
       "name": "Cloudflare",
       "description": "Tunnel request/refresh. Auth: Bearer (provider API key).",
       "item": [
         {
+          "id": "r18-req-tunnel",
           "name": "Request Tunnel",
           "request": {
             "method": "POST",
@@ -217,6 +240,7 @@
           }
         },
         {
+          "id": "r19-refresh-token",
           "name": "Refresh Token",
           "request": {
             "method": "POST",
@@ -227,6 +251,7 @@
           }
         },
         {
+          "id": "r20-health",
           "name": "Health",
           "request": {
             "method": "GET",
@@ -236,10 +261,12 @@
       ]
     },
     {
+      "id": "f5-model-pricing",
       "name": "Model Pricing",
       "description": "Model prices and pricing data. Auth: Bearer (consumer or provider API key).",
       "item": [
         {
+          "id": "r21-get-prices",
           "name": "Get Prices",
           "request": {
             "method": "POST",
@@ -253,6 +280,7 @@
           }
         },
         {
+          "id": "r22-get-pricing-data",
           "name": "Get Pricing Data",
           "request": {
             "method": "GET",
@@ -263,10 +291,12 @@
       ]
     },
     {
+      "id": "f6-ai-apps",
       "name": "AI Applications",
       "description": "List models (OpenAI-style). No auth.",
       "item": [
         {
+          "id": "r23-get-models",
           "name": "Get Models",
           "request": {
             "method": "GET",

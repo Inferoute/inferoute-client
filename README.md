@@ -128,8 +128,6 @@ The configuration file (`config.yaml`) contains the following settings:
 - **provider**: Provider configuration (API key, central system URL)
   - **provider_type**: Type of LLM provider being used (default: "ollama", future support for "exo-labs" and "llama.cpp")
   - **llm_url**: URL of the local LLM provider API (default: "http://localhost:11434")
-- **cloudflare**: Cloudflare tunnel configuration
-  - **service_url**: Local service URL to tunnel (defaults to llm_url if not specified)
 - **logging**: Logging configuration
   - **level**: Log level (debug, info, warn, error)
   - **log_dir**: Directory where logs are stored (defaults to ~/.local/state/inferoute/log)

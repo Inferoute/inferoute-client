@@ -202,8 +202,9 @@ The application reads from a YAML configuration file with the following sections
 
 - `server`: Server configuration (port, host)
 - `provider`: Provider configuration (API key, central system URL, provider type, LLM URL)
-- `cloudflare`: Cloudflare configuration (service_url — local URL to expose via tunnel; defaults to LLM URL)
 - `logging`: Logging configuration (level, directory, rotation settings)
+
+The Cloudflare tunnel target URL is derived from the server address (`http://<host>:<port>`; when host is `0.0.0.0`, localhost is used so cloudflared connects to the proxy on the same machine).
 
 A default configuration is provided if the file is not found. The Cloudflare tunnel is requested from the central system at startup and cloudflared is started with the returned token; the tunnel URL is not hardcoded.
 

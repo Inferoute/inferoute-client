@@ -14,11 +14,6 @@ provider:
   provider_type: "vllm"
   llm_url: "http://localhost:8000"
 
-# Cloudflare configuration
-cloudflare:
-  # Local service URL to tunnel (defaults to llm_url if not specified)
-  service_url: "http://localhost:11434"
-
 # Logging configuration
 logging:
   # Log level: debug, info, warn, error

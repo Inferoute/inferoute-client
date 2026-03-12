@@ -46,7 +46,7 @@ type HealthReport struct {
 // NewReporter creates a new health reporter
 func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Client) *Reporter {
 	// Create Cloudflare client using provider API key
-	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.Cloudflare.ServiceURL)
+	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.TunnelServiceURL())
 
 	// Create pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)

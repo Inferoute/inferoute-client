@@ -279,7 +279,6 @@ fi
 
 LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "$DEFAULT_LLM_URL")
 SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
-CLOUDFLARE_SERVICE_URL=$(check_env_var "CLOUDFLARE_SERVICE_URL" "$CLOUDFLARE_SERVICE_URL" "$LLM_URL")
 
 # Verify required configuration
 if [ -z "$PROVIDER_API_KEY" ]; then
@@ -300,23 +299,20 @@ if [ "$(uname)" = "Darwin" ]; then
     sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
     sed -i '' "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "/cloudflare:/,/service_url:/ s|service_url: .*|service_url: \"$CLOUDFLARE_SERVICE_URL\"|" "$CONFIG_DIR/config.yaml"
 else
     # Linux version
     sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
     sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
     sed -i "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
     sed -i "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "/cloudflare:/,/service_url:/ s|service_url: .*|service_url: \"$CLOUDFLARE_SERVICE_URL\"|" "$CONFIG_DIR/config.yaml"
 fi
 
 echo -e "${GREEN}Configuration file updated successfully.${NC}"
 
 echo -e "\n${GREEN}Installation complete!${NC}"
 echo -e "\n${BLUE}Cloudflare tunnel setup:${NC}"
-echo -e "Tunnel will be automatically managed by inferoute-client"
+echo -e "Tunnel will be automatically managed by inferoute-client (targets proxy at http://localhost:$SERVER_PORT)"
 echo -e "API Key: ${YELLOW}${PROVIDER_API_KEY:0:8}...${NC}"
-echo -e "Service URL: ${YELLOW}$CLOUDFLARE_SERVICE_URL${NC}"
 
 echo -e "\n${BLUE}INFEROUTE Files:${NC}"
 echo -e "Config file: $CONFIG_DIR/config.yaml"
