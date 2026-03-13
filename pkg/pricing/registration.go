@@ -2,6 +2,7 @@ package pricing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -94,10 +95,16 @@ func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClien
 				zap.String("service_type", normalizedServiceType))
 
 			if err := pricingClient.RegisterModel(ctx, modelName, normalizedServiceType, defaultPrice.AvgInputPrice, defaultPrice.AvgOutputPrice); err != nil {
-				logger.Error("Failed to register model with default pricing",
-					zap.String("model", modelName),
-					zap.String("service_type", normalizedServiceType),
-					zap.Error(err))
+				if errors.Is(err, ErrModelAlreadyExists) {
+					logger.Info("Model already registered, skipping",
+						zap.String("model", modelName),
+						zap.String("service_type", normalizedServiceType))
+				} else {
+					logger.Error("Failed to register model with default pricing",
+						zap.String("model", modelName),
+						zap.String("service_type", normalizedServiceType),
+						zap.Error(err))
+				}
 				continue
 			}
 		} else {
@@ -112,10 +119,16 @@ func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClien
 				zap.String("service_type", normalizedServiceType))
 
 			if err := pricingClient.RegisterModel(ctx, modelName, normalizedServiceType, price.AvgInputPrice, price.AvgOutputPrice); err != nil {
-				logger.Error("Failed to register model",
-					zap.String("model", modelName),
-					zap.String("service_type", normalizedServiceType),
-					zap.Error(err))
+				if errors.Is(err, ErrModelAlreadyExists) {
+					logger.Info("Model already registered, skipping",
+						zap.String("model", modelName),
+						zap.String("service_type", normalizedServiceType))
+				} else {
+					logger.Error("Failed to register model",
+						zap.String("model", modelName),
+						zap.String("service_type", normalizedServiceType),
+						zap.Error(err))
+				}
 				continue
 			}
 		}

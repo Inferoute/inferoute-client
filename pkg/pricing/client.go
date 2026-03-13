@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -51,6 +53,9 @@ type ErrorResponse struct {
 func (e *ErrorResponse) Error() string {
 	return fmt.Sprintf("API error (status %d): %s", e.StatusCode, e.Message)
 }
+
+// ErrModelAlreadyExists is returned when the provider already has the model registered.
+var ErrModelAlreadyExists = errors.New("model already exists")
 
 func NewClient(baseURL, apiKey string) *Client {
 	return &Client{
@@ -139,6 +144,9 @@ func (c *Client) RegisterModel(ctx context.Context, model string, serviceType st
 			return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 		}
 		errResp.StatusCode = resp.StatusCode
+		if resp.StatusCode == http.StatusBadRequest && strings.Contains(errResp.Message, "already exists") {
+			return ErrModelAlreadyExists
+		}
 		return &errResp
 	}
 
