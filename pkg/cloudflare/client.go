@@ -85,7 +85,8 @@ func NewClient(coreURL, bearerToken, serviceURL string) *Client {
 
 	return &Client{
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			// Tunnel request can take 15–30s (create/fetch tunnel + DNS + token).
+			Timeout: 30 * time.Second,
 		},
 		coreURL:       coreURL,
 		bearerToken:   bearerToken,
