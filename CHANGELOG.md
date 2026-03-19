@@ -8,7 +8,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 ### Added
 
 - Added automated tunnel creation using cloudflare
-
+- Security enhancements
 
 ### Fixed
 
