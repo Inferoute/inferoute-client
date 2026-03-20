@@ -174,10 +174,6 @@ func main() {
 		}
 	}()
 
-	// Give the server a moment to establish the Cloudflare tunnel
-	// The tunnel setup happens at the beginning of srv.Start()
-	time.Sleep(3 * time.Second)
-
 	// Update health reporter to use the server's Cloudflare client
 	// This ensures both use the same client instance with the established tunnel
 	healthReporter.SetCloudflareClient(srv.GetCloudflareClient())
@@ -186,6 +182,20 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
+
+		// Wait briefly for tunnel URL so first report can persist providers.api_url.
+		waitDeadline := time.Now().Add(30 * time.Second)
+		for {
+			cf := srv.GetCloudflareClient()
+			if cf != nil && cf.GetTunnelURL() != "" {
+				break
+			}
+			if time.Now().After(waitDeadline) {
+				logger.Warn("Cloudflare tunnel URL not ready before initial health report timeout")
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
 
 		// Send initial health report (now with proper Cloudflare URL)
 		if err := healthReporter.SendHealthReport(ctx); err != nil {
