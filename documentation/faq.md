@@ -26,8 +26,9 @@ The Provider Client performs a one-time initialization of model pricing at start
 4. New models added after startup are automatically detected and registered during health checks
 
 ### Can I update model pricing after registration?
-Yes you can use the /api/provider/models/{model_id} API - see documentation here 
-You can also log onto to your user profile and make changes to model pricing.
+Yes. Use `PUT /api/provider/models/{model_id}` with your provider API key (prices are per-token in the request body).
+
+In the dashboard, open your cluster → **Models** tab to edit per-model prices (per 1M tokens). You can apply market averages per row or for all models.
 
 ### What are GGUF models and how do they compare to FP16?
 GGUF (GPT-Generated Unified Format) is a model format optimized for CPU and GPU inference:
