@@ -99,6 +99,16 @@ if ! command -v cloudflared &> /dev/null; then
         fi
         
         echo -e "${GREEN}cloudflared installed successfully via apt.${NC}"
+    elif [ "$OS_TYPE" = "darwin" ] && command -v brew &> /dev/null; then
+        echo -e "${BLUE}Installing cloudflared via Homebrew...${NC}"
+        brew install cloudflared
+
+        if ! command -v cloudflared &> /dev/null; then
+            echo -e "${RED}Failed to install cloudflared via Homebrew${NC}"
+            exit 1
+        fi
+
+        echo -e "${GREEN}cloudflared installed successfully via Homebrew.${NC}"
     else
         # For other systems, download binary directly
         echo -e "${BLUE}Installing cloudflared via direct download...${NC}"
@@ -119,7 +129,7 @@ if ! command -v cloudflared &> /dev/null; then
                 CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
                 ;;
             "darwin-arm64")
-                CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+                CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"
                 ;;
             *)
                 echo -e "${RED}Unsupported OS/architecture combination: ${OS_TYPE}-${ARCH_TYPE}${NC}"

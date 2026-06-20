@@ -10,11 +10,19 @@ We will also add support for exo-labs and llama.cppp in the future.
 
 
 
+## Supported platforms
+
+| Platform | GPU | LLM backend | Notes |
+|----------|-----|-------------|-------|
+| **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | Ollama or vLLM | Recommended for production providers |
+| **macOS** (Intel or Apple Silicon) | Basic info via `system_profiler` | Ollama (typical) | GPU busy always reported as false; no memory or utilization metrics |
+
 ## Requirements
 
 - A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md)
-- Ollama or vLLM running locally
+- Ollama or vLLM running locally (Ollama is typical on macOS)
 - **Linux with NVIDIA GPU:** `nvidia-smi` must be installed and available on `PATH` (required for GPU monitoring and busy-state detection). The install script does not install it; install the [NVIDIA driver](https://www.nvidia.com/drivers) for your system.
+- **macOS with Apple GPU:** Ollama running locally. The install script supports Intel and Apple Silicon Macs and installs `cloudflared` via Homebrew when available.
 - 🚨 Post installation
     - When your client first starts it will publish your available models and add costs based on the average costs across all providers.
     - Please remember to log on and change the costs to your preference if you prefer.
@@ -35,10 +43,15 @@ The client **exposes your machine to the internet** so the Inferoute platform ca
 ### Prerequisites
 - Get your API key from the [Inferoute platform](https://core.inferoute.com)
 
-### Linux/macOS One-liner Installation
+### Linux / macOS one-liner
+
+Works on Linux (amd64/arm64) and macOS (Intel and Apple Silicon):
+
 ```bash
 PROVIDER_API_KEY="your-key" curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
+
+On macOS, the script installs `cloudflared` via Homebrew when available, otherwise downloads the native binary for your architecture.
 
 ### Manual Environment Variables
 ```bash
@@ -60,7 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 `inferoute-client`
 
 **INFEROUTE Start with specific config:**
-`inferoute-client --config /home/charles/.config/inferoute/config.yaml`
+`inferoute-client --config ~/.config/inferoute/config.yaml`
 
 
 ## 📦 Docker Installation
