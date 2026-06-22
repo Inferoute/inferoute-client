@@ -7,10 +7,14 @@ import (
 
 // Model represents a model in the LLM API
 type Model struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	OwnedBy string `json:"owned_by"`
+	ID                 string `json:"id"`
+	Object             string `json:"object"`
+	Created            int64  `json:"created"`
+	OwnedBy            string `json:"owned_by"`
+	Digest             string `json:"digest,omitempty"`
+	SizeBytes          int64  `json:"size_bytes,omitempty"`
+	WeightFingerprint  string `json:"weight_fingerprint,omitempty"`
+	VerificationStatus string `json:"verification_status,omitempty"`
 }
 
 // ListModelsResponse represents the response from the LLM API for listing models

@@ -112,6 +112,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.verifyModelInRequest(r.Context(), body); err != nil {
+		s.logError(fmt.Sprintf("Model verification failed: %v", err))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+		s.logRequest(r.Method, r.URL.Path, http.StatusForbidden, startTime)
+		return
+	}
+
 	// Forward request to LLM provider
 	llmResp, err := s.forwardToLLM(r.Context(), "/v1/chat/completions", body)
 	if err != nil {
@@ -182,6 +191,15 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		s.logError(fmt.Sprintf("Failed to read request body: %v", err))
 		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
 		s.logRequest(r.Method, r.URL.Path, http.StatusBadRequest, startTime)
+		return
+	}
+
+	if err := s.verifyModelInRequest(r.Context(), body); err != nil {
+		s.logError(fmt.Sprintf("Model verification failed: %v", err))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+		s.logRequest(r.Method, r.URL.Path, http.StatusForbidden, startTime)
 		return
 	}
 

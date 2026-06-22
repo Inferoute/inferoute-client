@@ -17,6 +17,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
 )
 
@@ -27,6 +28,7 @@ type Reporter struct {
 	llmClient        llm.Client
 	cloudflareClient *cloudflare.Client
 	pricingClient    *pricing.Client
+	verifier         *verify.Verifier
 	client           *http.Client
 	lastUpdateTime   time.Time
 	lastUpdateMutex  sync.Mutex
@@ -49,6 +51,11 @@ type HealthReport struct {
 	GPU          *gpu.GPUInfo           `json:"gpu"`
 	Cloudflare   map[string]interface{} `json:"cloudflare"`
 	ProviderType string                 `json:"provider_type"`
+}
+
+// SetVerifier attaches the model integrity verifier (optional).
+func (r *Reporter) SetVerifier(v *verify.Verifier) {
+	r.verifier = v
 }
 
 // NewReporter creates a new health reporter
@@ -84,11 +91,14 @@ func (r *Reporter) InitializeRegisteredModels(modelIDs []string) {
 		zap.Int("model_count", len(modelIDs)))
 }
 
-// registerNewModels checks for new models and registers them with pricing
+// registerNewModels checks for new verified models and registers them with pricing
 func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
-	// Get the current list of model IDs
+	// Get the current list of model IDs (verified only when verification is enabled)
 	currentModelIDs := make([]string, 0, len(models))
 	for _, model := range models {
+		if r.config.ModelVerificationEnabled() && !verify.IsInferenceAllowed(model.VerificationStatus) {
+			continue
+		}
 		currentModelIDs = append(currentModelIDs, model.ID)
 	}
 
@@ -210,6 +220,12 @@ func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
 
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
+	if r.verifier != nil {
+		if err := r.verifier.RefreshApprovedBuilds(ctx); err != nil {
+			logger.Warn("Failed to refresh approved model builds", zap.Error(err))
+		}
+	}
+
 	// Get health report
 	report, err := r.GetHealthReport(ctx)
 	if err != nil {
@@ -282,6 +298,11 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		return nil, fmt.Errorf("failed to list models: %w", err)
 	}
 
+	enriched := models.Models
+	if r.config.ModelVerificationEnabled() && r.verifier != nil {
+		enriched = r.verifier.ApplyToModels(ctx, r.llmClient, models.Models)
+	}
+
 	// Get GPU info if available
 	var gpuInfo *gpu.GPUInfo
 	if r.gpuMonitor != nil {
@@ -340,7 +361,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	// Create report
 	report := &HealthReport{
 		Object:       "list",
-		Data:         models.Models,
+		Data:         enriched,
 		GPU:          gpuInfo,
 		Cloudflare:   cloudflareInfo,
 		ProviderType: r.config.Provider.ProviderType,

@@ -17,6 +17,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
 )
 
@@ -142,29 +143,37 @@ func main() {
 	// Initialize pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
+	var modelVerifier *verify.Verifier
+	if cfg.ModelVerificationEnabled() {
+		registry := verify.NewRegistry(cfg.Provider.URL, cfg.Provider.ProviderType)
+		if err := registry.Refresh(ctx); err != nil {
+			logger.Warn("Failed to fetch approved model builds; verification may be limited", zap.Error(err))
+		} else {
+			logger.Info("Loaded approved model builds",
+				zap.Strings("aliases", registry.Aliases()))
+		}
+		modelVerifier = verify.NewVerifier(registry, cfg.Provider.ProviderType, cfg.Provider.ModelPath)
+	}
+
 	// Register local models with pricing
 	var registeredModelIDs []string
-	if err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType); err != nil {
+	if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier, cfg.ModelVerificationEnabled()); err != nil {
 		logger.Error("Failed to register local models", zap.Error(err))
-		// Continue anyway as this is not critical
 	} else {
-		// Get the list of registered model IDs
-		models, err := llmClient.ListModels(ctx)
-		if err == nil {
-			for _, model := range models.Models {
-				registeredModelIDs = append(registeredModelIDs, model.ID)
-			}
-		}
+		registeredModelIDs = ids
 	}
 
 	// Initialize health reporter
 	healthReporter := health.NewReporter(cfg, gpuMonitor, llmClient)
+	if modelVerifier != nil {
+		healthReporter.SetVerifier(modelVerifier)
+	}
 
 	// Initialize the registered models tracker
 	healthReporter.InitializeRegisteredModels(registeredModelIDs)
 
 	// Initialize and start HTTP server (which sets up Cloudflare tunnel)
-	srv := server.CreateServer(cfg, gpuMonitor, healthReporter)
+	srv := server.CreateServer(cfg, gpuMonitor, healthReporter, modelVerifier)
 
 	// Start server in background and wait for Cloudflare tunnel to be ready
 	serverReady := make(chan error, 1)

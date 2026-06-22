@@ -17,6 +17,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +35,7 @@ func maskStringHelper(s string) string {
 }
 
 // Creates a new server
-func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter) *Server {
+func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, verifier *verify.Verifier) *Server {
 	// Create Cloudflare client using provider API key
 	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.TunnelServiceURL())
 
@@ -46,6 +47,7 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		gpuMonitor:       gpuMonitor,
 		healthReporter:   healthReporter,
 		llmClient:        llmClient,
+		verifier:         verifier,
 		cloudflareClient: cloudflareClient,
 		errorLog:         make([]string, 0, 100),
 	}
@@ -377,6 +379,19 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	}
 
 	return nil
+}
+
+func (s *Server) verifyModelInRequest(ctx context.Context, body []byte) error {
+	if !s.config.ModelVerificationEnabled() || s.verifier == nil {
+		return nil
+	}
+	var payload struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.Model == "" {
+		return fmt.Errorf("missing model in request")
+	}
+	return s.verifier.CheckInference(ctx, s.llmClient, payload.Model)
 }
 
 // forwardToLLM forwards a request to the LLM provider

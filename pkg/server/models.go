@@ -9,6 +9,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
 // Server represents the HTTP server
@@ -17,6 +18,7 @@ type Server struct {
 	gpuMonitor       *gpu.Monitor
 	healthReporter   *health.Reporter
 	llmClient        llm.Client
+	verifier         *verify.Verifier
 	cloudflareClient *cloudflare.Client
 	server           *http.Server
 	errorLog         []string

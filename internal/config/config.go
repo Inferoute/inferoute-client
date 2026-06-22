@@ -19,10 +19,12 @@ type Config struct {
 
 	// Provider configuration
 	Provider struct {
-		APIKey       string `yaml:"api_key"`
-		URL          string `yaml:"url"`
-		ProviderType string `yaml:"provider_type"`
-		LLMURL       string `yaml:"llm_url"`
+		APIKey            string `yaml:"api_key"`
+		URL               string `yaml:"url"`
+		ProviderType      string `yaml:"provider_type"`
+		LLMURL            string `yaml:"llm_url"`
+		ModelPath         string `yaml:"model_path"`         // vLLM: directory containing HF weights
+		ModelVerification *bool  `yaml:"model_verification"` // nil = enabled (default true)
 	} `yaml:"provider"`
 
 	// Logging configuration
@@ -78,4 +80,12 @@ func (c *Config) TunnelServiceURL() string {
 		host = "localhost"
 	}
 	return fmt.Sprintf("http://%s:%d", host, c.Server.Port)
+}
+
+// ModelVerificationEnabled reports whether integrity checks run (default true).
+func (c *Config) ModelVerificationEnabled() bool {
+	if c.Provider.ModelVerification == nil {
+		return true
+	}
+	return *c.Provider.ModelVerification
 }

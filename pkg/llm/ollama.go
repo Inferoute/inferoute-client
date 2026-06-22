@@ -44,64 +44,67 @@ func NewOllamaClient(baseURL string) Client {
 	}
 }
 
+// ListTags returns raw Ollama /api/tags entries (includes digest and size).
+func (c *OllamaClient) ListTags(ctx context.Context) ([]OllamaModel, error) {
+	var ollamaResponse OllamaListModelsResponse
+	if err := c.getJSON(ctx, fmt.Sprintf("%s/api/tags", c.baseURL), &ollamaResponse); err != nil {
+		return nil, err
+	}
+	return ollamaResponse.Models, nil
+}
+
 // ListModels lists all available models
 func (c *OllamaClient) ListModels(ctx context.Context) (*ListModelsResponse, error) {
-	url := fmt.Sprintf("%s/api/tags", c.baseURL)
-	logger.Debug("Listing Ollama models", zap.String("url", url))
-
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	tags, err := c.ListTags(ctx)
 	if err != nil {
-		logger.Error("Failed to create request for listing models", zap.Error(err))
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
 
-	// Send request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		logger.Error("Failed to send request for listing models", zap.Error(err), zap.String("url", url))
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		logger.Error("Request failed for listing models",
-			zap.Int("status_code", resp.StatusCode),
-			zap.String("url", url))
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
-	}
-
-	// Parse response into Ollama format
-	var ollamaResponse OllamaListModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ollamaResponse); err != nil {
-		logger.Error("Failed to parse response for listing models", zap.Error(err))
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// Convert to standard format
 	response := &ListModelsResponse{
-		Models: make([]Model, len(ollamaResponse.Models)),
+		Models: make([]Model, len(tags)),
 	}
 
-	for i, ollamaModel := range ollamaResponse.Models {
+	for i, ollamaModel := range tags {
 		format := "unknown"
 		if details, ok := ollamaModel.Details["format"]; ok {
 			format = fmt.Sprintf("%v", details)
 		}
 
 		response.Models[i] = Model{
-			ID:      fmt.Sprintf("%s/%s", format, ollamaModel.Model),
-			Object:  "model",
-			Created: time.Now().Unix(), // Using current time as Created is not provided
-			OwnedBy: "ollama",
+			ID:        fmt.Sprintf("%s/%s", format, ollamaModel.Model),
+			Object:    "model",
+			Created:   time.Now().Unix(),
+			OwnedBy:   "ollama",
+			Digest:    ollamaModel.Digest,
+			SizeBytes: ollamaModel.Size,
 		}
 	}
 
 	logger.Debug("Successfully listed Ollama models",
-		zap.Int("model_count", len(response.Models)),
-		zap.String("url", url))
+		zap.Int("model_count", len(response.Models)))
 	return response, nil
+}
+
+func (c *OllamaClient) getJSON(ctx context.Context, url string, dest interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+	return nil
 }
 
 // Chat sends a chat request to the Ollama API

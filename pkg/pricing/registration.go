@@ -8,11 +8,12 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
 )
 
-// RegisterLocalModels registers all local models with their pricing
-func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string) error {
+// RegisterLocalModels registers verified local models with their pricing.
+func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string, verifier *verify.Verifier, verificationEnabled bool) ([]string, error) {
 	// Normalize service type to match API expectations
 	normalizedServiceType := strings.ToLower(serviceType)
 	if normalizedServiceType != "vllm" && normalizedServiceType != "ollama" {
@@ -29,25 +30,40 @@ func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClien
 	// Get list of local models
 	models, err := llmClient.ListModels(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list local models: %w", err)
+		return nil, fmt.Errorf("failed to list local models: %w", err)
 	}
 
 	if len(models.Models) == 0 {
 		logger.Info("No local models found to register")
-		return nil
+		return nil, nil
 	}
 
-	// Extract model names
-	modelNames := make([]string, 0, len(models.Models))
-	for _, model := range models.Models {
-		// Use full model ID including tags
+	modelList := models.Models
+	if verificationEnabled && verifier != nil {
+		modelList = verifier.ApplyToModels(ctx, llmClient, models.Models)
+	}
+
+	// Extract model names (verified only when verification is enabled)
+	modelNames := make([]string, 0, len(modelList))
+	for _, model := range modelList {
+		if verificationEnabled && !verify.IsInferenceAllowed(model.VerificationStatus) {
+			logger.Warn("Skipping unverified model at registration",
+				zap.String("model", model.ID),
+				zap.String("verification_status", model.VerificationStatus))
+			continue
+		}
 		modelNames = append(modelNames, model.ID)
+	}
+
+	if len(modelNames) == 0 {
+		logger.Info("No verified models to register")
+		return nil, nil
 	}
 
 	// Get pricing for all models
 	prices, err := pricingClient.GetModelPrices(ctx, modelNames)
 	if err != nil {
-		return fmt.Errorf("failed to get model prices: %w", err)
+		return nil, fmt.Errorf("failed to get model prices: %w", err)
 	}
 
 	logger.Info("Received pricing information from API",
@@ -138,5 +154,5 @@ func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClien
 
 	logger.Info("Completed initial model registration",
 		zap.Int("total_models", len(modelNames)))
-	return nil
+	return modelNames, nil
 }

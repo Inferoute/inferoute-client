@@ -3,6 +3,22 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [1.1.0] - 2026-06-22
+
+### Added
+
+- **Model integrity verification (SNTNL-61)** — client fetches platform-approved model builds and verifies local models before registration, health reporting, and inference.
+- **Ollama** — compares `/api/tags` digest and size against the approved build registry; no extra config required beyond `llm_url`.
+- **vLLM** — fingerprints weight files on disk via `model_path` using the same manifest hashing as the platform bootstrap script (`safetensors_header` for `.safetensors`, full SHA-256 for other manifest files).
+- Health reports now include `digest`, `weight_fingerprint`, `size_bytes`, and `verification_status` per model.
+- Inference requests for unverified models return **403 Forbidden**.
+- Config: `provider.model_path` (vLLM) and `provider.model_verification` (default enabled; set `false` to disable).
+
+### Changed
+
+- Only **verified** models are registered with the platform when verification is enabled.
+- Ollama model listing preserves digest and size from `/api/tags` (previously discarded).
+
 ## [1.0.9] - 2025-04-30
 
 ### Added
