@@ -9,7 +9,9 @@
     { "key": "base_url", "value": "http://localhost:80" },
     { "key": "my_bearer_token", "value": "" },
     { "key": "X-Internal-Key", "value": "" },
-    { "key": "model_name", "value": "Qwen/Qwen2.5-1.5B-Instruct" }
+    { "key": "model_name", "value": "Qwen/Qwen2.5-1.5B-Instruct" },
+    { "key": "ollama_model_alias", "value": "gguf/qwen3:0.6b" },
+    { "key": "vllm_model_alias", "value": "Qwen/Qwen3-0.6B" }
   ],
   "item": [
     {
@@ -293,15 +295,87 @@
     {
       "id": "f6-ai-apps",
       "name": "AI Applications",
-      "description": "List models (OpenAI-style). No auth.",
+      "description": "Model catalog and approved builds. GET /api/models/approved-builds is public (no auth). Providers use it to look up approved Ollama digests and vLLM hf_revision pins. POST upsert is internal-only (X-Internal-Key; typically from docker network, not host Postman).",
       "item": [
         {
           "id": "r23-get-models",
-          "name": "Get Models",
+          "name": "Get Models (OpenAI-style)",
           "request": {
             "method": "GET",
             "url": "{{base_url}}/v1/models"
-          }
+          },
+          "description": "Top models by usage in OpenAI-compatible format. No auth."
+        },
+        {
+          "id": "r24-approved-all",
+          "name": "List Approved Builds (all)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/models/approved-builds"
+          },
+          "description": "Public allowlist of verified Ollama + vLLM builds. Use before pulling weights or registering models.\n\nExample use: provider scripts cache this on startup; you can poll it to see which aliases and hf_revision values are live."
+        },
+        {
+          "id": "r25-approved-ollama",
+          "name": "List Approved Builds (Ollama)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/models/approved-builds?service_type=ollama",
+              "host": ["{{base_url}}"],
+              "path": ["api", "models", "approved-builds"],
+              "query": [{ "key": "service_type", "value": "ollama" }]
+            }
+          },
+          "description": "Ollama builds only. Each item has alias (e.g. gguf/qwen3:0.6b) and expected_digest from Ollama /api/tags.\n\nWorkflow: ollama pull → compare digest → register alias on your cluster."
+        },
+        {
+          "id": "r26-approved-vllm",
+          "name": "List Approved Builds (vLLM)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/models/approved-builds?service_type=vllm",
+              "host": ["{{base_url}}"],
+              "path": ["api", "models", "approved-builds"],
+              "query": [{ "key": "service_type", "value": "vllm" }]
+            }
+          },
+          "description": "vLLM / HuggingFace builds only. Each item has alias, weight_fingerprint, manifest, hf_repo, hf_revision.\n\nWorkflow: hf download at hf_revision → vllm serve with alias as served-model-name → set model_path in provider client."
+        },
+        {
+          "id": "r27-upsert-ollama",
+          "name": "Upsert Approved Build (Ollama, internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Internal-Key", "value": "{{X-Internal-Key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alias\": \"{{ollama_model_alias}}\",\n  \"service_type\": \"ollama\",\n  \"expected_digest\": \"7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435\",\n  \"min_size_bytes\": 522653767,\n  \"is_active\": true\n}"
+            },
+            "url": "{{base_url}}/api/models/approved-builds"
+          },
+          "description": "Platform ops only. Upserts by alias + service_type. Requires X-Internal-Key from internal network.\n\nFrom host Postman this often returns 401 (IP not in docker CIDR). Use inferoute-node/scripts/bootstrap_approved_model.sh --push instead, or curl from api-testing container.\n\nDev key example: set X-Internal-Key collection variable to your development.env value."
+        },
+        {
+          "id": "r28-upsert-vllm",
+          "name": "Upsert Approved Build (vLLM, internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Internal-Key", "value": "{{X-Internal-Key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alias\": \"{{vllm_model_alias}}\",\n  \"service_type\": \"vllm\",\n  \"weight_fingerprint\": \"replace-with-bootstrap-output\",\n  \"min_size_bytes\": 1520000000,\n  \"hf_repo\": \"Qwen/Qwen3-0.6B\",\n  \"hf_revision\": \"replace-with-commit-sha\",\n  \"is_active\": true,\n  \"manifest\": [\n    {\n      \"name\": \"config.json\",\n      \"sha256\": \"replace-me\",\n      \"hash_method\": \"full\",\n      \"size\": 1200\n    },\n    {\n      \"name\": \"model.safetensors\",\n      \"sha256\": \"replace-me\",\n      \"hash_method\": \"safetensors_header\",\n      \"size\": 1500000000\n    }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/models/approved-builds"
+          },
+          "description": "Platform ops only. Generate real fingerprint + manifest with inferoute-node bootstrap_approved_model.sh, then POST or use --push.\n\nProviders only need GET; this is for seeding the registry."
         }
       ]
     }
