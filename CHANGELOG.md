@@ -3,6 +3,12 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [1.1.3] - 2026-06-22
+
+### Fixed
+
+- vLLM hub cache resolution when approved `hf_revision` is a branch name (e.g. `main`) — follow `refs/main` to the snapshot commit SHA instead of looking for `snapshots/main`.
+
 ## [1.1.2] - 2026-06-22
 
 ### Changed

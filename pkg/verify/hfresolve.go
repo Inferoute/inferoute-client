@@ -56,23 +56,12 @@ func ResolveHFModelRoot(hubCache, repoID, revision string) (string, error) {
 
 	cacheDir := filepath.Join(hubCache, HFRepoToCacheDir(repoID))
 	if revision != "" {
-		snap := filepath.Join(cacheDir, "snapshots", strings.TrimSpace(revision))
-		if dirHasWeights(snap) {
-			return snap, nil
-		}
-		return "", fmt.Errorf("revision %s not found under %s", revision, cacheDir)
+		return snapshotForRevision(cacheDir, revision)
 	}
 
 	// No pinned revision: use refs/main if present, else the only snapshot.
-	refMain := filepath.Join(cacheDir, "refs", "main")
-	if data, err := os.ReadFile(refMain); err == nil {
-		rev := strings.TrimSpace(string(data))
-		if rev != "" {
-			snap := filepath.Join(cacheDir, "snapshots", rev)
-			if dirHasWeights(snap) {
-				return snap, nil
-			}
-		}
+	if snap, err := snapshotForRevision(cacheDir, "main"); err == nil {
+		return snap, nil
 	}
 
 	snapshotsDir := filepath.Join(cacheDir, "snapshots")
@@ -98,6 +87,35 @@ func ResolveHFModelRoot(hubCache, repoID, revision string) (string, error) {
 		return "", fmt.Errorf("no weight files found under %s", cacheDir)
 	}
 	return found, nil
+}
+
+// snapshotForRevision resolves a HF hub revision to a snapshots/ directory.
+// revision may be a commit SHA (snapshots/<sha>) or a ref name (refs/<name> → snapshots/<sha>).
+func snapshotForRevision(cacheDir, revision string) (string, error) {
+	revision = strings.TrimSpace(revision)
+	if revision == "" {
+		return "", fmt.Errorf("empty revision")
+	}
+
+	snap := filepath.Join(cacheDir, "snapshots", revision)
+	if dirHasWeights(snap) {
+		return snap, nil
+	}
+
+	refFile := filepath.Join(cacheDir, "refs", revision)
+	data, err := os.ReadFile(refFile)
+	if err != nil {
+		return "", fmt.Errorf("revision %s not found under %s", revision, cacheDir)
+	}
+	sha := strings.TrimSpace(string(data))
+	if sha == "" {
+		return "", fmt.Errorf("revision %s not found under %s", revision, cacheDir)
+	}
+	snap = filepath.Join(cacheDir, "snapshots", sha)
+	if dirHasWeights(snap) {
+		return snap, nil
+	}
+	return "", fmt.Errorf("revision %s not found under %s", revision, cacheDir)
 }
 
 func hfRepoForBuild(alias string, build ApprovedBuild) string {
