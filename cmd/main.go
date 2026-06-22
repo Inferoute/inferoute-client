@@ -143,21 +143,18 @@ func main() {
 	// Initialize pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
-	var modelVerifier *verify.Verifier
-	if cfg.ModelVerificationEnabled() {
-		registry := verify.NewRegistry(cfg.Provider.URL, cfg.Provider.ProviderType)
-		if err := registry.Refresh(ctx); err != nil {
-			logger.Warn("Failed to fetch approved model builds; verification may be limited", zap.Error(err))
-		} else {
-			logger.Info("Loaded approved model builds",
-				zap.Strings("aliases", registry.Aliases()))
-		}
-		modelVerifier = verify.NewVerifier(registry, cfg.Provider.ProviderType, cfg.Provider.ModelPath)
+	registry := verify.NewRegistry(cfg.Provider.URL, cfg.Provider.ProviderType)
+	if err := registry.Refresh(ctx); err != nil {
+		logger.Warn("Failed to fetch approved model builds; verification may be limited", zap.Error(err))
+	} else {
+		logger.Info("Loaded approved model builds",
+			zap.Strings("aliases", registry.Aliases()))
 	}
+	modelVerifier := verify.NewVerifier(registry, cfg.Provider.ProviderType, cfg.Provider.ModelPath)
 
 	// Register local models with pricing
 	var registeredModelIDs []string
-	if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier, cfg.ModelVerificationEnabled()); err != nil {
+	if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier); err != nil {
 		logger.Error("Failed to register local models", zap.Error(err))
 	} else {
 		registeredModelIDs = ids
@@ -165,9 +162,7 @@ func main() {
 
 	// Initialize health reporter
 	healthReporter := health.NewReporter(cfg, gpuMonitor, llmClient)
-	if modelVerifier != nil {
-		healthReporter.SetVerifier(modelVerifier)
-	}
+	healthReporter.SetVerifier(modelVerifier)
 
 	// Initialize the registered models tracker
 	healthReporter.InitializeRegisteredModels(registeredModelIDs)

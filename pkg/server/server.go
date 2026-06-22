@@ -382,7 +382,7 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 }
 
 func (s *Server) verifyModelInRequest(ctx context.Context, body []byte) error {
-	if !s.config.ModelVerificationEnabled() || s.verifier == nil {
+	if s.verifier == nil {
 		return nil
 	}
 	var payload struct {

@@ -13,7 +13,7 @@ import (
 )
 
 // RegisterLocalModels registers verified local models with their pricing.
-func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string, verifier *verify.Verifier, verificationEnabled bool) ([]string, error) {
+func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string, verifier *verify.Verifier) ([]string, error) {
 	// Normalize service type to match API expectations
 	normalizedServiceType := strings.ToLower(serviceType)
 	if normalizedServiceType != "vllm" && normalizedServiceType != "ollama" {
@@ -38,15 +38,12 @@ func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClien
 		return nil, nil
 	}
 
-	modelList := models.Models
-	if verificationEnabled && verifier != nil {
-		modelList = verifier.ApplyToModels(ctx, llmClient, models.Models)
-	}
+	modelList := verifier.ApplyToModels(ctx, llmClient, models.Models)
 
-	// Extract model names (verified only when verification is enabled)
+	// Extract model names — only verified models are registered
 	modelNames := make([]string, 0, len(modelList))
 	for _, model := range modelList {
-		if verificationEnabled && !verify.IsInferenceAllowed(model.VerificationStatus) {
+		if !verify.IsInferenceAllowed(model.VerificationStatus) {
 			logger.Warn("Skipping unverified model at registration",
 				zap.String("model", model.ID),
 				zap.String("verification_status", model.VerificationStatus))

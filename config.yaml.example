@@ -13,8 +13,6 @@ provider:
   llm_url: "http://localhost:8000"
   # vLLM only: directory containing pinned HuggingFace weights
   model_path: "/path/to/model"
-  # Set false to disable integrity checks (default: enabled)
-  # model_verification: true
 
 # Logging configuration
 logging:

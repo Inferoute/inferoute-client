@@ -93,10 +93,10 @@ func (r *Reporter) InitializeRegisteredModels(modelIDs []string) {
 
 // registerNewModels checks for new verified models and registers them with pricing
 func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
-	// Get the current list of model IDs (verified only when verification is enabled)
+	// Get the current list of verified model IDs
 	currentModelIDs := make([]string, 0, len(models))
 	for _, model := range models {
-		if r.config.ModelVerificationEnabled() && !verify.IsInferenceAllowed(model.VerificationStatus) {
+		if !verify.IsInferenceAllowed(model.VerificationStatus) {
 			continue
 		}
 		currentModelIDs = append(currentModelIDs, model.ID)
@@ -298,10 +298,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		return nil, fmt.Errorf("failed to list models: %w", err)
 	}
 
-	enriched := models.Models
-	if r.config.ModelVerificationEnabled() && r.verifier != nil {
-		enriched = r.verifier.ApplyToModels(ctx, r.llmClient, models.Models)
-	}
+	enriched := r.verifier.ApplyToModels(ctx, r.llmClient, models.Models)
 
 	// Get GPU info if available
 	var gpuInfo *gpu.GPUInfo

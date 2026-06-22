@@ -3,6 +3,12 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [1.1.1] - 2026-06-22
+
+### Removed
+
+- `provider.model_verification` config opt-out — integrity checks always run; there is no supported way to disable verification on the client.
+
 ## [1.1.0] - 2026-06-22
 
 ### Added
@@ -12,7 +18,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - **vLLM** — fingerprints weight files on disk via `model_path` using the same manifest hashing as the platform bootstrap script (`safetensors_header` for `.safetensors`, full SHA-256 for other manifest files).
 - Health reports now include `digest`, `weight_fingerprint`, `size_bytes`, and `verification_status` per model.
 - Inference requests for unverified models return **403 Forbidden**.
-- Config: `provider.model_path` (vLLM) and `provider.model_verification` (default enabled; set `false` to disable).
+- Config: `provider.model_path` (vLLM) for on-disk weight fingerprinting.
 
 ### Changed
 
