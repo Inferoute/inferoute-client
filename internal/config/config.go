@@ -23,7 +23,8 @@ type Config struct {
 		URL               string `yaml:"url"`
 		ProviderType      string `yaml:"provider_type"`
 		LLMURL            string `yaml:"llm_url"`
-		ModelPath string `yaml:"model_path"` // vLLM: directory containing HF weights
+		HFHubCache        string `yaml:"hf_hub_cache"` // optional; default ~/.cache/huggingface/hub
+		ModelPath         string `yaml:"model_path"`   // optional flat dir override (hf download --local-dir)
 	} `yaml:"provider"`
 
 	// Logging configuration

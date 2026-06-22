@@ -25,22 +25,50 @@ type fingerprintCache struct {
 
 // Verifier checks local models against the platform allowlist.
 type Verifier struct {
-	registry   *Registry
-	serviceType string
-	modelPath  string // vLLM only
+	registry          *Registry
+	serviceType       string
+	hfHubCache        string // optional override; empty = ~/.cache/huggingface/hub
+	modelPathOverride string // optional flat weight dir (hf download --local-dir)
 
 	mu    sync.Mutex
 	cache map[string]*fingerprintCache // alias -> cache
 }
 
-// NewVerifier creates a verifier. modelPath is required for vLLM.
-func NewVerifier(registry *Registry, serviceType, modelPath string) *Verifier {
+// NewVerifier creates a verifier. For vLLM, weights are auto-resolved from the
+// HuggingFace hub cache using the served model id and approved hf_revision.
+// hfHubCache and modelPathOverride are optional.
+func NewVerifier(registry *Registry, serviceType, hfHubCache, modelPathOverride string) *Verifier {
 	return &Verifier{
-		registry:    registry,
-		serviceType: strings.ToLower(serviceType),
-		modelPath:   modelPath,
-		cache:       make(map[string]*fingerprintCache),
+		registry:          registry,
+		serviceType:       strings.ToLower(serviceType),
+		hfHubCache:        strings.TrimSpace(hfHubCache),
+		modelPathOverride: strings.TrimSpace(modelPathOverride),
+		cache:             make(map[string]*fingerprintCache),
 	}
+}
+
+func (v *Verifier) resolveVLLMRoot(build ApprovedBuild, alias string) (string, error) {
+	if v.modelPathOverride != "" {
+		abs, err := filepath.Abs(v.modelPathOverride)
+		if err != nil {
+			return "", err
+		}
+		if dirHasWeights(abs) {
+			return abs, nil
+		}
+	}
+
+	repo := hfRepoForBuild(alias, build)
+	revision := hfRevisionForBuild(build)
+	hub := v.hfHubCache
+	if hub == "" {
+		var err error
+		hub, err = DefaultHFHubCache()
+		if err != nil {
+			return "", err
+		}
+	}
+	return ResolveHFModelRoot(hub, repo, revision)
 }
 
 // VerifyOllamaModel checks digest and size from Ollama /api/tags data.
@@ -87,11 +115,6 @@ func (v *Verifier) VerifyOllamaModel(alias, digest string, sizeBytes int64) Resu
 func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, error) {
 	res := Result{Alias: alias}
 
-	if v.modelPath == "" {
-		res.Status = StatusFailed
-		return res, fmt.Errorf("vLLM model_path is not configured")
-	}
-
 	build, ok := v.registry.Get(alias)
 	if !ok {
 		res.Status = StatusUnverified
@@ -104,9 +127,10 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 		return res, nil
 	}
 
-	root, err := filepath.Abs(v.modelPath)
+	root, err := v.resolveVLLMRoot(build, alias)
 	if err != nil {
-		return res, err
+		res.Status = StatusFailed
+		return res, fmt.Errorf("locate weights for %s: %w", alias, err)
 	}
 
 	fingerprint, stale, err := v.fingerprintWithCache(alias, root, build.Manifest)

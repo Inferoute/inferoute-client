@@ -11,8 +11,11 @@ provider:
   url: "https://core.inferoute.com"
   provider_type: "vllm"
   llm_url: "http://localhost:8000"
-  # vLLM only: directory containing pinned HuggingFace weights
-  model_path: "/path/to/model"
+  # vLLM: weights are auto-found in ~/.cache/huggingface/hub from the model
+  # vLLM serves (e.g. Qwen/Qwen3-0.6B → models--Qwen--Qwen3-0.6B/snapshots/<revision>).
+  # Optional overrides:
+  # hf_hub_cache: /home/ubuntu/.cache/huggingface/hub
+  # model_path: /home/ubuntu/models/Qwen3-0.6B  # flat dir from hf download --local-dir
 
 # Logging configuration
 logging:

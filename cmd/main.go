@@ -150,7 +150,7 @@ func main() {
 		logger.Info("Loaded approved model builds",
 			zap.Strings("aliases", registry.Aliases()))
 	}
-	modelVerifier := verify.NewVerifier(registry, cfg.Provider.ProviderType, cfg.Provider.ModelPath)
+	modelVerifier := verify.NewVerifier(registry, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
 
 	// Register local models with pricing
 	var registeredModelIDs []string

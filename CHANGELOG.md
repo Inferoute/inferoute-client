@@ -3,6 +3,14 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [1.1.2] - 2026-06-22
+
+### Changed
+
+- **vLLM weight discovery** — no required `model_path`. The client reads the model id from vLLM (`GET /v1/models`), looks up the approved `hf_revision`, and fingerprints weights under `~/.cache/huggingface/hub/models--Org--Name/snapshots/<revision>`.
+- Optional `hf_hub_cache` if your HuggingFace cache is not in the default location.
+- Optional `model_path` only for flat directories from `hf download --local-dir`.
+
 ## [1.1.1] - 2026-06-22
 
 ### Removed

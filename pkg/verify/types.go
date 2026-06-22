@@ -27,6 +27,8 @@ type ApprovedBuild struct {
 	ExpectedDigest    *string         `json:"expected_digest,omitempty"`
 	WeightFingerprint *string         `json:"weight_fingerprint,omitempty"`
 	MinSizeBytes      int64           `json:"min_size_bytes"`
+	HFRepo            *string         `json:"hf_repo,omitempty"`
+	HFRevision        *string         `json:"hf_revision,omitempty"`
 	Manifest          []ManifestEntry `json:"manifest,omitempty"`
 	IsActive          bool            `json:"is_active"`
 }
