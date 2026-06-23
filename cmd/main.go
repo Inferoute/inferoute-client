@@ -184,7 +184,7 @@ func main() {
 
 	// Now start health reporting after Cloudflare tunnel is established
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(health.ReportInterval)
 		defer ticker.Stop()
 
 		// Wait briefly for tunnel URL so first report can persist providers.api_url.

@@ -40,9 +40,15 @@ type Reporter struct {
 	geoCachedIP   string
 	geoCachedLoc  string
 	geoCachedAt   time.Time
+
+	displayedModelsMu sync.RWMutex
+	displayedModels   []llm.Model
 }
 
-const geoCacheTTL = 12 * time.Hour
+const (
+	geoCacheTTL      = 12 * time.Hour
+	ReportInterval   = 3 * time.Minute
+)
 
 // HealthReport represents a health report to be sent to the central system
 type HealthReport struct {
@@ -298,7 +304,8 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		return nil, fmt.Errorf("failed to list models: %w", err)
 	}
 
-	enriched := r.verifier.ApplyToModels(ctx, r.llmClient, models.Models)
+	enriched := r.enrichModels(ctx, models.Models)
+	r.setDisplayedModels(enriched)
 
 	// Get GPU info if available
 	var gpuInfo *gpu.GPUInfo
@@ -372,6 +379,43 @@ func (r *Reporter) GetLastUpdateTime() time.Time {
 	r.lastUpdateMutex.Lock()
 	defer r.lastUpdateMutex.Unlock()
 	return r.lastUpdateTime
+}
+
+// RefreshModelsForDisplay polls the local LLM and returns models with verification status.
+// Used by the console UI to reflect vLLM/Ollama model changes between health reports.
+func (r *Reporter) RefreshModelsForDisplay(ctx context.Context) ([]llm.Model, error) {
+	models, err := r.llmClient.ListModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models: %w", err)
+	}
+	enriched := r.enrichModels(ctx, models.Models)
+	r.setDisplayedModels(enriched)
+	return enriched, nil
+}
+
+// GetDisplayedModels returns the last cached model status snapshot.
+func (r *Reporter) GetDisplayedModels() []llm.Model {
+	r.displayedModelsMu.RLock()
+	defer r.displayedModelsMu.RUnlock()
+	if len(r.displayedModels) == 0 {
+		return nil
+	}
+	out := make([]llm.Model, len(r.displayedModels))
+	copy(out, r.displayedModels)
+	return out
+}
+
+func (r *Reporter) enrichModels(ctx context.Context, models []llm.Model) []llm.Model {
+	if r.verifier == nil {
+		return models
+	}
+	return r.verifier.ApplyToModels(ctx, r.llmClient, models)
+}
+
+func (r *Reporter) setDisplayedModels(models []llm.Model) {
+	r.displayedModelsMu.Lock()
+	r.displayedModels = models
+	r.displayedModelsMu.Unlock()
 }
 
 // SetCloudflareClient updates the Cloudflare client used by the health reporter
