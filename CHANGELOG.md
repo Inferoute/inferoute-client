@@ -3,6 +3,17 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [1.1.4] - 2026-06-23
+
+### Added
+
+- **Console model status** — live model name and marketplace approval shown in the terminal UI; polls vLLM/Ollama every few seconds so model swaps are visible without restarting the client.
+
+### Changed
+
+- Health reports sent every **3 minutes** (was 5).
+- User-facing LLM errors (console and API) use clear messages such as *Could not connect to vLLM — is it running?* instead of raw connection errors.
+
 ## [1.1.3] - 2026-06-22
 
 ### Fixed
