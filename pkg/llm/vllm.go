@@ -44,7 +44,7 @@ func (c *VLLMClient) ListModels(ctx context.Context) (*ListModelsResponse, error
 	resp, err := c.client.Do(req)
 	if err != nil {
 		logger.Error("Failed to send request for listing models", zap.Error(err), zap.String("url", url))
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("list models: %w", wrapRequestErr(err))
 	}
 	defer resp.Body.Close()
 
@@ -53,7 +53,7 @@ func (c *VLLMClient) ListModels(ctx context.Context) (*ListModelsResponse, error
 		logger.Error("Request failed for listing models",
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("url", url))
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("list models: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 
 	// Parse response
@@ -102,7 +102,7 @@ func (c *VLLMClient) Chat(ctx context.Context, request *ChatRequest) (*ChatRespo
 			zap.Error(err),
 			zap.String("url", url),
 			zap.String("model", request.Model))
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("chat: %w", wrapRequestErr(err))
 	}
 	defer resp.Body.Close()
 
@@ -112,7 +112,7 @@ func (c *VLLMClient) Chat(ctx context.Context, request *ChatRequest) (*ChatRespo
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("url", url),
 			zap.String("model", request.Model))
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("chat: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 
 	// Parse response
@@ -145,13 +145,13 @@ func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byt
 	// Send request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("forward: %w", wrapRequestErr(err))
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("forward: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 
 	// Read response body

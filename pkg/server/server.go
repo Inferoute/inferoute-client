@@ -17,6 +17,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
 )
@@ -255,52 +256,31 @@ func (s *Server) writeModelStatus(buf *bytes.Buffer) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	models, err := s.healthReporter.RefreshModelsForDisplay(ctx)
-	if err != nil {
-		buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
-		buf.WriteString("║                           MODEL STATUS                           ║\n")
-		buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
-		buf.WriteString(fmt.Sprintf("\033[1;35mModel                         \033[0m\033[1;31munavailable (%v)\033[0m\n", err))
-		return
-	}
+	display := s.healthReporter.ModelDisplay(ctx)
 
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
 	buf.WriteString("║                           MODEL STATUS                           ║\n")
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
 
-	if len(models) == 0 {
+	if display.Err != nil {
+		msg := usermsg.Console(display.Err, s.config.Provider.ProviderType)
+		buf.WriteString(fmt.Sprintf("\033[1;35mModel                         \033[0m\033[1;33m%s\033[0m\n", msg))
+		return
+	}
+
+	if len(display.Models) == 0 {
 		buf.WriteString("\033[1;35mModel                         \033[0m\033[1;33m(none reported by LLM)\033[0m\n")
 		return
 	}
 
-	for i, m := range models {
+	for i, m := range display.Models {
 		prefix := "Model                         "
 		if i > 0 {
 			prefix = "                                "
 		}
-		label, color := approvalLabel(m.VerificationStatus)
+		label, color := usermsg.ApprovalConsole(m.VerificationStatus)
 		buf.WriteString(fmt.Sprintf("\033[1;35m%s\033[0m%s\n", prefix, m.ID))
 		buf.WriteString(fmt.Sprintf("\033[1;35mMarketplace approval          \033[0m%s%s\033[0m\n", color, label))
-	}
-}
-
-func approvalLabel(status string) (string, string) {
-	switch status {
-	case string(verify.StatusVerified):
-		return "approved", "\033[1;32m"
-	case string(verify.StatusUnverified):
-		return "not on allowlist", "\033[1;33m"
-	case string(verify.StatusFailed):
-		return "failed verification", "\033[1;31m"
-	case string(verify.StatusStale):
-		return "stale (re-checking)", "\033[1;33m"
-	case string(verify.StatusPending):
-		return "pending", "\033[1;33m"
-	default:
-		if status == "" {
-			return "unknown", "\033[0m"
-		}
-		return status, "\033[0m"
 	}
 }
 

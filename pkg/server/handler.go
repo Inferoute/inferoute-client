@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 )
 
 // handleHealth handles the /api/health endpoint
@@ -16,7 +18,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	report, err := s.healthReporter.GetHealthReport(r.Context())
 	if err != nil {
 		s.logError(fmt.Sprintf("Failed to get health report: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to get health report: %v", err), http.StatusInternalServerError)
+		http.Error(w, usermsg.HTTP(err, s.config.Provider.ProviderType), http.StatusInternalServerError)
 		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
 		return
 	}
@@ -125,8 +127,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	llmResp, err := s.forwardToLLM(r.Context(), "/v1/chat/completions", body)
 	if err != nil {
 		s.logError(fmt.Sprintf("Failed to forward request to LLM provider: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to forward request to LLM provider: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+		http.Error(w, usermsg.HTTP(err, s.config.Provider.ProviderType), http.StatusBadGateway)
+		s.logRequest(r.Method, r.URL.Path, http.StatusBadGateway, startTime)
 		return
 	}
 
@@ -207,8 +209,8 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	llmResp, err := s.forwardToLLM(r.Context(), "/v1/completions", body)
 	if err != nil {
 		s.logError(fmt.Sprintf("Failed to forward request to LLM provider: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to forward request to LLM provider: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+		http.Error(w, usermsg.HTTP(err, s.config.Provider.ProviderType), http.StatusBadGateway)
+		s.logRequest(r.Method, r.URL.Path, http.StatusBadGateway, startTime)
 		return
 	}
 

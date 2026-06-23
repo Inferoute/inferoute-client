@@ -93,12 +93,12 @@ func (c *OllamaClient) getJSON(ctx context.Context, url string, dest interface{}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("request: %w", wrapRequestErr(err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return fmt.Errorf("request: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
@@ -156,7 +156,7 @@ func (c *OllamaClient) Chat(ctx context.Context, request *ChatRequest) (*ChatRes
 			zap.Error(err),
 			zap.String("url", url),
 			zap.String("model", request.Model))
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("chat: %w", wrapRequestErr(err))
 	}
 	defer resp.Body.Close()
 
@@ -166,7 +166,7 @@ func (c *OllamaClient) Chat(ctx context.Context, request *ChatRequest) (*ChatRes
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("url", url),
 			zap.String("model", request.Model))
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("chat: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 
 	// Parse response
@@ -229,13 +229,13 @@ func (c *OllamaClient) ForwardRequest(ctx context.Context, path string, body []b
 	// Send request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("forward: %w", wrapRequestErr(err))
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("forward: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 
 	// Read response body
