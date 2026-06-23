@@ -227,8 +227,8 @@ func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	if r.verifier != nil {
-		if err := r.verifier.RefreshApprovedBuilds(ctx); err != nil {
-			logger.Warn("Failed to refresh approved model builds", zap.Error(err))
+		if err := r.verifier.RefreshCatalog(ctx); err != nil {
+			logger.Warn("Failed to refresh approved model catalog", zap.Error(err))
 		}
 	}
 

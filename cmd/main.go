@@ -143,14 +143,15 @@ func main() {
 	// Initialize pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
-	registry := verify.NewRegistry(cfg.Provider.URL, cfg.Provider.ProviderType)
-	if err := registry.Refresh(ctx); err != nil {
-		logger.Warn("Failed to fetch approved model builds; verification may be limited", zap.Error(err))
+	catalog := verify.NewCatalog(cfg.Provider.URL, cfg.Provider.ProviderType)
+	if err := catalog.Refresh(ctx); err != nil {
+		logger.Warn("Failed to fetch approved model catalog; verification may be limited", zap.Error(err))
 	} else {
-		logger.Info("Loaded approved model builds",
-			zap.Strings("aliases", registry.Aliases()))
+		logger.Info("Loaded approved model catalog",
+			zap.Strings("aliases", catalog.Aliases()))
 	}
-	modelVerifier := verify.NewVerifier(registry, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
+	serverClient := verify.NewServerClient(cfg.Provider.URL, cfg.Provider.APIKey)
+	modelVerifier := verify.NewVerifier(catalog, serverClient, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
 
 	// Register local models with pricing
 	var registeredModelIDs []string

@@ -117,17 +117,3 @@ func snapshotForRevision(cacheDir, revision string) (string, error) {
 	}
 	return "", fmt.Errorf("revision %s not found under %s", revision, cacheDir)
 }
-
-func hfRepoForBuild(alias string, build ApprovedBuild) string {
-	if build.HFRepo != nil && strings.TrimSpace(*build.HFRepo) != "" {
-		return strings.TrimSpace(*build.HFRepo)
-	}
-	return alias
-}
-
-func hfRevisionForBuild(build ApprovedBuild) string {
-	if build.HFRevision != nil {
-		return strings.TrimSpace(*build.HFRevision)
-	}
-	return ""
-}

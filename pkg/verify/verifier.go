@@ -19,27 +19,28 @@ type fileStat struct {
 }
 
 type fingerprintCache struct {
-	fingerprint string
-	files       map[string]fileStat
+	files  []FileMeasurement
+	stats  map[string]fileStat
+	result Result
 }
 
-// Verifier checks local models against the platform allowlist.
+// Verifier measures local models and asks the platform to judge verification status.
 type Verifier struct {
-	registry          *Registry
+	catalog           *Catalog
+	server            *ServerClient
 	serviceType       string
-	hfHubCache        string // optional override; empty = ~/.cache/huggingface/hub
-	modelPathOverride string // optional flat weight dir (hf download --local-dir)
+	hfHubCache        string
+	modelPathOverride string
 
 	mu    sync.Mutex
 	cache map[string]*fingerprintCache // alias -> cache
 }
 
-// NewVerifier creates a verifier. For vLLM, weights are auto-resolved from the
-// HuggingFace hub cache using the served model id and approved hf_revision.
-// hfHubCache and modelPathOverride are optional.
-func NewVerifier(registry *Registry, serviceType, hfHubCache, modelPathOverride string) *Verifier {
+// NewVerifier creates a verifier. Measurements are sent to the server; expected hashes stay in the DB.
+func NewVerifier(catalog *Catalog, server *ServerClient, serviceType, hfHubCache, modelPathOverride string) *Verifier {
 	return &Verifier{
-		registry:          registry,
+		catalog:           catalog,
+		server:            server,
 		serviceType:       strings.ToLower(serviceType),
 		hfHubCache:        strings.TrimSpace(hfHubCache),
 		modelPathOverride: strings.TrimSpace(modelPathOverride),
@@ -47,7 +48,7 @@ func NewVerifier(registry *Registry, serviceType, hfHubCache, modelPathOverride 
 	}
 }
 
-func (v *Verifier) resolveVLLMRoot(build ApprovedBuild, alias string) (string, error) {
+func (v *Verifier) resolveVLLMRoot(entry CatalogEntry, alias string) (string, error) {
 	if v.modelPathOverride != "" {
 		abs, err := filepath.Abs(v.modelPathOverride)
 		if err != nil {
@@ -58,8 +59,8 @@ func (v *Verifier) resolveVLLMRoot(build ApprovedBuild, alias string) (string, e
 		}
 	}
 
-	repo := hfRepoForBuild(alias, build)
-	revision := hfRevisionForBuild(build)
+	repo := hfRepoForCatalog(alias, entry)
+	ref := hfRefForCatalog(entry)
 	hub := v.hfHubCache
 	if hub == "" {
 		var err error
@@ -68,130 +69,129 @@ func (v *Verifier) resolveVLLMRoot(build ApprovedBuild, alias string) (string, e
 			return "", err
 		}
 	}
-	return ResolveHFModelRoot(hub, repo, revision)
+	return ResolveHFModelRoot(hub, repo, ref)
 }
 
-// VerifyOllamaModel checks digest and size from Ollama /api/tags data.
-func (v *Verifier) VerifyOllamaModel(alias, digest string, sizeBytes int64) Result {
+// VerifyOllamaModel submits digest and size to the server for verification.
+func (v *Verifier) VerifyOllamaModel(ctx context.Context, alias, digest string, sizeBytes int64) (Result, error) {
 	res := Result{Alias: alias, Digest: NormalizeDigest(digest), SizeBytes: sizeBytes}
 
-	build, ok := v.registry.Get(alias)
-	if !ok {
+	if _, ok := v.catalog.Get(alias); !ok {
 		res.Status = StatusUnverified
-		return res
+		return res, nil
 	}
-	res.ApprovedBuildID = build.ID
 
-	if build.ExpectedDigest == nil {
+	resp, err := v.server.VerifyModel(ctx, verifyModelRequest{
+		Alias:     alias,
+		Digest:    res.Digest,
+		SizeBytes: sizeBytes,
+	})
+	if err != nil {
 		res.Status = StatusFailed
-		return res
+		return res, err
 	}
-	expected := NormalizeDigest(*build.ExpectedDigest)
-	if res.Digest == "" {
-		res.Status = StatusFailed
-		return res
-	}
-	if res.Digest != expected {
-		logger.Warn("Ollama digest mismatch",
-			zap.String("alias", alias),
-			zap.String("expected", expected),
-			zap.String("actual", res.Digest))
-		res.Status = StatusFailed
-		return res
-	}
-	if sizeBytes > 0 && sizeBytes < build.MinSizeBytes {
-		logger.Warn("Ollama model below minimum size",
-			zap.String("alias", alias),
-			zap.Int64("min_size_bytes", build.MinSizeBytes),
-			zap.Int64("actual_size_bytes", sizeBytes))
-		res.Status = StatusFailed
-		return res
-	}
-	res.Status = StatusVerified
-	return res
+	applyServerResponse(&res, resp)
+	return res, nil
 }
 
-// VerifyVLLMModel fingerprints model_path against the approved manifest.
+// VerifyVLLMModel hashes local weights and asks the server to verify.
 func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, error) {
 	res := Result{Alias: alias}
 
-	build, ok := v.registry.Get(alias)
+	entry, ok := v.catalog.Get(alias)
 	if !ok {
 		res.Status = StatusUnverified
 		return res, nil
 	}
-	res.ApprovedBuildID = build.ID
 
-	if build.WeightFingerprint == nil || len(build.Manifest) == 0 {
-		res.Status = StatusFailed
-		return res, nil
-	}
-
-	root, err := v.resolveVLLMRoot(build, alias)
+	root, err := v.resolveVLLMRoot(entry, alias)
 	if err != nil {
 		res.Status = StatusFailed
 		return res, fmt.Errorf("locate weights for %s: %w", alias, err)
 	}
 
-	fingerprint, stale, err := v.fingerprintWithCache(alias, root, build.Manifest)
+	files, stale, err := v.measureWithCache(alias, root)
 	if err != nil {
 		res.Status = StatusFailed
 		return res, err
 	}
-	res.WeightFingerprint = fingerprint
 
-	expected := strings.ToLower(strings.TrimSpace(*build.WeightFingerprint))
-	if fingerprint != expected {
-		logger.Warn("vLLM fingerprint mismatch",
-			zap.String("alias", alias),
-			zap.String("expected", expected),
-			zap.String("actual", fingerprint))
+	if cached, ok := v.cachedResult(alias); ok && !stale {
+		return cached, nil
+	}
+
+	resp, err := v.server.VerifyModel(ctx, verifyModelRequest{
+		Alias: alias,
+		Files: files,
+		Stale: stale,
+	})
+	if err != nil {
 		res.Status = StatusFailed
-		return res, nil
+		return res, err
 	}
-
-	if stale {
-		res.Status = StatusStale
-	} else {
-		res.Status = StatusVerified
-	}
+	applyServerResponse(&res, resp)
+	v.storeResult(alias, res)
 	return res, nil
 }
 
-func (v *Verifier) fingerprintWithCache(alias, root string, manifest []ManifestEntry) (fingerprint string, stale bool, err error) {
-	currentStats, err := manifestFileStats(root, manifest)
+func (v *Verifier) measureWithCache(alias, root string) (files []FileMeasurement, stale bool, err error) {
+	currentStats, err := weightDirStats(root)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
 	}
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
 	prev, hadCache := v.cache[alias]
-	if hadCache && fileStatsEqual(prev.files, currentStats) {
-		return prev.fingerprint, false, nil
+	if hadCache && fileStatsEqual(prev.stats, currentStats) {
+		return prev.files, false, nil
 	}
 
-	fp, err := WeightFingerprint(root, manifest)
+	files, err = measureWeightDir(root)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
 	}
 
-	v.cache[alias] = &fingerprintCache{fingerprint: fp, files: currentStats}
-	return fp, hadCache, nil
+	v.cache[alias] = &fingerprintCache{files: files, stats: currentStats}
+	return files, hadCache, nil
 }
 
-func manifestFileStats(root string, manifest []ManifestEntry) (map[string]fileStat, error) {
-	stats := make(map[string]fileStat, len(manifest))
-	for _, entry := range manifest {
-		path := filepath.Join(root, entry.Name)
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, fmt.Errorf("stat %s: %w", entry.Name, err)
+func weightDirStats(root string) (map[string]fileStat, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	stats := make(map[string]fileStat)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
 		}
-		stats[entry.Name] = fileStat{size: info.Size(), modTime: info.ModTime().UnixNano()}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, err
+		}
+		stats[entry.Name()] = fileStat{size: info.Size(), modTime: info.ModTime().UnixNano()}
 	}
 	return stats, nil
+}
+
+func (v *Verifier) cachedResult(alias string) (Result, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	c, ok := v.cache[alias]
+	if !ok || c.result.Status == "" {
+		return Result{}, false
+	}
+	return c.result, true
+}
+
+func (v *Verifier) storeResult(alias string, res Result) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if c, ok := v.cache[alias]; ok {
+		c.result = res
+	}
 }
 
 func fileStatsEqual(a, b map[string]fileStat) bool {
@@ -205,6 +205,16 @@ func fileStatsEqual(a, b map[string]fileStat) bool {
 		}
 	}
 	return true
+}
+
+func applyServerResponse(res *Result, resp verifyModelResponse) {
+	res.Status = Status(resp.VerificationStatus)
+	if resp.Digest != "" {
+		res.Digest = NormalizeDigest(resp.Digest)
+	}
+	if resp.WeightFingerprint != "" {
+		res.WeightFingerprint = strings.ToLower(strings.TrimSpace(resp.WeightFingerprint))
+	}
 }
 
 // ApplyToModels enriches discovered models with verification fields.
@@ -228,7 +238,12 @@ func (v *Verifier) ApplyToModels(ctx context.Context, llmClient llm.Client, mode
 				out[i].VerificationStatus = string(StatusUnverified)
 				continue
 			}
-			res := v.VerifyOllamaModel(m.ID, detail.Digest, detail.Size)
+			res, err := v.VerifyOllamaModel(ctx, m.ID, detail.Digest, detail.Size)
+			if err != nil {
+				logger.Error("Ollama verification error", zap.String("alias", m.ID), zap.Error(err))
+				out[i].VerificationStatus = string(StatusFailed)
+				continue
+			}
 			applyResult(&out[i], res)
 		case "vllm":
 			res, err := v.VerifyVLLMModel(ctx, m.ID)
@@ -257,7 +272,6 @@ func IsInferenceAllowed(status string) bool {
 	return status == string(StatusVerified)
 }
 
-// ollamaDetail holds raw /api/tags fields keyed by consumer alias.
 type ollamaDetail struct {
 	Digest string
 	Size   int64
@@ -277,17 +291,27 @@ func OllamaDetailsFromTags(tags []llm.OllamaModel) map[string]ollamaDetail {
 	return out
 }
 
-// Registry exposes the approved-builds cache for periodic refresh.
-func (v *Verifier) Registry() *Registry {
-	return v.registry
+// CatalogClient exposes the public model catalog.
+func (v *Verifier) CatalogClient() *Catalog {
+	return v.catalog
 }
 
-// RefreshApprovedBuilds reloads the platform allowlist.
-func (v *Verifier) RefreshApprovedBuilds(ctx context.Context) error {
-	if v.registry == nil {
+// RefreshCatalog reloads the public approved-model catalog.
+func (v *Verifier) RefreshCatalog(ctx context.Context) error {
+	if v.catalog == nil {
 		return nil
 	}
-	return v.registry.Refresh(ctx)
+	return v.catalog.Refresh(ctx)
+}
+
+func VerifiedModelIDs(models []llm.Model) []string {
+	var ids []string
+	for _, m := range models {
+		if m.VerificationStatus == string(StatusVerified) {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids
 }
 
 func (v *Verifier) CheckInference(ctx context.Context, llmClient llm.Client, modelName string) error {
@@ -303,14 +327,4 @@ func (v *Verifier) CheckInference(ctx context.Context, llmClient llm.Client, mod
 		return fmt.Errorf("model %s is not verified (%s)", modelName, status)
 	}
 	return nil
-}
-
-func VerifiedModelIDs(models []llm.Model) []string {
-	var ids []string
-	for _, m := range models {
-		if m.VerificationStatus == string(StatusVerified) {
-			ids = append(ids, m.ID)
-		}
-	}
-	return ids
 }
