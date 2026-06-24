@@ -1,325 +1,180 @@
 ## Overview
 
-The Provider Client is a lightweight Go service that runs on Ollama provider machines. It is implemented as a single Go application with the following components:
-
-- Configuration management (`pkg/config`)
-- GPU monitoring (`pkg/gpu`)
-- Health reporting (`pkg/health`)
-- Ollama API client (`pkg/ollama`)
-- HTTP server (`pkg/server`)
-- Structured logging (`pkg/logger`)
-
-### Health Monitoring & Reporting:
-
-1. It collects local metrics (e.g., GPU type, number of GPUs, utilization stats, models available) and reports them to the central system. It sends these reports to `http://localhost:80/api/provider/health`.
-
-   - On Linux systems with NVIDIA GPUs, details are collected using `nvidia-smi -x -q` command and parsing the XML output to extract GPU type, driver version, CUDA version, memory usage, and utilization.
-   - On macOS systems, GPU details are collected using `system_profiler SPDisplaysDataType` command to extract GPU model and core count information.
-   - Available models are retrieved from the local Ollama instance via the REST API by calling `/api/models`.
-   - The health report includes GPU information, available models, and the Cloudflare tunnel URL.
-
-   Health reports are sent every 5 minutes automatically, and there is also an API endpoint `/health` that returns this information on demand.
-
-2. The client exposes an API endpoint `/busy` that checks whether the GPU is busy:
-   - On Linux systems, this is determined by examining the GPU utilization. If utilization is above 20%, the GPU is considered busy.
-   - On macOS systems, the GPU is always considered not busy.
-   
-   This endpoint returns a JSON response with a boolean `busy` field.
-
-### Model Pricing Initialization:
-
-Before starting the health reporting cycle, the client performs a one-time initialization of model pricing:
-
-1. **Model Discovery**:
-   - Queries the local Ollama instance to get a list of all available models
-   - Uses full model IDs including tags (e.g., "llama2:latest")
-
-2. **Price Fetching**:
-   - Makes a request to `/api/model-pricing/get-prices` with the list of discovered models
-   - The response includes:
-     - Model-specific pricing (if available)
-     - Default pricing for models without specific pricing
-   ```json
-   {
-     "model_prices": [
-       {
-         "model_name": "llama2",
-         "avg_input_price": 0.0005,
-         "avg_output_price": 0.0005,
-         "sample_size": 4
-       },
-       {
-         "model_name": "default",
-         "avg_input_price": 0.0005,
-         "avg_output_price": 0.0005,
-         "sample_size": 1
-       }
-     ]
-   }
-   ```
-
-3. **Price Registration**:
-   - For each local model:
-     - If model-specific pricing exists in the API response, uses those prices
-     - If no model-specific pricing exists, uses the default pricing from the API response
-     - Registers the model and its pricing via POST to `/api/provider/models`
-   ```json
-   {
-     "model_name": "llama2",
-     "service_type": "ollama",
-     "input_price_tokens": 0.0005,
-     "output_price_tokens": 0.0005
-   }
-   ```
-   - Gracefully handles cases where models already exist (HTTP 409 Conflict)
-
-4. **Error Handling**:
-   - Continues operation even if pricing initialization fails
-   - Logs detailed information about pricing decisions and any errors
-   - Uses structured logging to track which pricing (specific or default) is used for each model
-
-This initialization ensures that all local models are registered with appropriate pricing before the client begins handling inference requests.
-
-Note that the API to register models with `/api/provider/models` does not allow updates to models - can only be used for initial creation of models.
-
-### Automatic Model Registration:
-
-The provider client now includes automatic registration of new models that are added to Ollama after the application has started:
-
-1. **Model Tracking**:
-   - The client maintains a registry of models that have already been registered with pricing
-   - This registry is initialized at startup with the list of models registered during initialization
-   - The registry is thread-safe to handle concurrent access
-
-2. **Periodic Model Discovery**:
-   - During each health report cycle (every 5 minutes), the client checks for new models
-   - It compares the current list of models from Ollama with the tracked registry
-   - Any models that exist in Ollama but not in the registry are identified as new models
-
-3. **Automatic Registration**:
-   - For each newly discovered model, the client:
-     - Fetches pricing information from the central system
-     - Uses model-specific pricing if available, or falls back to default pricing
-     - Registers the model with the central system via `/api/provider/models`
-     - Adds the model to the tracked registry upon successful registration
-   
-4. **Error Handling**:
-   - If a model already exists (HTTP 400 Bad Request), it's marked as registered in the local registry
-   - Registration failures are logged but don't interrupt the health reporting process
-   - Detailed logging provides visibility into the registration process
+The Inferoute Provider Client is a Go service that runs on provider GPU machines alongside **Ollama** or **vLLM**. It:
 
-This automatic registration ensures that any models added to Ollama after the client has started will be properly registered with pricing information without requiring a restart of the provider client.
+- Exposes a local HTTP proxy for OpenAI-compatible inference
+- Reports health to the Inferoute platform on a schedule
+- Registers models and pricing with the platform
+- Verifies models against the platform **approved-builds** catalog before routing traffic
+- Requests and supervises a **Cloudflare Tunnel** (`cloudflared`) so Inferoute can reach the machine without open firewall ports
 
-### Inference Request Handling:
+Entry point: `cmd/main.go`
 
-When an inference request is received from the central orchestrator, the provider client:
+### Package layout
 
-1. First determines whether its GPU is currently busy by checking the GPU utilization.
-   - If the GPU is busy:
-     The service immediately responds with a 503 Service Unavailable status and a JSON error message, allowing the orchestrator to try another provider.
-   - If the GPU is available:
-     It proceeds to the next step.
+| Package | Role |
+|---------|------|
+| `internal/config` | YAML configuration load and defaults |
+| `pkg/server` | HTTP server, console UI, HMAC validation, request proxying |
+| `pkg/health` | Health report assembly and push to platform |
+| `pkg/llm` | Ollama / vLLM client abstraction (`ListModels`, `ForwardRequest`) |
+| `pkg/gpu` | GPU monitoring (NVIDIA on Linux, basic info on macOS) |
+| `pkg/cloudflare` | Tunnel request, `cloudflared` process supervision |
+| `pkg/pricing` | Model price lookup and registration |
+| `pkg/verify` | Approved-catalog fetch, local measurement, server-as-judge verification |
+| `pkg/logger` | Zap structured logging with rotation |
+| `pkg/usermsg` | User-facing error strings for console and HTTP |
 
-2. Validates the HMAC if present in the request header (`X-Request-Id`).
-   - The HMAC is validated by sending a request to `/api/provider/validate_hmac` on the central system.
-   - If validation fails, the request is rejected with a 401 Unauthorized status.
+## Startup sequence (`cmd/main.go`)
 
-3. If validation succeeds, the request is forwarded to the local Ollama instance and the response is returned to the client.
-   - The client supports both `/v1/chat/completions` and `/v1/completions` endpoints, making it compatible with the OpenAI API.
+1. Load config from `--config` or `~/.config/inferoute/config.yaml`
+2. Initialize logger, GPU monitor (optional), LLM client
+3. Fetch public approved-builds catalog (`GET /api/models/approved-builds`)
+4. Create verifier (`pkg/verify`) and register local models with pricing (`pkg/pricing`)
+5. Start HTTP server (`pkg/server`):
+   - Request tunnel from platform (`POST /api/cloudflare/tunnel/request`)
+   - Start and supervise `cloudflared`
+6. Start health reporter loop (`health.ReportInterval` = **3 minutes**):
+   - Wait up to 30s for tunnel URL
+   - Send initial health report, then on ticker
 
-### Logging System:
+## Configuration (`internal/config`)
 
-The provider client implements a comprehensive logging system using Zap, a high-performance structured logging library:
+YAML sections:
 
-1. **Structured Logging**: All logs include structured fields (method, path, status, duration, etc.) for better filtering and analysis.
+- **server** — `port` (default 8080), `host` (default `0.0.0.0`)
+- **provider** — `api_key`, `url` (Inferoute platform base URL), `provider_type` (`ollama` | `vllm`), `llm_url`, optional `hf_hub_cache` and `model_path` (vLLM weight resolution)
+- **logging** — level, `log_dir`, rotation (`max_size`, `max_backups`, `max_age`)
 
-2. **Log Levels**: Supports multiple log levels (debug, info, warn, error) configurable via the configuration file.
+`TunnelServiceURL()` derives the local URL passed to Cloudflare (`http://localhost:<port>` when host is `0.0.0.0`). There is no separate Cloudflare section in config.
 
-3. **Log Rotation**: Uses lumberjack for automatic log rotation based on:
-   - Maximum file size (default: 100MB)
-   - Maximum number of backups (default: 5)
-   - Maximum age of log files (default: 30 days)
-   - Compression of old log files
+## Health reporting (`pkg/health`)
 
-4. **Multiple Outputs**:
-   - Console output for real-time monitoring
-   - JSON-formatted file logs for machine parsing
-   - Separate error log file for critical issues
+### Interval
 
-5. **Performance Optimized**: Zap is designed for high-throughput services with minimal overhead, ensuring logging doesn't impact request latency.
+`ReportInterval = 3 * time.Minute` — health is pushed to `POST /api/provider/health` on the platform.
 
-### Console Interface:
+### Payload (`HealthReport`)
 
-The provider client features a real-time console interface that displays:
+- `data` — models from local LLM, enriched with `verification_status`, digest/fingerprint fields
+- `gpu` — product name, driver, CUDA, counts, memory, utilization (when available)
+- `cloudflare` — `url` (tunnel hostname) only; **no client-side geolocation**
+- `provider_type` — `ollama` or `vllm`
 
-1. **System Information**:
-   - Last health update timestamp
-   - Session status
-   - Provider configuration details
-   - Cloudflare tunnel URL (if configured)
+### Per health cycle
 
-2. **GPU Information**:
-   - GPU model
-   - Driver version
-   - CUDA version
-   - GPU count
+1. `RefreshCatalog` — reload approved-builds list; clears verify cache if catalog changed
+2. `ListModels` from local LLM
+3. `ApplyToModels` — verification (see below)
+4. `registerNewModels` — register any newly verified models with pricing
+5. `POST /api/provider/health` with Bearer provider API key
 
-3. **Request Monitoring**:
-   - Recent requests with timestamp, method, path, status code, and formatted duration
-   - Error logs
+Platform-side: provider-management persists GPU/tunnel fields synchronously, publishes to RabbitMQ; **cluster country** is resolved asynchronously by cloudflare-service from tunnel `origin_ip` (not sent by client).
 
-The console interface refreshes every 3 seconds to provide up-to-date information without excessive flickering.
+### Local endpoints
 
-### Cloudflare Tunnel Integration:
+- `GET /api/health` — returns current `HealthReport` JSON (on-demand)
+- `GET /api/busy` — GPU busy boolean
 
-The provider client **automatically runs Cloudflare Tunnel (cloudflared) for you**. You do not need to start or manage cloudflared yourself — the client spawns the cloudflared process (via `os/exec`) at startup and supervises it for the lifetime of the client. This allows the provider's local inference engine (Ollama or vLLM server) to be accessible via a public URL without exposing the machine directly.
+## Model verification (`pkg/verify`)
 
-Key features of the Cloudflare integration:
+Server-as-judge: the client measures locally; Inferoute decides `verified` / `failed` / etc.
 
-1. **Automatic tunnel lifecycle**:
-   - On startup, the client requests a tunnel from the central system via `POST /api/cloudflare/tunnel/request` with the local service URL
-   - The central system returns a one-time token and hostname
-   - The client **starts the cloudflared binary itself** (`exec.Command("cloudflared", "tunnel", "run", "--token", ...)`) and keeps it running
-   - The tunnel URL (hostname) is then used for all communications with the central system
-   - When the client exits, it stops the cloudflared process
+### Catalog (`catalog.go`)
 
-2. **Supervision**:
-   - The client supervises the cloudflared process (health check every 10s), restarts it if it exits, and uses exponential backoff on restart failures
-   - Tunnel credentials are managed by the central system; no manual tunnel URL configuration is required
+- `GET /api/models/approved-builds?service_type=<type>` — public aliases and HF metadata (no hashes)
+- Cached in memory; refreshed each health cycle
 
-3. **Configuration**:
-   - Only the Cloudflare service URL (local URL to tunnel, e.g. the LLM server) needs to be set; it defaults to the provider's LLM URL
-   - The provider API key is used to authenticate tunnel requests to the central system
+### Verification flow
 
-4. **Resilience**:
-   - If cloudflared exits unexpectedly, the client can restart it (when supervision is enabled)
-   - Detailed logging of tunnel request, start, and process lifecycle
-   - Graceful shutdown stops the tunnel when the client exits
+| Engine | Local measurement | Server call |
+|--------|-------------------|-------------|
+| **Ollama** | Digest + size from `/api/tags` | `POST /api/provider/verify-model` |
+| **vLLM** | SHA256 of weight files under HF cache or `model_path` | `POST /api/provider/verify-model` |
 
-### Configuration:
+`ApplyToModels` enriches each model before health push and display.
 
-The application reads from a YAML configuration file with the following sections:
+### Verify result cache (10 min TTL)
 
-- `server`: Server configuration (port, host)
-- `provider`: Provider configuration (API key, central system URL, provider type, LLM URL)
-- `logging`: Logging configuration (level, directory, rotation settings)
+To avoid hammering `verify-model` (especially from the 3s console redraw), results are cached per alias:
 
-The Cloudflare tunnel target URL is derived from the server address (`http://<host>:<port>`; when host is `0.0.0.0`, localhost is used so cloudflared connects to the proxy on the same machine).
+- **TTL:** 10 minutes (`verifyResultTTL`)
+- **Invalidate when:** Ollama digest/size changes, vLLM weight file stats change, approved catalog fingerprint changes, or TTL expires
+- **Inference:** `CheckInference` uses the same verify path; cache invalidates on real model changes
 
-A default configuration is provided if the file is not found. The Cloudflare tunnel is requested from the central system at startup and cloudflared is started with the returned token; the tunnel URL is not hardcoded.
+vLLM also keeps a **weight fingerprint cache** (`measureWithCache`) to skip re-hashing unchanged files on disk.
 
-## Key Components
+### Inference gate
 
-### 1. GPU Monitor (`pkg/gpu/monitor.go`)
+Every `POST /v1/chat/completions` and `POST /v1/completions`:
 
-- Detects the operating system and uses the appropriate GPU monitoring method:
-  - On Linux: Uses `nvidia-smi` for NVIDIA GPUs
-  - On macOS: Uses `system_profiler SPDisplaysDataType` for Apple GPUs
-- Retrieves GPU information including product name, driver version, CUDA version, memory usage, and utilization (where available)
-- On Linux, determines if the GPU is busy based on utilization threshold (20%)
-- On macOS, always reports the GPU as not busy
-- Gracefully handles cases where GPU information cannot be obtained
-- Logs GPU status and errors using structured logging
+1. Parse `model` from body
+2. `CheckInference` → must be `verification_status == verified`
+3. Validate `X-Request-Id` HMAC via `POST /api/provider/validate_hmac`
+4. Forward to local LLM
 
-### 2. Health Reporter (`pkg/health/reporter.go`)
+Unapproved or failed models are rejected before proxying.
 
-- Collects GPU information and available models
-- Creates and sends health reports to the central system
-- Provides an endpoint to retrieve the current health report
-- Tracks the last successful health update time
-- Handles cases where GPU information is not available
-- Logs health reporting activities and errors
+## Model pricing (`pkg/pricing`)
 
-### 3. Ollama Client (`pkg/ollama/client.go`)
+**At startup:** discover models, fetch averages (`POST /api/model-pricing/get-prices`), register via `POST /api/provider/models` (per-token prices).
 
-- Communicates with the local Ollama instance
-- Lists available models
-- Sends chat and completion requests
-- Logs API interactions with detailed request/response information
+**Ongoing:** each health cycle registers models not yet in the local tracker (HTTP 400 if already exists → mark tracked).
 
-### 4. HTTP Server (`pkg/server/server.go`)
+Only models with `verification_status` allowing inference registration are registered (verified).
 
-- Exposes API endpoints for health checks, busy status, and inference requests
-- Handles HMAC validation
-- Forwards requests to Ollama after validation
-- Provides a real-time console interface
-- Handles cases where GPU monitoring is not available
-- Logs requests with formatted durations and status codes
+## Cloudflare tunnel (`pkg/cloudflare`)
 
-### 5. Configuration (`pkg/config/config.go`)
+1. `POST /api/cloudflare/tunnel/request` with `service_url` (local proxy URL) and provider API key
+2. Platform returns `token` + `hostname`
+3. Client runs `cloudflared tunnel run --token <token>`
+4. Supervision: health check every **10s**, restart on exit with exponential backoff (max 30s delay)
 
-- Loads configuration from YAML file
-- Provides default values if configuration is not found
-- Includes logging configuration options
+Tunnel URL included in health reports as `cloudflare.url`.
 
-### 6. Logger (`pkg/logger/logger.go`)
+## HTTP server (`pkg/server`)
 
-- Implements structured logging using Zap
-- Configures log rotation using lumberjack
-- Provides helper methods for different log levels
-- Supports multiple output destinations
+### Routes
 
-### 7. Cloudflare Client (`pkg/cloudflare/client.go`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/health` | Health snapshot |
+| GET | `/api/busy` | GPU busy |
+| POST | `/v1/chat/completions` | OpenAI-compatible chat |
+| POST | `/v1/completions` | OpenAI-compatible completions |
 
-- **Runs cloudflared automatically** — spawns the cloudflared process via `os/exec`; you do not run cloudflared yourself
-- Requests a tunnel from the central system via `/api/cloudflare/tunnel/request`, then starts cloudflared with the returned token
-- Supervises the cloudflared process (periodic health check, restart on exit with exponential backoff)
-- Exposes the tunnel hostname for health reports and central system routing
-- Handles tunnel process lifecycle (graceful shutdown and process cleanup when the client exits)
-- Logs detailed information about tunnel request, start, and process state
+### Console UI
 
-## API Endpoints
+`consoleUpdater` redraws every **3 seconds**. Model status is read from `healthReporter.GetDisplayedModels()` (last health-sync snapshot) — **not** re-verified on every redraw.
 
-1. `GET /health`: Returns the current health status including GPU information and available models
-2. `GET /busy`: Returns whether the GPU is currently busy
-3. `POST /v1/chat/completions`: OpenAI-compatible chat completions API endpoint
-4. `POST /v1/completions`: OpenAI-compatible completions API endpoint
+Displays: session info, tunnel URL, GPU block, model approval status, recent requests, errors.
 
-## Cross-Platform Support
+### GPU busy (`pkg/gpu`)
 
-The provider client is designed to work on both Linux and macOS systems:
+- **Linux + NVIDIA:** `nvidia-smi`; busy if utilization > **20%**
+- **macOS:** always not busy
+- **No monitor:** not busy
 
-1. **Linux with NVIDIA GPUs**:
-   - Full GPU monitoring with detailed information
-   - Accurate busy status based on GPU utilization
+## Logging (`pkg/logger`)
 
-2. **macOS with Apple GPUs**:
-   - Basic GPU information (model name, core count)
-   - Always reports GPU as not busy
-   - Limited memory and utilization information
+Zap structured logging; files under `logging.log_dir` (default `~/.local/state/inferoute/log`). Levels: debug, info, warn, error. Rotation via lumberjack settings in config.
 
-3. **Systems without GPU monitoring**:
-   - Client continues to function without GPU information
-   - Reports empty/null GPU data in health reports
-   - Always reports GPU as not busy
+## Cross-platform behavior
+
+| Platform | GPU detail | Busy detection |
+|----------|------------|----------------|
+| Linux + NVIDIA | Full via nvidia-smi | Utilization threshold |
+| macOS | Basic via system_profiler | Always false |
+| No GPU monitor | Placeholder values in health | Always false |
+
+Client continues operating without GPU data.
 
 ## Deployment
 
-The provider client is built in Go and can be packaged in a Docker container for easy deployment. It is designed to be as small and efficient as possible, with minimal dependencies.
+- Native binary via install scripts (`scripts/install.sh`, macOS/Windows variants)
+- Docker (`Dockerfile`, `scripts/entrypoint.sh`)
+- Requires `cloudflared` on PATH (install scripts install it)
 
-## Logging Configuration
+## Related platform docs
 
-The logging system can be configured in the `config.yaml` file:
-
-```yaml
-logging:
-  # Log level: debug, info, warn, error
-  level: "info"
-  # Log directory (defaults to ~/.local/state/inferoute/log if empty)
-  log_dir: ""
-  # Maximum size of log files in megabytes before rotation
-  max_size: 100
-  # Maximum number of old log files to retain
-  max_backups: 5
-  # Maximum number of days to retain old log files
-  max_age: 30
-```
-
-
-
-
-
-
-
-
-
+Cluster country resolution, MaxMind GeoLite2, and `POST /api/cloudflare/tunnel/sync-location` are documented in **inferoute-node** `documentation/technical.md` (Cloudflare Service).
