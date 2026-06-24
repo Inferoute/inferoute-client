@@ -12,7 +12,6 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/geoloc"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -36,18 +35,12 @@ type Reporter struct {
 	registeredModels   map[string]bool
 	registeredModelsMu sync.Mutex
 
-	geoMu         sync.Mutex
-	geoCachedIP   string
-	geoCachedLoc  string
-	geoCachedAt   time.Time
-
 	displayedModelsMu sync.RWMutex
 	displayedModels   []llm.Model
 }
 
 const (
-	geoCacheTTL      = 12 * time.Hour
-	ReportInterval   = 3 * time.Minute
+	ReportInterval = 3 * time.Minute
 )
 
 // HealthReport represents a health report to be sent to the central system
@@ -346,13 +339,6 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 			cloudflareInfo = map[string]interface{}{
 				"url": tunnelURL,
 			}
-			pubIP, loc := r.geoLookupCached(ctx)
-			if pubIP != "" {
-				cloudflareInfo["public_ip"] = pubIP
-			}
-			if loc != "" {
-				cloudflareInfo["location"] = loc
-			}
 			logger.Info("Cloudflare info will be included in health report",
 				zap.Any("cloudflare_info", cloudflareInfo))
 		} else {
@@ -421,23 +407,4 @@ func (r *Reporter) setDisplayedModels(models []llm.Model) {
 // SetCloudflareClient updates the Cloudflare client used by the health reporter
 func (r *Reporter) SetCloudflareClient(client *cloudflare.Client) {
 	r.cloudflareClient = client
-}
-
-// geoLookupCached resolves public IP and display location with a 12h in-memory cache on success.
-func (r *Reporter) geoLookupCached(ctx context.Context) (publicIP, displayLocation string) {
-	r.geoMu.Lock()
-	defer r.geoMu.Unlock()
-
-	if !r.geoCachedAt.IsZero() && time.Since(r.geoCachedAt) < geoCacheTTL &&
-		(r.geoCachedIP != "" || r.geoCachedLoc != "") {
-		return r.geoCachedIP, r.geoCachedLoc
-	}
-
-	ip, loc, err := geoloc.Lookup(ctx, geoloc.Client())
-	if err != nil {
-		logger.Warn("Geolocation lookup failed", zap.Error(err))
-		return "", ""
-	}
-	r.geoCachedIP, r.geoCachedLoc, r.geoCachedAt = ip, loc, time.Now()
-	return ip, loc
 }
