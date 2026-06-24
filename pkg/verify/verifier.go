@@ -19,9 +19,8 @@ type fileStat struct {
 }
 
 type fingerprintCache struct {
-	files  []FileMeasurement
-	stats  map[string]fileStat
-	result Result
+	files []FileMeasurement
+	stats map[string]fileStat
 }
 
 // Verifier measures local models and asks the platform to judge verification status.
@@ -116,10 +115,6 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 		return res, err
 	}
 
-	if cached, ok := v.cachedResult(alias); ok && !stale {
-		return cached, nil
-	}
-
 	resp, err := v.server.VerifyModel(ctx, verifyModelRequest{
 		Alias: alias,
 		Files: files,
@@ -130,7 +125,6 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 		return res, err
 	}
 	applyServerResponse(&res, resp)
-	v.storeResult(alias, res)
 	return res, nil
 }
 
@@ -176,24 +170,6 @@ func weightDirStats(root string) (map[string]fileStat, error) {
 	return stats, nil
 }
 
-func (v *Verifier) cachedResult(alias string) (Result, bool) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	c, ok := v.cache[alias]
-	if !ok || c.result.Status == "" {
-		return Result{}, false
-	}
-	return c.result, true
-}
-
-func (v *Verifier) storeResult(alias string, res Result) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if c, ok := v.cache[alias]; ok {
-		c.result = res
-	}
-}
-
 func fileStatsEqual(a, b map[string]fileStat) bool {
 	if len(a) != len(b) {
 		return false
@@ -207,8 +183,21 @@ func fileStatsEqual(a, b map[string]fileStat) bool {
 	return true
 }
 
+func isKnownStatus(s string) bool {
+	switch Status(strings.TrimSpace(s)) {
+	case StatusVerified, StatusPending, StatusStale, StatusFailed, StatusUnverified:
+		return true
+	default:
+		return false
+	}
+}
+
 func applyServerResponse(res *Result, resp verifyModelResponse) {
-	res.Status = Status(resp.VerificationStatus)
+	if !isKnownStatus(resp.VerificationStatus) {
+		res.Status = StatusFailed
+		return
+	}
+	res.Status = Status(strings.TrimSpace(resp.VerificationStatus))
 	if resp.Digest != "" {
 		res.Digest = NormalizeDigest(resp.Digest)
 	}
