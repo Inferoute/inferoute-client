@@ -252,27 +252,18 @@ func (s *Server) redrawConsole() {
 }
 
 func (s *Server) writeModelStatus(buf *bytes.Buffer) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	display := s.healthReporter.ModelDisplay(ctx)
+	models := s.healthReporter.GetDisplayedModels()
 
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
 	buf.WriteString("║                           MODEL STATUS                           ║\n")
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
 
-	if display.Err != nil {
-		msg := usermsg.Console(display.Err, s.config.Provider.ProviderType)
-		buf.WriteString(fmt.Sprintf("\033[1;35mModel                         \033[0m\033[1;33m%s\033[0m\n", msg))
+	if len(models) == 0 {
+		buf.WriteString("\033[1;35mModel                         \033[0m\033[1;33m(awaiting health sync)\033[0m\n")
 		return
 	}
 
-	if len(display.Models) == 0 {
-		buf.WriteString("\033[1;35mModel                         \033[0m\033[1;33m(none reported by LLM)\033[0m\n")
-		return
-	}
-
-	for i, m := range display.Models {
+	for i, m := range models {
 		prefix := "Model                         "
 		if i > 0 {
 			prefix = "                                "

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -23,6 +24,16 @@ type fingerprintCache struct {
 	stats map[string]fileStat
 }
 
+type verifyResultEntry struct {
+	result   Result
+	cachedAt time.Time
+	digest   string
+	size     int64
+	stats    map[string]fileStat
+}
+
+const verifyResultTTL = 10 * time.Minute
+
 // Verifier measures local models and asks the platform to judge verification status.
 type Verifier struct {
 	catalog           *Catalog
@@ -31,8 +42,9 @@ type Verifier struct {
 	hfHubCache        string
 	modelPathOverride string
 
-	mu    sync.Mutex
-	cache map[string]*fingerprintCache // alias -> cache
+	mu          sync.Mutex
+	cache       map[string]*fingerprintCache // alias -> weight fingerprint cache (vLLM)
+	resultCache map[string]*verifyResultEntry
 }
 
 // NewVerifier creates a verifier. Measurements are sent to the server; expected hashes stay in the DB.
@@ -44,6 +56,7 @@ func NewVerifier(catalog *Catalog, server *ServerClient, serviceType, hfHubCache
 		hfHubCache:        strings.TrimSpace(hfHubCache),
 		modelPathOverride: strings.TrimSpace(modelPathOverride),
 		cache:             make(map[string]*fingerprintCache),
+		resultCache:       make(map[string]*verifyResultEntry),
 	}
 }
 
@@ -80,6 +93,10 @@ func (v *Verifier) VerifyOllamaModel(ctx context.Context, alias, digest string, 
 		return res, nil
 	}
 
+	if cached, ok := v.cachedOllamaResult(alias, res.Digest, sizeBytes); ok {
+		return cached, nil
+	}
+
 	resp, err := v.server.VerifyModel(ctx, verifyModelRequest{
 		Alias:     alias,
 		Digest:    res.Digest,
@@ -90,6 +107,7 @@ func (v *Verifier) VerifyOllamaModel(ctx context.Context, alias, digest string, 
 		return res, err
 	}
 	applyServerResponse(&res, resp)
+	v.storeOllamaResult(alias, res.Digest, sizeBytes, res)
 	return res, nil
 }
 
@@ -109,6 +127,16 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 		return res, fmt.Errorf("locate weights for %s: %w", alias, err)
 	}
 
+	currentStats, err := weightDirStats(root)
+	if err != nil {
+		res.Status = StatusFailed
+		return res, err
+	}
+
+	if cached, ok := v.cachedVLLMResult(alias, currentStats); ok {
+		return cached, nil
+	}
+
 	files, stale, err := v.measureWithCache(alias, root)
 	if err != nil {
 		res.Status = StatusFailed
@@ -125,7 +153,73 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 		return res, err
 	}
 	applyServerResponse(&res, resp)
+	v.storeVLLMResult(alias, currentStats, res)
 	return res, nil
+}
+
+func (v *Verifier) cachedOllamaResult(alias, digest string, size int64) (Result, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	entry, ok := v.resultCache[alias]
+	if !ok || !verifyResultFresh(entry) {
+		return Result{}, false
+	}
+	if entry.digest != digest || entry.size != size {
+		return Result{}, false
+	}
+	return entry.result, true
+}
+
+func (v *Verifier) storeOllamaResult(alias, digest string, size int64, res Result) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	v.resultCache[alias] = &verifyResultEntry{
+		result:   res,
+		cachedAt: time.Now(),
+		digest:   digest,
+		size:     size,
+	}
+}
+
+func (v *Verifier) cachedVLLMResult(alias string, stats map[string]fileStat) (Result, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	entry, ok := v.resultCache[alias]
+	if !ok || !verifyResultFresh(entry) {
+		return Result{}, false
+	}
+	if !fileStatsEqual(entry.stats, stats) {
+		return Result{}, false
+	}
+	return entry.result, true
+}
+
+func (v *Verifier) storeVLLMResult(alias string, stats map[string]fileStat, res Result) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	statsCopy := make(map[string]fileStat, len(stats))
+	for k, val := range stats {
+		statsCopy[k] = val
+	}
+	v.resultCache[alias] = &verifyResultEntry{
+		result:   res,
+		cachedAt: time.Now(),
+		stats:    statsCopy,
+	}
+}
+
+func (v *Verifier) clearVerifyResultCache() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.resultCache = make(map[string]*verifyResultEntry)
+}
+
+func verifyResultFresh(entry *verifyResultEntry) bool {
+	return entry != nil && time.Since(entry.cachedAt) < verifyResultTTL
 }
 
 func (v *Verifier) measureWithCache(alias, root string) (files []FileMeasurement, stale bool, err error) {
@@ -285,12 +379,19 @@ func (v *Verifier) CatalogClient() *Catalog {
 	return v.catalog
 }
 
-// RefreshCatalog reloads the public approved-model catalog.
+// RefreshCatalog reloads the public approved-model catalog and clears verify cache when it changes.
 func (v *Verifier) RefreshCatalog(ctx context.Context) error {
 	if v.catalog == nil {
 		return nil
 	}
-	return v.catalog.Refresh(ctx)
+	before := v.catalog.fingerprint()
+	if err := v.catalog.Refresh(ctx); err != nil {
+		return err
+	}
+	if v.catalog.fingerprint() != before {
+		v.clearVerifyResultCache()
+	}
+	return nil
 }
 
 func VerifiedModelIDs(models []llm.Model) []string {

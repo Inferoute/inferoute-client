@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -84,4 +86,17 @@ func (c *Catalog) Aliases() []string {
 		out = append(out, alias)
 	}
 	return out
+}
+
+// fingerprint returns a stable snapshot key for cache invalidation when the catalog changes.
+func (c *Catalog) fingerprint() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	parts := make([]string, 0, len(c.entries))
+	for alias, entry := range c.entries {
+		parts = append(parts, fmt.Sprintf("%s:%s", alias, entry.ID))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
 }
