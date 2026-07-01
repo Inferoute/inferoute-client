@@ -34,7 +34,8 @@ Run through this before Phase 1. Stop and ask the user for anything missing.
 | Provider API key | From inferoute platform (provider role) |
 | Consumer API key | From inferoute platform (inference consumer) |
 | Approved model on GPU | Model must exist in approved-builds catalog for `vllm` |
-| Mac reachable from JarvisLab | JarvisLab must reach `provider.url` (see Network modes below) |
+| ngrok on Mac | Exposes local inferoute-node to JarvisLab (`references/ngrok.md`) |
+| Mac reachable from JarvisLab | `INFEROUTE_PLATFORM_URL` = ngrok https URL |
 
 ### Environment file
 
@@ -48,24 +49,27 @@ Key variables:
 
 | Variable | Example | Purpose |
 |----------|---------|---------|
-| `JL_MACHINE_ID` | `12345` | Existing JarvisLab instance to resume |
-| `INFEROUTE_PLATFORM_URL` | `http://<mac-tailscale-ip>:8081` | `provider.url` — must be reachable from JarvisLab |
-| `INFEROUTE_CONSUMER_URL` | `http://localhost:8081` | Mac-local consumer API base |
+| `JL_MACHINE_ID` | `433049` | Paused JarvisLab instance |
+| `INFEROUTE_PLATFORM_URL` | `https://xxxx.ngrok-free.app` | ngrok https URL → Mac docker `:80` |
+| `NGROK_CMD` | `ngrok http 80` | Run on Mac before JarvisLab client |
+| `INFEROUTE_CONSUMER_URL` | `http://localhost` | inferoute-node docker on port 80 |
 | `PROVIDER_API_KEY` | `sk-...` | Provider registration / tunnel |
 | `CONSUMER_API_KEY` | `sk-...` | Consumer inference auth |
-| `VLLM_MODEL` | `Qwen/Qwen3-0.6B` | HuggingFace id for `vllm serve` |
-| `INFEROUTE_MODEL_ALIAS` | platform alias | Alias returned in health / used in requests |
+| `VLLM_MODEL` | `Qwen/Qwen3-0.6B` | `vllm serve` on JarvisLab |
+| `INFEROUTE_MODEL_ALIAS` | `Qwen/Qwen3-0.6B` | Use alias from health if different |
 | `JL_GPU` | `L4` | Optional override on `jl resume` |
 
 ### Network modes
 
 Pick one with the user before starting:
 
-**Mode A — Local inferoute-node (user's stated goal)**
+**Mode A — Local inferoute-node (default)**
 
 - Mac runs inferoute-node (docker compose or `go run`).
-- `INFEROUTE_PLATFORM_URL` must be reachable from JarvisLab (Tailscale, Cloudflare tunnel on Mac, or public IP + port).
-- `INFEROUTE_CONSUMER_URL` is typically `http://localhost:<node-port>` on the Mac.
+- **ngrok on Mac** exposes the platform port to the internet; JarvisLab uses that URL as `provider.url`.
+- Set `INFEROUTE_PLATFORM_URL` to the ngrok **https** URL (see `references/ngrok.md`).
+- `INFEROUTE_CONSUMER_URL` stays `http://localhost` (docker port 80).
+- Default `NGROK_CMD="ngrok http 80"`. User can override in `e2e.env` if their ngrok setup differs.
 
 **Mode B — Hosted platform (simpler connectivity)**
 
@@ -85,6 +89,35 @@ Default to **Mode A** when the user says they run inferoute-node on their Mac.
    - model alias → set `INFEROUTE_MODEL_ALIAS`
 2. `source` the env file; fail fast if required vars are empty.
 3. Confirm network mode (A or B) with the user if `INFEROUTE_PLATFORM_URL` is unset or ambiguous.
+4. If `NGROK_CMD` differs from default, use the value in `e2e.env`.
+
+### Phase 0b: ngrok + inferoute-node on Mac (Mode A only)
+
+Run on the **user's Mac** before resuming JarvisLab.
+
+1. Start inferoute-node locally (see `references/inferoute-node-local.md`).
+2. Start ngrok with the user-provided command:
+
+```bash
+# User provides exact command — stored in NGROK_CMD
+eval "$NGROK_CMD"
+# OR run the literal command the user gave you
+```
+
+3. Copy the ngrok **https** forwarding URL into `INFEROUTE_PLATFORM_URL` (no trailing slash).
+4. Verify tunnel from Mac:
+
+```bash
+curl -sf "$INFEROUTE_PLATFORM_URL/api/health" || curl -sf -o /dev/null -w "%{http_code}\n" "$INFEROUTE_PLATFORM_URL"
+```
+
+5. After JarvisLab is Running (Phase 1), verify from GPU side:
+
+```bash
+jl exec "$JL_MACHINE_ID" -- curl -sf -o /dev/null -w "%{http_code}\n" "$INFEROUTE_PLATFORM_URL/api/health"
+```
+
+**Skip Phase 0b** if using Mode B (`INFEROUTE_PLATFORM_URL=https://core.inferoute.com`).
 
 ### Phase 1: Resume JarvisLab instance
 
@@ -370,7 +403,7 @@ Exercised indirectly: tunnel request, health push, HMAC validation, model verify
 | `401` Missing HMAC | Node not signing requests | Check node → provider routing |
 | `403` model | Not verified | Wait for health cycles; check approved-builds |
 | `502` from client | vLLM down / wrong model id | Check vLLM logs |
-| Client can't reach platform | Network mode A broken | Tailscale/ping from `jl exec` to Mac URL |
+| Client can't reach platform | ngrok down or wrong URL | Restart ngrok; re-check `INFEROUTE_PLATFORM_URL`; `jl exec` curl to ngrok URL |
 | No tunnel URL | cloudflared / platform error | Client logs, `which cloudflared` on JarvisLab |
 | Stream hangs 30s | Client write timeout | Expected on main; try streaming branch |
 
@@ -379,6 +412,7 @@ Exercised indirectly: tunnel request, health push, HMAC validation, model verify
 - `references/env.example` — environment template
 - `references/test-inference.sh` — Mac-side test runner
 - `references/jarvislab-provider-setup.sh` — optional reusable JarvisLab bootstrap
+- `references/ngrok.md` — ngrok on Mac (required for Mode A)
 - `references/inferoute-node-local.md` — Mac node startup notes
 - `config.yaml.example` (repo root) — provider config fields
 - `documentation/technical.md` — client architecture

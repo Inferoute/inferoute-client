@@ -1,65 +1,66 @@
 # inferoute-node on local Mac (consumer side)
 
-inferoute-node is **not** in the inferoute-client repo. Use your local `inferoute-node` checkout.
+inferoute-node runs in **Docker on port 80** on the Mac.
 
-## Expected role in E2E test
+## Roles
 
-| Component | Runs on | Purpose |
-|-----------|---------|---------|
-| inferoute-node | Mac | Consumer OpenAI-compatible API, routing, HMAC signing |
-| inferoute-client | JarvisLab | Provider agent, tunnel, vLLM proxy |
-| vLLM | JarvisLab | Model inference |
+| Component | Where | Purpose |
+|-----------|-------|---------|
+| inferoute-node | Mac docker `:80` | Consumer API + platform (provider registration) |
+| ngrok | Mac | Exposes `:80` to JarvisLab as `INFEROUTE_PLATFORM_URL` |
+| inferoute-client | JarvisLab | Provider agent → vLLM |
+| vLLM | JarvisLab | `Qwen/Qwen3-0.6B` |
 
-## Typical local startup
-
-Adjust paths/ports to match your node repo:
-
-```bash
-cd inferoute-node
-# docker compose (preferred if documented in node repo)
-docker compose -f docker/env/development.yml up -d
-
-# OR go run (example — confirm in node README)
-go run ./cmd/... 
-```
-
-Set `INFEROUTE_CONSUMER_URL` to the consumer API port (commonly `8080` or `8081`).
-
-## Critical: JarvisLab must reach the platform URL
-
-When running a **local** node (not core.inferoute.com), set:
+## Startup
 
 ```bash
-export INFEROUTE_PLATFORM_URL="http://<mac-reachable-host>:<platform-port>"
+# inferoute-node (your usual docker compose / run command)
+docker compose up -d   # listens on localhost:80
+
+# ngrok (separate terminal)
+ngrok http 80
+# → set INFEROUTE_PLATFORM_URL to the https forwarding URL
 ```
 
-Options:
-
-1. **Tailscale** (recommended) — install on Mac and JarvisLab; use Mac Tailscale IP.
-2. **Cloudflare tunnel on Mac** — expose local node HTTPS URL.
-3. **Staging** — skip local node; use `https://core.inferoute.com` for both sides.
-
-Verify from JarvisLab before starting inferoute-client:
+## Env for this setup
 
 ```bash
-jl exec "$JL_MACHINE_ID" -- curl -sf "$INFEROUTE_PLATFORM_URL/api/health" || \
-jl exec "$JL_MACHINE_ID" -- curl -sf -o /dev/null -w "%{http_code}\n" "$INFEROUTE_PLATFORM_URL"
+export INFEROUTE_CONSUMER_URL="http://localhost"
+export NGROK_CMD="ngrok http 80"
+export INFEROUTE_PLATFORM_URL="https://xxxx.ngrok-free.app"   # from ngrok UI
+export JL_MACHINE_ID="433049"
+export VLLM_MODEL="Qwen/Qwen3-0.6B"
+export INFEROUTE_MODEL_ALIAS="Qwen/Qwen3-0.6B"   # adjust if health report shows different alias
 ```
 
-## Consumer API endpoints to confirm in node OpenAPI
+## API testing (curl + API keys only)
 
-Document these from `inferoute-node/docs/swagger.json` (paths may vary by version):
-
-- `GET /v1/models`
-- `POST /v1/chat/completions` (sync + `stream: true`)
-- `POST /v1/completions` (sync + `stream: true`)
-
-Auth header: typically `Authorization: Bearer <consumer_api_key>`.
-
-## Pre-flight on Mac
+No swagger needed. All consumer tests use `Authorization: Bearer $CONSUMER_API_KEY`.
 
 ```bash
-curl -s "$INFEROUTE_CONSUMER_URL/health" || curl -s "$INFEROUTE_CONSUMER_URL/api/health"
+# List models
+curl -s -H "Authorization: Bearer $CONSUMER_API_KEY" \
+  "$INFEROUTE_CONSUMER_URL/v1/models" | jq .
+
+# Chat (sync)
+curl -s -H "Authorization: Bearer $CONSUMER_API_KEY" \
+  -H "Content-Type: application/json" \
+  "$INFEROUTE_CONSUMER_URL/v1/chat/completions" \
+  -d '{"model":"'"$INFEROUTE_MODEL_ALIAS"'","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":32}'
+
+# Chat (stream) — use -N
+curl -N -H "Authorization: Bearer $CONSUMER_API_KEY" \
+  -H "Content-Type: application/json" \
+  "$INFEROUTE_CONSUMER_URL/v1/chat/completions" \
+  -d '{"model":"'"$INFEROUTE_MODEL_ALIAS"'","messages":[{"role":"user","content":"hi"}],"stream":true,"max_tokens":32}'
 ```
 
-Update this file once your node local-dev port and health path are confirmed.
+Full script: `references/test-inference.sh`
+
+## Pre-flight
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost/v1/models \
+  -H "Authorization: Bearer $CONSUMER_API_KEY"
+curl -s -o /dev/null -w "%{http_code}\n" "$INFEROUTE_PLATFORM_URL/api/health"
+```
