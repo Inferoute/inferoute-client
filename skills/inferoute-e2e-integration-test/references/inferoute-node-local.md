@@ -18,16 +18,16 @@ inferoute-node runs in **Docker on port 80** on the Mac.
 docker compose up -d   # listens on localhost:80
 
 # ngrok (separate terminal)
-ngrok http 80
-# → set INFEROUTE_PLATFORM_URL to the https forwarding URL
+eval "$NGROK_CMD"
+# default: ngrok http 80 --host-header=localhost --url=saussuritic-ordinarily-sheldon.ngrok-free.dev
 ```
 
 ## Env for this setup
 
 ```bash
 export INFEROUTE_CONSUMER_URL="http://localhost"
-export NGROK_CMD="ngrok http 80"
-export INFEROUTE_PLATFORM_URL="https://xxxx.ngrok-free.app"   # from ngrok UI
+export NGROK_CMD="ngrok http 80 --host-header=localhost --url=saussuritic-ordinarily-sheldon.ngrok-free.dev"
+export INFEROUTE_PLATFORM_URL="https://saussuritic-ordinarily-sheldon.ngrok-free.dev"
 export JL_MACHINE_ID="433049"
 export VLLM_MODEL="Qwen/Qwen3-0.6B"
 export INFEROUTE_MODEL_ALIAS="Qwen/Qwen3-0.6B"   # adjust if health report shows different alias

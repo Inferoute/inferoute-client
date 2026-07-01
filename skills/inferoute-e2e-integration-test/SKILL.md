@@ -1,7 +1,7 @@
 ---
 name: inferoute-e2e-integration-test
 description: "End-to-end integration test for inferoute-client (JarvisLab GPU + vLLM) against inferoute-node (local Mac consumer). Uses jl CLI to resume/unpause a JarvisLab instance, SSH/exec to start vLLM and inferoute-client, then runs non-streaming and streaming inference from the Mac. Use when the user says 'test inferoute e2e', 'test client with node', 'JarvisLab integration test', or 'verify provider inference'."
-argument-hint: "[optional: machine_id, model alias, or 'teardown']"
+argument-hint: "[optional: machine_id, model alias, 'keep' to skip pause, or 'teardown']"
 ---
 
 # Inferoute E2E Integration Test (Mac node + JarvisLab provider)
@@ -50,8 +50,8 @@ Key variables:
 | Variable | Example | Purpose |
 |----------|---------|---------|
 | `JL_MACHINE_ID` | `433049` | Paused JarvisLab instance |
-| `INFEROUTE_PLATFORM_URL` | `https://xxxx.ngrok-free.app` | ngrok https URL → Mac docker `:80` |
-| `NGROK_CMD` | `ngrok http 80` | Run on Mac before JarvisLab client |
+| `INFEROUTE_PLATFORM_URL` | `https://saussuritic-ordinarily-sheldon.ngrok-free.dev` | Reserved ngrok domain |
+| `NGROK_CMD` | `ngrok http 80 --host-header=localhost --url=saussuritic-ordinarily-sheldon.ngrok-free.dev` | Run on Mac |
 | `INFEROUTE_CONSUMER_URL` | `http://localhost` | inferoute-node docker on port 80 |
 | `PROVIDER_API_KEY` | `sk-...` | Provider registration / tunnel |
 | `CONSUMER_API_KEY` | `sk-...` | Consumer inference auth |
@@ -85,6 +85,7 @@ Default to **Mode A** when the user says they run inferoute-node on their Mac.
 
 1. Parse `$ARGUMENTS`:
    - `teardown` → jump to Phase 7
+   - `keep` → skip auto-pause after Phase 6
    - machine id → set `JL_MACHINE_ID`
    - model alias → set `INFEROUTE_MODEL_ALIAS`
 2. `source` the env file; fail fast if required vars are empty.
@@ -104,7 +105,7 @@ eval "$NGROK_CMD"
 # OR run the literal command the user gave you
 ```
 
-3. Copy the ngrok **https** forwarding URL into `INFEROUTE_PLATFORM_URL` (no trailing slash).
+3. Copy the ngrok **https** forwarding URL into `INFEROUTE_PLATFORM_URL` if not already set (reserved domain is preconfigured in `env.example`).
 4. Verify tunnel from Mac:
 
 ```bash
@@ -355,19 +356,32 @@ Attach on failure:
 - Last 30 lines of `/home/inferoute/logs/vllm.log`
 - Consumer response body
 
-Ask the user whether to **pause** the instance or leave running for debugging.
+**Default: run Phase 7 teardown** (pause JarvisLab) after reporting results.
 
-### Phase 7: Teardown
+Skip auto-pause only if the user passed `keep` in arguments or explicitly asked to leave the instance running for debugging.
+
+### Phase 7: Teardown (always pauses JarvisLab)
+
+Run `references/teardown.sh` or equivalent:
 
 ```bash
-jl pause "$JL_MACHINE_ID" --yes
+source ~/.config/inferoute/e2e.env
+bash skills/inferoute-e2e-integration-test/references/teardown.sh
 ```
 
-Optionally stop processes before pause:
+What it does:
+
+1. Stop `inferoute-client` and `vllm serve` on the JarvisLab instance (if Running)
+2. **`jl pause "$JL_MACHINE_ID" --yes`** — stops compute billing
+
+Manual equivalent:
 
 ```bash
 jl exec "$JL_MACHINE_ID" -- sh -lc 'pkill -x inferoute-client || true; pkill -f "vllm serve" || true'
+jl pause "$JL_MACHINE_ID" --yes
 ```
+
+Also stop ngrok on the Mac (`Ctrl+C` in the ngrok terminal).
 
 **Do not `jl destroy`** unless the user explicitly requests it.
 
@@ -410,7 +424,8 @@ Exercised indirectly: tunnel request, health push, HMAC validation, model verify
 ## References
 
 - `references/env.example` — environment template
-- `references/test-inference.sh` — Mac-side test runner
+- `references/teardown.sh` — stop processes + **pause JarvisLab** (run after tests or `test inferoute e2e teardown`)
+- `references/test-inference.sh` — Mac-side inference smoke tests
 - `references/jarvislab-provider-setup.sh` — optional reusable JarvisLab bootstrap
 - `references/ngrok.md` — ngrok on Mac (required for Mode A)
 - `references/inferoute-node-local.md` — Mac node startup notes
