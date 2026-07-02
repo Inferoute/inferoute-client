@@ -30,6 +30,8 @@ go.work
 .idea/
 .vscode/
 .cursor/
+!.cursor/skills/
+!.cursor/skills/**
 *.swp
 *.swo
 *~
