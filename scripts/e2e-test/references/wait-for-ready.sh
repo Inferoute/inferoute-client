@@ -3,16 +3,20 @@
 # Run from Mac after Phases 2–3 (or anytime before inference tests).
 #
 # Usage:
-#   source ~/.config/inferoute/e2e.env && ./wait-for-ready.sh
+#   ./wait-for-ready.sh   (config comes from .env next to this script)
 set -euo pipefail
 
-E2E_ENV="${E2E_ENV:-$HOME/.config/inferoute/e2e.env}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+E2E_ENV="${E2E_ENV:-$SCRIPT_DIR/.env}"
 if [ -f "$E2E_ENV" ]; then
   # shellcheck source=/dev/null
   source "$E2E_ENV"
 fi
 
-: "${JL_MACHINE_ID:?set JL_MACHINE_ID in e2e.env}"
+# Instance id is discovered from `jl list --json` by name (id rotates on resume).
+JL_NAME="${JL_NAME:-Inferoute-client1}"
+JL_MACHINE_ID="$(jl list --json 2>/dev/null | jq -r --arg n "$JL_NAME" 'map(select(.name==$n)) | .[0].machine_id // empty')"
+[ -n "$JL_MACHINE_ID" ] || { echo "[wait-for-ready] no JarvisLab instance named $JL_NAME (check: jl list)" >&2; exit 1; }
 
 VLLM_WAIT_SEC="${VLLM_WAIT_SEC:-600}"   # model load can take several minutes
 CLIENT_WAIT_SEC="${CLIENT_WAIT_SEC:-180}" # client startup
