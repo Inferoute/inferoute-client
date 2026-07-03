@@ -135,142 +135,6 @@ provider_status() {
 }
 provider_green() { [ "$(provider_status)" = "green" ]; }
 
-# ── verification diagnostics (validate assumptions before code fixes) ────────
-# Hypothesis A: DB providers.provider_type is still "vllm" after the vLLM phase,
-#   so POST /api/provider/verify-model judges Ollama digests against vllm builds.
-# Hypothesis B: approved-builds catalog for service_type=ollama is empty/missing alias.
-# Hypothesis C: ollama /api/tags digest differs from bootstrapped approved_model_builds.
-# Hypothesis D: timing — first /api/health runs before async health report updates DB.
-
-diag_db_provider() {
-  local tag="$1"
-  [ -z "$TUNNEL" ] && { warn "[$tag] no TUNNEL — skipping DB probe"; return; }
-  step "[$tag] DB provider row (api_url=$TUNNEL)"
-  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=table \
-    -e "SELECT provider_type, health_status, api_url, last_health_check
-        FROM providers WHERE api_url='$TUNNEL' AND deleted_at IS NULL LIMIT 1;" \
-    2>/dev/null || warn "[$tag] DB query failed"
-  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=table \
-    -e "SELECT pm.model_name, pm.verification_status, pm.is_active, pm.reported_digest
-        FROM provider_models pm
-        JOIN providers p ON p.id = pm.provider_id
-        WHERE p.api_url='$TUNNEL' AND p.deleted_at IS NULL
-        ORDER BY pm.model_name;" \
-    2>/dev/null || true
-}
-
-diag_approved_catalog() {
-  local tag="$1" service_type="$2"
-  step "[$tag] approved-builds catalog (service_type=$service_type)"
-  local catalog
-  catalog=$(curl -sf "${INFEROUTE_PLATFORM_URL%/}/api/models/approved-builds?service_type=${service_type}" 2>/dev/null) \
-    || { warn "[$tag] catalog fetch failed for service_type=$service_type"; return; }
-  printf '%s' "$catalog" | jq -r '.data[] | "\(.alias)  active=\(.is_active)"' 2>/dev/null \
-    || printf '%s\n' "$catalog"
-  local want="${OLLAMA_MODEL_ALIAS:-}"
-  if [ -n "$want" ] && [ "$service_type" = "ollama" ]; then
-    if printf '%s' "$catalog" | jq -e --arg a "$want" '.data[] | select(.alias==$a)' >/dev/null 2>&1; then
-      log "[$tag] catalog contains alias $want"
-    else
-      warn "[$tag] catalog MISSING alias $want (Hypothesis B)"
-    fi
-  fi
-}
-
-diag_ollama_tags() {
-  local tag="$1"
-  step "[$tag] ollama /api/tags (alias mapping + digest)"
-  jl exec "$JL_MACHINE_ID" -- curl -sf "http://127.0.0.1:${OLLAMA_PORT}/api/tags" 2>/dev/null \
-    | jq '[.models[] | {
-        name, model, digest, size,
-        format: (.details.format // "unknown"),
-        client_alias: "\(.details.format // "unknown")/\(.model)"
-      }]' \
-    || warn "[$tag] ollama /api/tags failed"
-}
-
-diag_verify_model_direct() {
-  local tag="$1" alias="$2"
-  [ -z "${PROVIDER_API_KEY:-}" ] && { warn "[$tag] PROVIDER_API_KEY unset — skipping direct verify-model probe"; return; }
-
-  local tags_json digest size client_alias
-  tags_json=$(jl exec "$JL_MACHINE_ID" -- curl -sf "http://127.0.0.1:${OLLAMA_PORT}/api/tags" 2>/dev/null) || return
-  digest=$(printf '%s' "$tags_json" | jq -r --arg m "$OLLAMA_MODEL" '.models[] | select(.model==$m or .name==$m) | .digest' | head -1)
-  size=$(printf '%s' "$tags_json" | jq -r --arg m "$OLLAMA_MODEL" '.models[] | select(.model==$m or .name==$m) | .size' | head -1)
-  client_alias=$(printf '%s' "$tags_json" | jq -r --arg m "$OLLAMA_MODEL" \
-    '.models[] | select(.model==$m or .name==$m) | "\(.details.format // "unknown")/\(.model)"' | head -1)
-
-  [ -z "$digest" ] || [ "$digest" = "null" ] && { warn "[$tag] no digest for OLLAMA_MODEL=$OLLAMA_MODEL"; return; }
-
-  step "[$tag] direct POST /api/provider/verify-model (alias=$alias digest=${digest:0:20}...)"
-  printf '  ollama tag → client_alias=%s (expect %s)\n' "$client_alias" "$alias"
-  if [ "$client_alias" != "$alias" ]; then
-    warn "[$tag] alias mismatch — Hypothesis E (ollamaDetails key != model ID)"
-  fi
-
-  local db_type
-  db_type=$(docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=csv \
-    -e "SELECT provider_type FROM providers WHERE api_url='$TUNNEL' AND deleted_at IS NULL LIMIT 1;" \
-    2>/dev/null | tail -n +2 | head -1)
-  printf '  DB provider_type=%s (fallback when verify-model request omits service_type)\n' "${db_type:-unknown}"
-  [ "$db_type" = "vllm" ] && warn "[$tag] DB still vllm — client must send service_type=ollama or startup verify caches unverified"
-
-  local vresp vcode
-  vresp=$(curl -s -w '\n%{http_code}' -X POST "${INFEROUTE_PLATFORM_URL%/}/api/provider/verify-model" \
-    -H "Authorization: Bearer $PROVIDER_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "{\"alias\":\"$alias\",\"service_type\":\"ollama\",\"digest\":\"$digest\",\"size_bytes\":${size:-0}}")
-  vcode=$(printf '%s' "$vresp" | tail -1)
-  vresp=$(printf '%s' "$vresp" | sed '$d')
-  printf '  verify-model http=%s body=%s\n' "$vcode" "$vresp"
-  if printf '%s' "$vresp" | jq -e '.verification_status == "unverified"' >/dev/null 2>&1 && [ "$db_type" = "vllm" ]; then
-    warn "[$tag] unverified + DB provider_type=vllm → strong signal for Hypothesis A"
-  fi
-  if printf '%s' "$vresp" | jq -e '.verification_status == "failed"' >/dev/null 2>&1; then
-    warn "[$tag] verify-model returned failed — Hypothesis C (digest mismatch)"
-  fi
-
-  # Compare against what the build table expects (digest only, no secret leak).
-  step "[$tag] approved_model_builds row for alias=$alias service_type=ollama"
-  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=table \
-    -e "SELECT alias, service_type,
-               LEFT(expected_digest, 24) AS expected_digest_prefix,
-               min_size_bytes, is_active
-        FROM approved_model_builds
-        WHERE alias='$alias' AND service_type='ollama' LIMIT 1;" \
-    2>/dev/null || true
-  printf '  reported digest prefix: %s\n' "${digest:0:24}"
-}
-
-diag_client_verify_logs() {
-  local tag="$1"
-  step "[$tag] inferoute-client.log (catalog + verify lines)"
-  jl exec "$JL_MACHINE_ID" -- sh -lc \
-    "grep -iE 'catalog|verif|approved|VerifyModel|verification' '$LOG_DIR/inferoute-client.log' 2>/dev/null | tail -40" \
-    || warn "[$tag] no matching log lines (client may not log verify yet)"
-}
-
-diag_ollama_verification() {
-  local tag="$1" alias="$2"
-  log "[$tag] ── verification diagnostics ──"
-  diag_db_provider "$tag"
-  diag_approved_catalog "$tag" "ollama"
-  diag_approved_catalog "$tag" "vllm"
-  diag_ollama_tags "$tag"
-  diag_verify_model_direct "$tag" "$alias"
-  diag_client_verify_logs "$tag"
-}
-
-diag_recheck_after_health_window() {
-  local tag="$1" alias="$2" wait_sec="${3:-40}"
-  step "[$tag] re-check after ${wait_sec}s (Hypothesis D: async health report updates DB)"
-  sleep "$wait_sec"
-  diag_db_provider "$tag-after-wait"
-  local health
-  health=$(jl exec "$JL_MACHINE_ID" -- curl -s http://127.0.0.1:8080/api/health 2>/dev/null) || return
-  printf '%s' "$health" | jq '{provider_type, models: [.data[]? | {id, verification_status, digest: (.digest[:24] // null)}]}'
-  diag_verify_model_direct "$tag-after-wait" "$alias"
-}
 wait_provider_green() {
   if [ "${SKIP_DB_GATE:-0}" = "1" ]; then
     warn "SKIP_DB_GATE=1 — not waiting for provider green"
@@ -304,11 +168,6 @@ run_client_phase() {
   health=$(jl exec "$JL_MACHINE_ID" -- curl -s http://127.0.0.1:8080/api/health)
   printf '%s' "$health" | jq '{provider_type, tunnel: .cloudflare.url, models: [.data[]? | {id, verification_status}]}' || true
   TUNNEL=$(printf '%s' "$health" | jq -r '.cloudflare.url // empty')
-
-  if [ "$label" = "Ollama" ]; then
-    diag_ollama_verification "Ollama" "$alias"
-    diag_recheck_after_health_window "Ollama" "$alias" "${VERIFY_RECHECK_SEC:-40}"
-  fi
 
   step "[$label] provider health (DB)"
   wait_provider_green
@@ -456,8 +315,6 @@ if [ "$RUN_OLLAMA" = "1" ]; then
     echo '--- $OLLAMA_CLIENT_CONFIG (provider block) ---'
     grep -E 'provider_type|llm_url' '$OLLAMA_CLIENT_CONFIG'
   "
-
-  diag_db_provider "Ollama-pre-start"
 
   run_client_phase "Ollama" "$OLLAMA_CLIENT_CONFIG" "$OLLAMA_MODEL_ALIAS"
 else
