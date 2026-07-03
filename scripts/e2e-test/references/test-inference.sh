@@ -59,22 +59,6 @@ check_chat_sync() {
   fi
 }
 
-# Expect routing to reject the request (typically HTTP 404 with an inferoute_error body).
-check_chat_rejected() {
-  local name="$1" payload="$2" expect_fragment="$3"
-  local resp body code
-  resp=$(post_chat "$payload")
-  body=$(echo "$resp" | sed '$d')
-  code=$(echo "$resp" | tail -1)
-  if [ "$code" = "404" ] && echo "$body" | grep -q "$expect_fragment"; then
-    check "$name" 0
-  else
-    check "$name" 1
-    echo "expected 404 containing: $expect_fragment"
-    echo "$body"
-  fi
-}
-
 # Consumer can list models: the platform routes to a healthy provider and
 # returns a non-empty catalog. Proves auth + provider discovery work.
 echo "=== GET /v1/models ==="
@@ -139,9 +123,7 @@ fi
 # Docs: https://docs.inferoute.com/monthly-spending-caps/request-routing-options
 # The `inferoute` block is stripped before the request is forwarded to the provider.
 ROUTE_MIN_TPS_OK="${ROUTE_MIN_TPS_OK:-1}"
-ROUTE_MIN_TPS_REJECT="${ROUTE_MIN_TPS_REJECT:-100000}"
 ROUTE_MAX_PRICE_OK="${ROUTE_MAX_PRICE_OK:-1.0}"          # provider ~$0.46/1M tokens
-ROUTE_MAX_PRICE_REJECT="${ROUTE_MAX_PRICE_REJECT:-0.000001}"
 
 CHAT_MSG='{"role":"user","content":"Say hello in one short sentence"}'
 
@@ -160,22 +142,13 @@ echo "=== POST /v1/chat/completions (inferoute.min_tokens_per_second ok) ==="
 check_chat_sync "routing min_tokens_per_second ok" \
   '{"model":"'"$INFEROUTE_MODEL_ALIAS"'","messages":['"$CHAT_MSG"'],"stream":false,"max_tokens":32,"inferoute":{"min_tokens_per_second":'"$ROUTE_MIN_TPS_OK"'}}'
 
-# inferoute.min_tokens_per_second (reject): no provider meets an impossibly high floor.
-echo "=== POST /v1/chat/completions (inferoute.min_tokens_per_second reject) ==="
-check_chat_rejected "routing min_tokens_per_second reject" \
-  '{"model":"'"$INFEROUTE_MODEL_ALIAS"'","messages":['"$CHAT_MSG"'],"stream":false,"max_tokens":32,"inferoute":{"min_tokens_per_second":'"$ROUTE_MIN_TPS_REJECT"'}}' \
-  'matching inferoute.min_tokens_per_second'
-
 # inferoute.max_*_price_per_1m (pass): per-request price ceiling above provider pricing.
 echo "=== POST /v1/chat/completions (inferoute max price ok) ==="
 check_chat_sync "routing max price ok" \
   '{"model":"'"$INFEROUTE_MODEL_ALIAS"'","messages":['"$CHAT_MSG"'],"stream":false,"max_tokens":32,"inferoute":{"max_input_price_per_1m":'"$ROUTE_MAX_PRICE_OK"',"max_output_price_per_1m":'"$ROUTE_MAX_PRICE_OK"'}}'
 
-# inferoute.max_*_price_per_1m (reject): ceiling below provider pricing excludes all providers.
-echo "=== POST /v1/chat/completions (inferoute max price reject) ==="
-check_chat_rejected "routing max price reject" \
-  '{"model":"'"$INFEROUTE_MODEL_ALIAS"'","messages":['"$CHAT_MSG"'],"stream":false,"max_tokens":32,"inferoute":{"max_input_price_per_1m":'"$ROUTE_MAX_PRICE_REJECT"',"max_output_price_per_1m":'"$ROUTE_MAX_PRICE_REJECT"'}}' \
-  'matching your cost constraints'
+# Provider-selection reject paths (impossible min_tps / too-low price ceiling) are
+# covered by Go unit tests: orchestrator TestFilterProviders + TestNoProviderError.
 
 # Combined inferoute block + stream:true — routing options must not break SSE forwarding.
 echo "=== POST /v1/chat/completions (inferoute + stream) ==="
