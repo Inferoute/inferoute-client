@@ -98,9 +98,10 @@ func (v *Verifier) VerifyOllamaModel(ctx context.Context, alias, digest string, 
 	}
 
 	resp, err := v.server.VerifyModel(ctx, verifyModelRequest{
-		Alias:     alias,
-		Digest:    res.Digest,
-		SizeBytes: sizeBytes,
+		Alias:       alias,
+		ServiceType: v.serviceType,
+		Digest:      res.Digest,
+		SizeBytes:   sizeBytes,
 	})
 	if err != nil {
 		res.Status = StatusFailed
@@ -144,9 +145,10 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 	}
 
 	resp, err := v.server.VerifyModel(ctx, verifyModelRequest{
-		Alias: alias,
-		Files: files,
-		Stale: stale,
+		Alias:       alias,
+		ServiceType: v.serviceType,
+		Files:       files,
+		Stale:       stale,
 	})
 	if err != nil {
 		res.Status = StatusFailed

@@ -45,11 +45,12 @@ type ManifestEntry struct {
 
 // verifyModelRequest is POST /api/provider/verify-model.
 type verifyModelRequest struct {
-	Alias  string            `json:"alias"`
-	Digest string            `json:"digest,omitempty"`
-	SizeBytes int64          `json:"size_bytes,omitempty"`
-	Files  []FileMeasurement `json:"files,omitempty"`
-	Stale  bool              `json:"stale,omitempty"`
+	Alias       string            `json:"alias"`
+	ServiceType string            `json:"service_type,omitempty"`
+	Digest      string            `json:"digest,omitempty"`
+	SizeBytes   int64             `json:"size_bytes,omitempty"`
+	Files       []FileMeasurement `json:"files,omitempty"`
+	Stale       bool              `json:"stale,omitempty"`
 }
 
 // verifyModelResponse is the server-as-judge verification result.

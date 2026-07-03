@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # End-to-end inferoute test, fully automated:
-#   ngrok -> resume JarvisLab -> start vLLM + inferoute-client -> wait ready
+#   ngrok -> resume JarvisLab -> build client -> (vLLM phase) -> (Ollama phase)
 #   -> run inference tests (Mac consumer) -> pause JarvisLab
+#
+# Two backends are exercised in sequence against the SAME client codebase:
+#   1. vLLM     serving $VLLM_MODEL      (client config: $CLIENT_CONFIG)
+#   2. Ollama   serving $OLLAMA_MODEL    (client config: $OLLAMA_CLIENT_CONFIG)
+# vLLM is stopped before Ollama starts so the GPU is free for the second phase.
+#
+# The client is rebuilt from source on JarvisLab (scripts/build.sh) before the
+# phases run, so every e2e uses the latest client binary.
 #
 # The instance is ALWAYS paused on exit (success, failure, or Ctrl-C) unless KEEP=1.
 #
 # Usage:
-#   ./run-e2e.sh                 # full run, pause at the end
+#   ./run-e2e.sh                 # full run (vLLM + Ollama), pause at the end
 #   KEEP=1 ./run-e2e.sh          # leave instance running for debugging
+#   RUN_OLLAMA=0 ./run-e2e.sh    # vLLM only
+#   RUN_VLLM=0 ./run-e2e.sh      # Ollama only
 #   ./run-e2e.sh teardown        # just pause the instance and exit
 #
 # Config comes from references/.env next to this script (override path with E2E_ENV).
@@ -46,9 +56,23 @@ SSH_WAIT_SEC="${SSH_WAIT_SEC:-240}"
 PROVIDER_WAIT_SEC="${PROVIDER_WAIT_SEC:-180}"
 DB_CONTAINER="${DB_CONTAINER:-cockroachdb}"
 DB_NAME="${DB_NAME:-inferoute}"
+
+# Backend / client-config knobs (see references/env.example).
+CLIENT_CONFIG="${CLIENT_CONFIG:-config.yaml}"
+OLLAMA_CLIENT_CONFIG="${OLLAMA_CLIENT_CONFIG:-config-ollama.yaml}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
+OLLAMA_MODEL_ALIAS="${OLLAMA_MODEL_ALIAS:-gguf/qwen3:0.6b}"
+OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+OLLAMA_PORT="${OLLAMA_PORT:-11434}"
+CLIENT_GIT_PULL="${CLIENT_GIT_PULL:-1}"
+CLIENT_GIT_BRANCH="${CLIENT_GIT_BRANCH:-main}"
+RUN_VLLM="${RUN_VLLM:-1}"
+RUN_OLLAMA="${RUN_OLLAMA:-1}"
+
 KEEP="${KEEP:-0}"
 STARTED_NGROK=0
 OVERALL=0
+TUNNEL=""
 
 log()  { printf '\n\033[1;36m[e2e] %s\033[0m\n' "$*"; }
 step() { printf '\033[1;35m[e2e] ── %s\033[0m\n' "$*"; }
@@ -76,8 +100,230 @@ if [ "${1:-}" = "teardown" ]; then
   exit 0
 fi
 
+# ── shared helpers ───────────────────────────────────────────────────────────
+wait_gate() {
+  local desc="$1" max="$2"; shift 2
+  local start=$SECONDS
+  until "$@"; do
+    (( SECONDS - start >= max )) && { warn "TIMEOUT: $desc (>${max}s)"; return 1; }
+    echo "  ...waiting $desc"; sleep 15
+  done
+  log "$desc ready"
+}
+vllm_ready()   { jl exec "$JL_MACHINE_ID" -- curl -sf http://127.0.0.1:8000/v1/models  >/dev/null 2>&1; }
+client_ready() { jl exec "$JL_MACHINE_ID" -- curl -sf http://127.0.0.1:8080/api/health >/dev/null 2>&1; }
+ollama_ready() { jl exec "$JL_MACHINE_ID" -- sh -lc "curl -sf http://127.0.0.1:$OLLAMA_PORT/api/tags 2>/dev/null | grep -q '$OLLAMA_MODEL'"; }
+
+# Kill whatever is listening on a TCP port (iproute2 only, no psmisc dependency).
+kill_port() {
+  local port="$1"
+  jl exec "$JL_MACHINE_ID" -- sh -lc "
+    pids=\$(ss -Htlnp 'sport = :$port' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
+    [ -n \"\$pids\" ] && kill \$pids 2>/dev/null || true
+    sleep 2
+    pids=\$(ss -Htlnp 'sport = :$port' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
+    [ -n \"\$pids\" ] && kill -9 \$pids 2>/dev/null || true
+    true
+  "
+}
+
+# Provider row is keyed by its tunnel URL (providers.api_url). Uses global TUNNEL.
+provider_status() {
+  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=csv \
+    -e "SELECT health_status FROM providers WHERE api_url='$TUNNEL' AND deleted_at IS NULL LIMIT 1;" \
+    2>/dev/null | tail -n +2 | head -1
+}
+provider_green() { [ "$(provider_status)" = "green" ]; }
+
+# ── verification diagnostics (validate assumptions before code fixes) ────────
+# Hypothesis A: DB providers.provider_type is still "vllm" after the vLLM phase,
+#   so POST /api/provider/verify-model judges Ollama digests against vllm builds.
+# Hypothesis B: approved-builds catalog for service_type=ollama is empty/missing alias.
+# Hypothesis C: ollama /api/tags digest differs from bootstrapped approved_model_builds.
+# Hypothesis D: timing — first /api/health runs before async health report updates DB.
+
+diag_db_provider() {
+  local tag="$1"
+  [ -z "$TUNNEL" ] && { warn "[$tag] no TUNNEL — skipping DB probe"; return; }
+  step "[$tag] DB provider row (api_url=$TUNNEL)"
+  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=table \
+    -e "SELECT provider_type, health_status, api_url, last_health_check
+        FROM providers WHERE api_url='$TUNNEL' AND deleted_at IS NULL LIMIT 1;" \
+    2>/dev/null || warn "[$tag] DB query failed"
+  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=table \
+    -e "SELECT pm.model_name, pm.verification_status, pm.is_active, pm.reported_digest
+        FROM provider_models pm
+        JOIN providers p ON p.id = pm.provider_id
+        WHERE p.api_url='$TUNNEL' AND p.deleted_at IS NULL
+        ORDER BY pm.model_name;" \
+    2>/dev/null || true
+}
+
+diag_approved_catalog() {
+  local tag="$1" service_type="$2"
+  step "[$tag] approved-builds catalog (service_type=$service_type)"
+  local catalog
+  catalog=$(curl -sf "${INFEROUTE_PLATFORM_URL%/}/api/models/approved-builds?service_type=${service_type}" 2>/dev/null) \
+    || { warn "[$tag] catalog fetch failed for service_type=$service_type"; return; }
+  printf '%s' "$catalog" | jq -r '.data[] | "\(.alias)  active=\(.is_active)"' 2>/dev/null \
+    || printf '%s\n' "$catalog"
+  local want="${OLLAMA_MODEL_ALIAS:-}"
+  if [ -n "$want" ] && [ "$service_type" = "ollama" ]; then
+    if printf '%s' "$catalog" | jq -e --arg a "$want" '.data[] | select(.alias==$a)' >/dev/null 2>&1; then
+      log "[$tag] catalog contains alias $want"
+    else
+      warn "[$tag] catalog MISSING alias $want (Hypothesis B)"
+    fi
+  fi
+}
+
+diag_ollama_tags() {
+  local tag="$1"
+  step "[$tag] ollama /api/tags (alias mapping + digest)"
+  jl exec "$JL_MACHINE_ID" -- curl -sf "http://127.0.0.1:${OLLAMA_PORT}/api/tags" 2>/dev/null \
+    | jq '[.models[] | {
+        name, model, digest, size,
+        format: (.details.format // "unknown"),
+        client_alias: "\(.details.format // "unknown")/\(.model)"
+      }]' \
+    || warn "[$tag] ollama /api/tags failed"
+}
+
+diag_verify_model_direct() {
+  local tag="$1" alias="$2"
+  [ -z "${PROVIDER_API_KEY:-}" ] && { warn "[$tag] PROVIDER_API_KEY unset — skipping direct verify-model probe"; return; }
+
+  local tags_json digest size client_alias
+  tags_json=$(jl exec "$JL_MACHINE_ID" -- curl -sf "http://127.0.0.1:${OLLAMA_PORT}/api/tags" 2>/dev/null) || return
+  digest=$(printf '%s' "$tags_json" | jq -r --arg m "$OLLAMA_MODEL" '.models[] | select(.model==$m or .name==$m) | .digest' | head -1)
+  size=$(printf '%s' "$tags_json" | jq -r --arg m "$OLLAMA_MODEL" '.models[] | select(.model==$m or .name==$m) | .size' | head -1)
+  client_alias=$(printf '%s' "$tags_json" | jq -r --arg m "$OLLAMA_MODEL" \
+    '.models[] | select(.model==$m or .name==$m) | "\(.details.format // "unknown")/\(.model)"' | head -1)
+
+  [ -z "$digest" ] || [ "$digest" = "null" ] && { warn "[$tag] no digest for OLLAMA_MODEL=$OLLAMA_MODEL"; return; }
+
+  step "[$tag] direct POST /api/provider/verify-model (alias=$alias digest=${digest:0:20}...)"
+  printf '  ollama tag → client_alias=%s (expect %s)\n' "$client_alias" "$alias"
+  if [ "$client_alias" != "$alias" ]; then
+    warn "[$tag] alias mismatch — Hypothesis E (ollamaDetails key != model ID)"
+  fi
+
+  local db_type
+  db_type=$(docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=csv \
+    -e "SELECT provider_type FROM providers WHERE api_url='$TUNNEL' AND deleted_at IS NULL LIMIT 1;" \
+    2>/dev/null | tail -n +2 | head -1)
+  printf '  DB provider_type=%s (fallback when verify-model request omits service_type)\n' "${db_type:-unknown}"
+  [ "$db_type" = "vllm" ] && warn "[$tag] DB still vllm — client must send service_type=ollama or startup verify caches unverified"
+
+  local vresp vcode
+  vresp=$(curl -s -w '\n%{http_code}' -X POST "${INFEROUTE_PLATFORM_URL%/}/api/provider/verify-model" \
+    -H "Authorization: Bearer $PROVIDER_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"alias\":\"$alias\",\"service_type\":\"ollama\",\"digest\":\"$digest\",\"size_bytes\":${size:-0}}")
+  vcode=$(printf '%s' "$vresp" | tail -1)
+  vresp=$(printf '%s' "$vresp" | sed '$d')
+  printf '  verify-model http=%s body=%s\n' "$vcode" "$vresp"
+  if printf '%s' "$vresp" | jq -e '.verification_status == "unverified"' >/dev/null 2>&1 && [ "$db_type" = "vllm" ]; then
+    warn "[$tag] unverified + DB provider_type=vllm → strong signal for Hypothesis A"
+  fi
+  if printf '%s' "$vresp" | jq -e '.verification_status == "failed"' >/dev/null 2>&1; then
+    warn "[$tag] verify-model returned failed — Hypothesis C (digest mismatch)"
+  fi
+
+  # Compare against what the build table expects (digest only, no secret leak).
+  step "[$tag] approved_model_builds row for alias=$alias service_type=ollama"
+  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=table \
+    -e "SELECT alias, service_type,
+               LEFT(expected_digest, 24) AS expected_digest_prefix,
+               min_size_bytes, is_active
+        FROM approved_model_builds
+        WHERE alias='$alias' AND service_type='ollama' LIMIT 1;" \
+    2>/dev/null || true
+  printf '  reported digest prefix: %s\n' "${digest:0:24}"
+}
+
+diag_client_verify_logs() {
+  local tag="$1"
+  step "[$tag] inferoute-client.log (catalog + verify lines)"
+  jl exec "$JL_MACHINE_ID" -- sh -lc \
+    "grep -iE 'catalog|verif|approved|VerifyModel|verification' '$LOG_DIR/inferoute-client.log' 2>/dev/null | tail -40" \
+    || warn "[$tag] no matching log lines (client may not log verify yet)"
+}
+
+diag_ollama_verification() {
+  local tag="$1" alias="$2"
+  log "[$tag] ── verification diagnostics ──"
+  diag_db_provider "$tag"
+  diag_approved_catalog "$tag" "ollama"
+  diag_approved_catalog "$tag" "vllm"
+  diag_ollama_tags "$tag"
+  diag_verify_model_direct "$tag" "$alias"
+  diag_client_verify_logs "$tag"
+}
+
+diag_recheck_after_health_window() {
+  local tag="$1" alias="$2" wait_sec="${3:-40}"
+  step "[$tag] re-check after ${wait_sec}s (Hypothesis D: async health report updates DB)"
+  sleep "$wait_sec"
+  diag_db_provider "$tag-after-wait"
+  local health
+  health=$(jl exec "$JL_MACHINE_ID" -- curl -s http://127.0.0.1:8080/api/health 2>/dev/null) || return
+  printf '%s' "$health" | jq '{provider_type, models: [.data[]? | {id, verification_status, digest: (.digest[:24] // null)}]}'
+  diag_verify_model_direct "$tag-after-wait" "$alias"
+}
+wait_provider_green() {
+  if [ "${SKIP_DB_GATE:-0}" = "1" ]; then
+    warn "SKIP_DB_GATE=1 — not waiting for provider green"
+  elif [ -z "$TUNNEL" ]; then
+    warn "no tunnel URL in client health — skipping DB gate"
+  else
+    log "waiting for provider (api_url=$TUNNEL) to go green"
+    wait_gate "provider green" "$PROVIDER_WAIT_SEC" provider_green \
+      || die "provider never went green (current: $(provider_status | sed 's/^$/none/'))"
+  fi
+}
+
+# (re)start the client with a given config, then health + DB gate + inference tests.
+# The backend it points at must already be serving. args: label, config_file, alias.
+run_client_phase() {
+  local label="$1" config="$2" alias="$3"
+
+  step "[$label] (re)start inferoute-client with $config"
+  kill_port 8080
+  jl exec "$JL_MACHINE_ID" -- sh -lc "
+    mkdir -p '$LOG_DIR'
+    setsid '$CLIENT_DIR/inferoute-client' --config '$CLIENT_DIR/$config' \
+      > '$LOG_DIR/inferoute-client.log' 2>&1 </dev/null &
+    echo 'client launched ($config)'
+  "
+  wait_gate "[$label] inferoute-client" "$CLIENT_WAIT_SEC" client_ready \
+    || { jl exec "$JL_MACHINE_ID" -- tail -40 "$LOG_DIR/inferoute-client.log"; die "[$label] client not ready"; }
+
+  step "[$label] client health"
+  local health
+  health=$(jl exec "$JL_MACHINE_ID" -- curl -s http://127.0.0.1:8080/api/health)
+  printf '%s' "$health" | jq '{provider_type, tunnel: .cloudflare.url, models: [.data[]? | {id, verification_status}]}' || true
+  TUNNEL=$(printf '%s' "$health" | jq -r '.cloudflare.url // empty')
+
+  if [ "$label" = "Ollama" ]; then
+    diag_ollama_verification "Ollama" "$alias"
+    diag_recheck_after_health_window "Ollama" "$alias" "${VERIFY_RECHECK_SEC:-40}"
+  fi
+
+  step "[$label] provider health (DB)"
+  wait_provider_green
+
+  step "[$label] inference tests (alias=$alias)"
+  if SKIP_WAIT=1 MODEL_ALIAS="$alias" bash "$SCRIPT_DIR/references/test-inference.sh"; then
+    log "[$label] TESTS PASSED"
+  else
+    OVERALL=1
+    warn "[$label] TESTS FAILED"
+  fi
+}
+
 # ── 1. ngrok ────────────────────────────────────────────────────────────────
-step "1/8 ngrok"
+step "ngrok"
 tunnel_online() { curl -sf http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -q "$INFEROUTE_PLATFORM_URL"; }
 if tunnel_online; then
   log "ngrok already online (reusing): $INFEROUTE_PLATFORM_URL"
@@ -96,7 +342,7 @@ log "ngrok tunnel started: $INFEROUTE_PLATFORM_URL"
 trap finish EXIT INT TERM
 
 # ── 2. resume JarvisLab (handles instance-id rotation) ───────────────────────
-step "2/8 resume JarvisLab $JL_MACHINE_ID"
+step "resume JarvisLab $JL_MACHINE_ID"
 resume_out=$(jl resume "$JL_MACHINE_ID" --yes ${JL_GPU:+--gpu "$JL_GPU"} 2>&1 || true)
 printf '%s\n' "$resume_out"
 new_id=$(printf '%s' "$resume_out" | grep -i "changed" | grep -oE '[0-9]{4,}' | tail -1 || true)
@@ -122,86 +368,100 @@ done
 jl exec "$JL_MACHINE_ID" -- nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader || true
 
 # ── 3. verify GPU can reach the tunnel ───────────────────────────────────────
-step "3/8 GPU -> platform reachability"
+step "GPU -> platform reachability"
 PROBE_URL="${INFEROUTE_PLATFORM_URL%/}/api/models/approved-builds"
 gcode=$(jl exec "$JL_MACHINE_ID" -- curl -4 -s -o /dev/null -w '%{http_code}' --max-time 15 "$PROBE_URL" 2>/dev/null || true)
 [ "$gcode" = "200" ] || die "JarvisLab cannot reach $PROBE_URL (http=${gcode:-000}) — is ngrok + inferoute-node up?"
 log "GPU -> platform OK (http=$gcode)"
 
-wait_gate() {
-  local desc="$1" max="$2"; shift 2
-  local start=$SECONDS
-  until "$@"; do
-    (( SECONDS - start >= max )) && { warn "TIMEOUT: $desc (>${max}s)"; return 1; }
-    echo "  ...waiting $desc"; sleep 15
-  done
-  log "$desc ready"
-}
-vllm_ready()   { jl exec "$JL_MACHINE_ID" -- curl -sf http://127.0.0.1:8000/v1/models  >/dev/null 2>&1; }
-client_ready() { jl exec "$JL_MACHINE_ID" -- curl -sf http://127.0.0.1:8080/api/health >/dev/null 2>&1; }
-
-# ── 4. start vLLM and wait until it serves BEFORE touching the client ─────────
-# The client marks itself red at startup if no models are up yet, and only
-# recovers on its next heartbeat — so vLLM must be ready first.
-step "4/8 start vLLM ($VLLM_MODEL)"
+# ── 4. sync latest source from GitHub + build so every e2e runs the newest binary
+# The JL client dir is a deployment, not a dev tree — hard-reset to the upstream
+# branch so we always test exactly what's on GitHub. config.yaml is git-ignored,
+# so it survives the reset. Set CLIENT_GIT_PULL=0 to build the current checkout.
+step "sync + build inferoute-client (branch: $CLIENT_GIT_BRANCH)"
 jl exec "$JL_MACHINE_ID" -- sh -lc "
-  mkdir -p '$LOG_DIR'
-  if curl -sf http://127.0.0.1:8000/v1/models >/dev/null 2>&1; then
-    echo 'vllm already serving'
+  set -e
+  # jl exec's non-interactive shell doesn't source the profile that adds Go to
+  # PATH, so build.sh fails with 'go: command not found'. Add the usual install
+  # locations (override with GO_BIN_DIR in .env if go lives elsewhere).
+  export PATH=\"\$PATH:${GO_BIN_DIR:-/usr/local/go/bin}:\$HOME/go/bin:/usr/lib/go/bin:/snap/bin\"
+  command -v go >/dev/null || { echo '[build] go not found on PATH — set GO_BIN_DIR in references/.env'; exit 127; }
+  echo \"[build] using \$(go version) at \$(command -v go)\"
+  cd '$CLIENT_DIR'
+  if [ '$CLIENT_GIT_PULL' = '1' ]; then
+    echo '[build] fetching origin/$CLIENT_GIT_BRANCH'
+    git fetch --prune origin '$CLIENT_GIT_BRANCH'
+    git checkout '$CLIENT_GIT_BRANCH'
+    git reset --hard 'origin/$CLIENT_GIT_BRANCH'
+    echo \"[build] now at \$(git rev-parse --short HEAD) — \$(git log -1 --pretty=%s)\"
   else
-    setsid '$VLLM_BIN' serve '$VLLM_MODEL' --host 0.0.0.0 --port 8000 \
-      > '$LOG_DIR/vllm.log' 2>&1 </dev/null &
-    echo 'vllm launched'
+    echo '[build] CLIENT_GIT_PULL=0 — building current checkout'
   fi
+  bash scripts/build.sh
 "
-wait_gate "vLLM" "$VLLM_WAIT_SEC" vllm_ready || { jl exec "$JL_MACHINE_ID" -- tail -40 "$LOG_DIR/vllm.log"; die "vLLM not ready"; }
 
-# ── 5. start inferoute-client (only now that vLLM is serving) ─────────────────
-step "5/8 start inferoute-client"
-jl exec "$JL_MACHINE_ID" -- sh -lc "
-  mkdir -p '$LOG_DIR'
-  if curl -sf http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
-    echo 'client already running'
-  else
-    setsid '$CLIENT_DIR/inferoute-client' --config '$CLIENT_DIR/config.yaml' \
-      > '$LOG_DIR/inferoute-client.log' 2>&1 </dev/null &
-    echo 'client launched'
-  fi
-"
-wait_gate "inferoute-client" "$CLIENT_WAIT_SEC" client_ready || { jl exec "$JL_MACHINE_ID" -- tail -40 "$LOG_DIR/inferoute-client.log"; die "client not ready"; }
+# ── 5. vLLM phase ────────────────────────────────────────────────────────────
+if [ "$RUN_VLLM" = "1" ]; then
+  # Start vLLM and wait until it serves BEFORE touching the client. The client
+  # marks itself red at startup if no models are up, recovering only on its next
+  # heartbeat — so the backend must be ready first.
+  step "[vLLM] start vLLM ($VLLM_MODEL)"
+  jl exec "$JL_MACHINE_ID" -- sh -lc "
+    mkdir -p '$LOG_DIR'
+    if curl -sf http://127.0.0.1:8000/v1/models >/dev/null 2>&1; then
+      echo 'vllm already serving'
+    else
+      setsid '$VLLM_BIN' serve '$VLLM_MODEL' --host 0.0.0.0 --port 8000 \
+        > '$LOG_DIR/vllm.log' 2>&1 </dev/null &
+      echo 'vllm launched'
+    fi
+  "
+  wait_gate "[vLLM] vLLM" "$VLLM_WAIT_SEC" vllm_ready \
+    || { jl exec "$JL_MACHINE_ID" -- tail -40 "$LOG_DIR/vllm.log"; die "vLLM not ready"; }
 
-# ── 6. client health / model verification (grab the tunnel for the DB gate) ───
-step "6/8 client health"
-health=$(jl exec "$JL_MACHINE_ID" -- curl -s http://127.0.0.1:8080/api/health)
-printf '%s' "$health" | jq '{provider_type, tunnel: .cloudflare.url, models: [.data[]? | {id, verification_status}]}' || true
-TUNNEL=$(printf '%s' "$health" | jq -r '.cloudflare.url // empty')
-
-# ── 7. wait for the platform to mark the provider green (script runs locally) ─
-# The provider row is keyed by its tunnel URL (providers.api_url).
-step "7/8 provider health (DB)"
-provider_status() {
-  docker exec -i "$DB_CONTAINER" cockroach sql --insecure -d "$DB_NAME" --format=csv \
-    -e "SELECT health_status FROM providers WHERE api_url='$TUNNEL' AND deleted_at IS NULL LIMIT 1;" \
-    2>/dev/null | tail -n +2 | head -1
-}
-provider_green() { [ "$(provider_status)" = "green" ]; }
-if [ "${SKIP_DB_GATE:-0}" = "1" ]; then
-  warn "SKIP_DB_GATE=1 — not waiting for provider green"
-elif [ -z "$TUNNEL" ]; then
-  warn "no tunnel URL in client health — skipping DB gate"
+  run_client_phase "vLLM" "$CLIENT_CONFIG" "$INFEROUTE_MODEL_ALIAS"
 else
-  log "waiting for provider (api_url=$TUNNEL) to go green"
-  wait_gate "provider green" "$PROVIDER_WAIT_SEC" provider_green \
-    || die "provider never went green (current: $(provider_status | sed 's/^$/none/'))"
+  warn "RUN_VLLM=0 — skipping vLLM phase"
 fi
 
-# ── 8. inference tests from the Mac (all gates passed) ────────────────────────
-step "8/8 inference tests"
-if SKIP_WAIT=1 bash "$SCRIPT_DIR/references/test-inference.sh"; then
-  log "TESTS PASSED"
+# ── 6. Ollama phase ──────────────────────────────────────────────────────────
+if [ "$RUN_OLLAMA" = "1" ]; then
+  # Free the GPU: vLLM must be down before Ollama loads the model.
+  step "[Ollama] stop vLLM (free GPU)"
+  kill_port 8000
+
+  step "[Ollama] serve $OLLAMA_MODEL"
+  jl exec "$JL_MACHINE_ID" -- sh -lc "
+    mkdir -p '$LOG_DIR'
+    if ! curl -sf http://127.0.0.1:$OLLAMA_PORT/api/tags >/dev/null 2>&1; then
+      echo 'starting ollama serve'
+      setsid ollama serve > '$LOG_DIR/ollama.log' 2>&1 </dev/null &
+      for _ in \$(seq 1 30); do curl -sf http://127.0.0.1:$OLLAMA_PORT/api/tags >/dev/null 2>&1 && break; sleep 2; done
+    else
+      echo 'ollama already serving'
+    fi
+    echo 'pulling $OLLAMA_MODEL'
+    ollama pull '$OLLAMA_MODEL'
+  "
+  wait_gate "[Ollama] model $OLLAMA_MODEL" "$VLLM_WAIT_SEC" ollama_ready \
+    || { jl exec "$JL_MACHINE_ID" -- tail -40 "$LOG_DIR/ollama.log"; die "ollama model not ready"; }
+
+  # Derive the ollama client config from the vLLM one so api_key/url are reused.
+  step "[Ollama] generate $OLLAMA_CLIENT_CONFIG from $CLIENT_CONFIG"
+  jl exec "$JL_MACHINE_ID" -- sh -lc "
+    cd '$CLIENT_DIR'
+    sed -e 's|provider_type:.*|provider_type: \"ollama\"|' \
+        -e 's|llm_url:.*|llm_url: \"$OLLAMA_URL\"|' \
+        '$CLIENT_CONFIG' > '$OLLAMA_CLIENT_CONFIG'
+    echo '--- $OLLAMA_CLIENT_CONFIG (provider block) ---'
+    grep -E 'provider_type|llm_url' '$OLLAMA_CLIENT_CONFIG'
+  "
+
+  diag_db_provider "Ollama-pre-start"
+
+  run_client_phase "Ollama" "$OLLAMA_CLIENT_CONFIG" "$OLLAMA_MODEL_ALIAS"
 else
-  OVERALL=1
-  warn "TESTS FAILED"
+  warn "RUN_OLLAMA=0 — skipping Ollama phase"
 fi
 
 exit "$OVERALL"

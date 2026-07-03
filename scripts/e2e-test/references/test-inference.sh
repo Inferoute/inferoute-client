@@ -12,6 +12,10 @@ if [ -f "$E2E_ENV" ]; then
   source "$E2E_ENV"
 fi
 
+# MODEL_ALIAS (from the caller's env) wins over the .env default so the same
+# test suite can run against different backends (vLLM, Ollama) in one e2e run.
+INFEROUTE_MODEL_ALIAS="${MODEL_ALIAS:-${INFEROUTE_MODEL_ALIAS:-}}"
+
 : "${INFEROUTE_CONSUMER_URL:?}"
 : "${CONSUMER_API_KEY:?}"
 : "${INFEROUTE_MODEL_ALIAS:?}"
