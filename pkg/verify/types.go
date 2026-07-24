@@ -13,12 +13,20 @@ const (
 
 // CatalogEntry is a public approved-model row (no verification secrets).
 type CatalogEntry struct {
-	ID          string  `json:"id"`
-	Alias       string  `json:"alias"`
-	ServiceType string  `json:"service_type"`
-	HFRepo      *string `json:"hf_repo,omitempty"`
-	HFRef       *string `json:"hf_ref,omitempty"`
-	IsActive    bool    `json:"is_active"`
+	ID               string   `json:"id"`
+	Alias            string   `json:"alias"`
+	ServiceType      string   `json:"service_type"`
+	DisplayName      string   `json:"display_name"`
+	Description      *string  `json:"description,omitempty"`
+	CardImage        string   `json:"card_image"`
+	HFRepo           *string  `json:"hf_repo,omitempty"`
+	HFRef            *string  `json:"hf_ref,omitempty"`
+	IsActive         bool     `json:"is_active"`
+	InputPricePer1M  *float64 `json:"input_price_per_1m,omitempty"`
+	OutputPricePer1M *float64 `json:"output_price_per_1m,omitempty"`
+	TransactionCount      int64   `json:"transaction_count"`
+	TotalProviderEarnings float64 `json:"total_provider_earnings"`
+	SortOrder             *int32  `json:"sort_order,omitempty"`
 }
 
 // catalogResponse is the public list from GET /api/models/approved-builds.
