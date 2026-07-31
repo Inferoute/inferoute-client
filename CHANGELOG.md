@@ -3,6 +3,12 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [Unreleased]
+
+### Added
+
+- **`inferoute-client compatibility`** — detect local hardware (Linux NVIDIA VRAM or macOS Apple Silicon unified memory) and list which approved Inferoute models can fit. Table and `--json` output; does not start the provider daemon. Supports `--provider-type`, `--catalog-url`, and `--offline-catalog`.
+
 ## [1.1.4] - 2026-06-23
 
 ### Added

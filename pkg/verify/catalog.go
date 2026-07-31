@@ -88,6 +88,17 @@ func (c *Catalog) Aliases() []string {
 	return out
 }
 
+// Entries returns a copy of all cached catalog entries.
+func (c *Catalog) Entries() []CatalogEntry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]CatalogEntry, 0, len(c.entries))
+	for _, entry := range c.entries {
+		out = append(out, entry)
+	}
+	return out
+}
+
 // fingerprint returns a stable snapshot key for cache invalidation when the catalog changes.
 func (c *Catalog) fingerprint() string {
 	c.mu.RLock()

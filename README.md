@@ -75,6 +75,21 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 **INFEROUTE Start with specific config:**
 `inferoute-client --config ~/.config/inferoute/config.yaml`
 
+## Model compatibility check
+
+Before deploying, check which approved Inferoute models fit this machine. Works on **Linux + NVIDIA** (`nvidia-smi`) and **macOS** (Apple Silicon unified memory via `sysctl` / `system_profiler`). Does **not** start the provider daemon and does not need an API key.
+
+```bash
+inferoute-client compatibility
+inferoute-client compatibility --provider-type ollama
+inferoute-client compatibility --provider-type vllm
+inferoute-client compatibility --json
+inferoute-client compatibility --catalog-url https://core.inferoute.com
+inferoute-client compatibility --offline-catalog ./approved-models.json
+```
+
+Statuses: `runs_well`, `fits`, `tight`, `too_large`, `unknown`. Scoring uses catalog `min_size_bytes` plus a conservative runtime overhead (higher for vLLM). Apple Silicon uses a fraction of unified system RAM; Linux scores against the largest single GPU’s VRAM.
+
 
 ## 📦 Docker Installation
 

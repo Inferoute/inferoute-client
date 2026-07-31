@@ -19,6 +19,7 @@ Entry point: `cmd/main.go`
 | `pkg/health` | Health report assembly and push to platform |
 | `pkg/llm` | Ollama / vLLM client abstraction (`ListModels`, `ForwardRequest`) |
 | `pkg/gpu` | GPU monitoring (NVIDIA on Linux, basic info on macOS) |
+| `pkg/compat` | Standalone hardware detection, approved-catalog fetch, fit scoring, and table/JSON output |
 | `pkg/cloudflare` | Tunnel request, `cloudflared` process supervision |
 | `pkg/pricing` | Model price lookup and registration |
 | `pkg/verify` | Approved-catalog fetch, local measurement, server-as-judge verification |
@@ -26,6 +27,10 @@ Entry point: `cmd/main.go`
 | `pkg/usermsg` | User-facing error strings for console and HTTP |
 
 ## Startup sequence (`cmd/main.go`)
+
+Before normal flag parsing, `cmd/main.go` checks for the `compatibility` subcommand. When present, it runs `pkg/compat` and exits without loading provider configuration, initializing logging, contacting the local LLM, starting the HTTP server, requesting a tunnel, or starting health reporting.
+
+Normal daemon startup:
 
 1. Load config from `--config` or `~/.config/inferoute/config.yaml`
 2. Initialize logger, GPU monitor (optional), LLM client
@@ -47,6 +52,82 @@ YAML sections:
 - **logging** — level, `log_dir`, rotation (`max_size`, `max_backups`, `max_age`)
 
 `TunnelServiceURL()` derives the local URL passed to Cloudflare (`http://localhost:<port>` when host is `0.0.0.0`). There is no separate Cloudflare section in config.
+
+## Model compatibility command (`pkg/compat`)
+
+`inferoute-client compatibility` is a standalone pre-deployment check. It detects memory available to model runtimes, fetches safe sizing metadata for approved builds, scores each build locally, and writes a table or stable JSON report.
+
+Examples:
+
+```bash
+inferoute-client compatibility
+inferoute-client compatibility --provider-type ollama
+inferoute-client compatibility --provider-type vllm
+inferoute-client compatibility --json
+inferoute-client compatibility --catalog-url https://core.inferoute.com
+inferoute-client compatibility --offline-catalog ./approved-models.json
+```
+
+### Configuration and catalog behavior
+
+- The command does **not** read `config.yaml` and does not require a provider API key.
+- The default catalog base URL is `https://core.inferoute.com`.
+- `--catalog-url` overrides the base URL.
+- Without `--provider-type`, the client fetches the public catalog once for `ollama` and once for `vllm`, then merges entries by alias and service type.
+- `--offline-catalog` bypasses HTTP and accepts either the public `{ "object": "list", "data": [...] }` response shape or a bare entry array.
+- Only active entries are scored.
+
+The public catalog entry includes `min_size_bytes`. It must not expose verification secrets such as expected digests, weight fingerprints, manifests, file SHA values, reported digests, or reported fingerprints.
+
+### Hardware detection
+
+| Platform | Probe | Memory used for scoring |
+|----------|-------|-------------------------|
+| Linux + NVIDIA | `nvidia-smi` CSV query plus banner CUDA version | Total VRAM on the largest single GPU |
+| macOS Apple Silicon | `system_profiler SPDisplaysDataType` and `hw.memsize` | 65% of unified system memory |
+| Linux without NVIDIA / Intel macOS | System RAM | 70% of system RAM, with a slow CPU-path warning |
+
+Linux also records free and used VRAM. Free VRAM below 50% of total produces a warning, but fit status is based on total VRAM because running processes can be stopped before loading a model. Multi-GPU v1 deliberately does not aggregate memory.
+
+### Scoring
+
+Required memory is the approved build's `min_size_bytes` multiplied by runtime overhead:
+
+- Ollama: `1.25`
+- vLLM: `1.50`
+- Unknown service type: `1.35`
+
+The ratio of required memory to usable memory maps to:
+
+| Ratio | Status |
+|-------|--------|
+| `< 0.50` | `runs_well` |
+| `< 0.75` | `fits` |
+| `< 0.95` | `tight` |
+| `>= 0.95` | `too_large` |
+
+Missing or non-positive `min_size_bytes`, or unavailable usable memory, returns `unknown`. The scorer estimates fit only; it does not estimate throughput or tokens per second.
+
+### Output contract
+
+Human output contains the hardware snapshot, warnings, status totals, and one row per model. `--json` emits:
+
+```json
+{
+  "hardware": {},
+  "models": [],
+  "summary": {
+    "runs_well": 0,
+    "fits": 0,
+    "tight": 0,
+    "too_large": 0,
+    "unknown": 0,
+    "total": 0
+  }
+}
+```
+
+The JSON model entries contain only public model identity, size, required/usable memory, status, reason, and optional public HuggingFace metadata.
 
 ## Health reporting (`pkg/health`)
 
@@ -82,7 +163,7 @@ Server-as-judge: the client measures locally; Inferoute decides `verified` / `fa
 
 ### Catalog (`catalog.go`)
 
-- `GET /api/models/approved-builds?service_type=<type>` — public aliases and HF metadata (no hashes)
+- `GET /api/models/approved-builds?service_type=<type>` — public aliases, HF metadata, and `min_size_bytes` (no hashes or verification secrets)
 - Cached in memory; refreshed each health cycle
 
 ### Verification flow
@@ -168,6 +249,8 @@ Zap structured logging; files under `logging.log_dir` (default `~/.local/state/i
 | No GPU monitor | Placeholder values in health | Always false |
 
 Client continues operating without GPU data.
+
+The standalone compatibility command uses its own `pkg/compat` probes and can fall back to system RAM even when the daemon's `pkg/gpu` monitor is unavailable.
 
 ## Deployment
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
@@ -33,6 +34,11 @@ Inferoute Client - A client for connecting to the Inferoute network
 
 Usage:
   inferoute-client [flags]
+  inferoute-client compatibility [flags]
+
+Commands:
+  compatibility   Detect local hardware and list which approved models can run
+                  (does not start the provider daemon)
 
 Flags:
   --config string   Path to configuration file (default: ~/.config/inferoute/config.yaml)
@@ -43,6 +49,15 @@ For more information, visit: https://github.com/inferoute/inferoute-client
 `
 
 func main() {
+	// Subcommands that must not start the provider daemon.
+	if len(os.Args) > 1 && os.Args[1] == "compatibility" {
+		if err := compat.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "compatibility: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Create custom flag set
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	flags.Usage = func() {

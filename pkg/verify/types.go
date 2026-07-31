@@ -21,6 +21,7 @@ type CatalogEntry struct {
 	CardImage        string   `json:"card_image"`
 	HFRepo           *string  `json:"hf_repo,omitempty"`
 	HFRef            *string  `json:"hf_ref,omitempty"`
+	MinSizeBytes     int64    `json:"min_size_bytes"`
 	IsActive         bool     `json:"is_active"`
 	InputPricePer1M  *float64 `json:"input_price_per_1m,omitempty"`
 	OutputPricePer1M *float64 `json:"output_price_per_1m,omitempty"`
