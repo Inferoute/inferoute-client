@@ -3,7 +3,7 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
-## [Unreleased]
+## [1.1.5]
 
 ### Added
 
