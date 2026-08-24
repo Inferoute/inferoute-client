@@ -3,6 +3,12 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [Unreleased]
+
+### Changed
+
+- **Collect-only model measurements** — client measures local models and includes digest/size (Ollama), weight fingerprints/files/HF revision (vLLM), and `client_version` in health pushes. No verified/unverified status, no inference gating, no verify-model server round-trip, and no approved-catalog requirement for measuring. All discovered models are registered.
+
 ## [1.1.5]
 
 ### Added

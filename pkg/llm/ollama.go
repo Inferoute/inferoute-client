@@ -77,6 +77,7 @@ func (c *OllamaClient) ListModels(ctx context.Context) (*ListModelsResponse, err
 			OwnedBy:   "ollama",
 			Digest:    ollamaModel.Digest,
 			SizeBytes: ollamaModel.Size,
+			Details:   ollamaModel.Details,
 		}
 	}
 

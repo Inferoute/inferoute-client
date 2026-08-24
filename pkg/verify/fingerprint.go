@@ -76,14 +76,29 @@ func WeightFingerprint(root string, manifest []ManifestEntry) (string, error) {
 		return "", fmt.Errorf("empty manifest")
 	}
 
-	lines := make([]string, 0, len(manifest))
+	files := make([]FileMeasurement, 0, len(manifest))
 	for _, entry := range manifest {
 		path := filepath.Join(root, entry.Name)
 		hash, err := FileHash(path, entry.HashMethod)
 		if err != nil {
 			return "", fmt.Errorf("hash %s: %w", entry.Name, err)
 		}
-		lines = append(lines, fmt.Sprintf("%s:%s", entry.Name, hash))
+		files = append(files, FileMeasurement{
+			Name:       entry.Name,
+			Hash:       hash,
+			HashMethod: entry.HashMethod,
+			Size:       entry.Size,
+		})
+	}
+	return AggregateFingerprint(files), nil
+}
+
+// AggregateFingerprint builds the platform fingerprint from already-measured files
+// without re-reading disk. Same format as WeightFingerprint: sorted "name:hash\n" then SHA-256.
+func AggregateFingerprint(files []FileMeasurement) string {
+	lines := make([]string, 0, len(files))
+	for _, f := range files {
+		lines = append(lines, fmt.Sprintf("%s:%s", f.Name, f.Hash))
 	}
 	sort.Strings(lines)
 
@@ -92,5 +107,5 @@ func WeightFingerprint(root string, manifest []ManifestEntry) (string, error) {
 		joined += "\n"
 	}
 	sum := sha256.Sum256([]byte(joined))
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:])
 }

@@ -160,13 +160,12 @@ func main() {
 
 	catalog := verify.NewCatalog(cfg.Provider.URL, cfg.Provider.ProviderType)
 	if err := catalog.Refresh(ctx); err != nil {
-		logger.Warn("Failed to fetch approved model catalog; verification may be limited", zap.Error(err))
+		logger.Warn("Failed to fetch approved model catalog; compatibility command may be limited", zap.Error(err))
 	} else {
 		logger.Info("Loaded approved model catalog",
 			zap.Strings("aliases", catalog.Aliases()))
 	}
-	serverClient := verify.NewServerClient(cfg.Provider.URL, cfg.Provider.APIKey)
-	modelVerifier := verify.NewVerifier(catalog, serverClient, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
+	modelVerifier := verify.NewVerifier(catalog, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath, version)
 
 	// Register local models with pricing
 	var registeredModelIDs []string

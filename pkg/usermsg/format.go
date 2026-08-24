@@ -2,10 +2,10 @@ package usermsg
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
 // ProviderName returns a display name for the configured LLM backend.
@@ -41,23 +41,48 @@ func formatLLM(err error, name string) string {
 	}
 }
 
-// ApprovalConsole returns a label and ANSI color for marketplace approval status.
-func ApprovalConsole(status string) (label, color string) {
-	switch status {
-	case string(verify.StatusVerified):
-		return "approved", "\033[1;32m"
-	case string(verify.StatusUnverified):
-		return "not on allowlist", "\033[1;33m"
-	case string(verify.StatusFailed):
-		return "failed verification", "\033[1;31m"
-	case string(verify.StatusStale):
-		return "stale (re-checking)", "\033[1;33m"
-	case string(verify.StatusPending):
-		return "pending", "\033[1;33m"
+// MeasurementConsole returns a short measurement summary for the terminal UI.
+func MeasurementConsole(m llm.Model) string {
+	var parts []string
+	if m.Digest != "" {
+		parts = append(parts, shortHash(m.Digest))
+	} else if m.WeightFingerprint != "" {
+		parts = append(parts, shortHash(m.WeightFingerprint))
+	}
+	if n := len(m.Files); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d files", n))
+	}
+	if m.SizeBytes > 0 {
+		parts = append(parts, formatBytes(m.SizeBytes))
+	}
+	if len(parts) == 0 {
+		return "no measurement"
+	}
+	return strings.Join(parts, " · ")
+}
+
+func shortHash(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 12 {
+		return s[:12] + "…"
+	}
+	return s
+}
+
+func formatBytes(n int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case n >= gb:
+		return fmt.Sprintf("%.1f GB", float64(n)/float64(gb))
+	case n >= mb:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb))
+	case n >= kb:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb))
 	default:
-		if status == "" {
-			return "unknown", "\033[0m"
-		}
-		return status, "\033[0m"
+		return fmt.Sprintf("%d B", n)
 	}
 }

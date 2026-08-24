@@ -28,11 +28,11 @@ type fakeLLM struct {
 	gotBody     []byte
 }
 
-func (f *fakeLLM) ListModels(ctx context.Context) (*llm.ListModelsResponse, error) { return nil, nil }
-func (f *fakeLLM) Chat(ctx context.Context, r *llm.ChatRequest) (*llm.ChatResponse, error) {
+func (f *fakeLLM) ListModels(_ context.Context) (*llm.ListModelsResponse, error) { return nil, nil }
+func (f *fakeLLM) Chat(_ context.Context, _ *llm.ChatRequest) (*llm.ChatResponse, error) {
 	return nil, nil
 }
-func (f *fakeLLM) ForwardRequest(ctx context.Context, path string, body []byte) ([]byte, error) {
+func (f *fakeLLM) ForwardRequest(_ context.Context, path string, body []byte) ([]byte, error) {
 	f.gotPath, f.gotBody = path, body
 	return f.forwardResp, f.forwardErr
 }
@@ -101,11 +101,4 @@ func TestHandleChatCompletionsGuardChain(t *testing.T) {
 			t.Fatalf("forwarded path = %q", fake.gotPath)
 		}
 	})
-}
-
-func TestVerifyModelInRequestNilVerifierPasses(t *testing.T) {
-	s := newTestServer("http://unused", &fakeLLM{})
-	if err := s.verifyModelInRequest(context.Background(), []byte(`{"model":"m"}`)); err != nil {
-		t.Fatalf("nil verifier should pass, got %v", err)
-	}
 }

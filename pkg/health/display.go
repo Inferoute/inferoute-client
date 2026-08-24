@@ -4,8 +4,12 @@ import "context"
 
 // ModelEntry is one model row for console or API display.
 type ModelEntry struct {
-	ID                 string
-	VerificationStatus string
+	ID                string
+	Digest            string
+	SizeBytes         int64
+	Files             int
+	WeightFingerprint string
+	ServiceType       string
 }
 
 // ModelDisplay is a snapshot of local model status for the UI.
@@ -14,7 +18,7 @@ type ModelDisplay struct {
 	Err    error
 }
 
-// ModelDisplay polls the local LLM and returns models with verification status.
+// ModelDisplay polls the local LLM and returns models with measurement fields.
 func (r *Reporter) ModelDisplay(ctx context.Context) ModelDisplay {
 	models, err := r.RefreshModelsForDisplay(ctx)
 	if err != nil {
@@ -24,8 +28,12 @@ func (r *Reporter) ModelDisplay(ctx context.Context) ModelDisplay {
 	entries := make([]ModelEntry, len(models))
 	for i, m := range models {
 		entries[i] = ModelEntry{
-			ID:                 m.ID,
-			VerificationStatus: m.VerificationStatus,
+			ID:                m.ID,
+			Digest:            m.Digest,
+			SizeBytes:         m.SizeBytes,
+			Files:             len(m.Files),
+			WeightFingerprint: m.WeightFingerprint,
+			ServiceType:       m.ServiceType,
 		}
 	}
 	return ModelDisplay{Models: entries}

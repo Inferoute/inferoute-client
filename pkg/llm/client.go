@@ -5,16 +5,29 @@ import (
 	"time"
 )
 
+// FileMeasurement is one hashed weight file included in health reports.
+type FileMeasurement struct {
+	Name       string `json:"name"`
+	Hash       string `json:"hash"`
+	HashMethod string `json:"hash_method"`
+	Size       int64  `json:"size"`
+}
+
 // Model represents a model in the LLM API
 type Model struct {
-	ID                 string `json:"id"`
-	Object             string `json:"object"`
-	Created            int64  `json:"created"`
-	OwnedBy            string `json:"owned_by"`
-	Digest             string `json:"digest,omitempty"`
-	SizeBytes          int64  `json:"size_bytes,omitempty"`
-	WeightFingerprint  string `json:"weight_fingerprint,omitempty"`
-	VerificationStatus string `json:"verification_status,omitempty"`
+	ID                string                 `json:"id"`
+	Object            string                 `json:"object"`
+	Created           int64                  `json:"created"`
+	OwnedBy           string                 `json:"owned_by"`
+	Digest            string                 `json:"digest,omitempty"`
+	SizeBytes         int64                  `json:"size_bytes,omitempty"`
+	WeightFingerprint string                 `json:"weight_fingerprint,omitempty"`
+	ServiceType       string                 `json:"service_type,omitempty"`
+	HFRepo            string                 `json:"hf_repo,omitempty"`
+	HFRevision        string                 `json:"hf_revision,omitempty"`
+	Files             []FileMeasurement      `json:"files,omitempty"`
+	Details           map[string]interface{} `json:"details,omitempty"`
+	ClientVersion     string                 `json:"client_version,omitempty"`
 }
 
 // ListModelsResponse represents the response from the LLM API for listing models

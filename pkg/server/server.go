@@ -268,9 +268,8 @@ func (s *Server) writeModelStatus(buf *bytes.Buffer) {
 		if i > 0 {
 			prefix = "                                "
 		}
-		label, color := usermsg.ApprovalConsole(m.VerificationStatus)
 		buf.WriteString(fmt.Sprintf("\033[1;35m%s\033[0m%s\n", prefix, m.ID))
-		buf.WriteString(fmt.Sprintf("\033[1;35mMarketplace approval          \033[0m%s%s\033[0m\n", color, label))
+		buf.WriteString(fmt.Sprintf("\033[1;35mMeasurement                  \033[0m%s\n", usermsg.MeasurementConsole(m)))
 	}
 }
 
@@ -404,19 +403,6 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	}
 
 	return nil
-}
-
-func (s *Server) verifyModelInRequest(ctx context.Context, body []byte) error {
-	if s.verifier == nil {
-		return nil
-	}
-	var payload struct {
-		Model string `json:"model"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil || payload.Model == "" {
-		return fmt.Errorf("missing model in request")
-	}
-	return s.verifier.CheckInference(ctx, s.llmClient, payload.Model)
 }
 
 // forwardToLLM forwards a request to the LLM provider

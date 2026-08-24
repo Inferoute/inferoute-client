@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// RegisterLocalModels registers verified local models with their pricing.
+// RegisterLocalModels registers all local models with their pricing.
 func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string, verifier *verify.Verifier) ([]string, error) {
 	// Normalize service type to match API expectations
 	normalizedServiceType := strings.ToLower(serviceType)
@@ -38,22 +38,15 @@ func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClien
 		return nil, nil
 	}
 
-	modelList := verifier.ApplyToModels(ctx, llmClient, models.Models)
+	modelList := verifier.MeasureModels(ctx, llmClient, models.Models)
 
-	// Extract model names — only verified models are registered
 	modelNames := make([]string, 0, len(modelList))
 	for _, model := range modelList {
-		if !verify.IsInferenceAllowed(model.VerificationStatus) {
-			logger.Warn("Skipping unverified model at registration",
-				zap.String("model", model.ID),
-				zap.String("verification_status", model.VerificationStatus))
-			continue
-		}
 		modelNames = append(modelNames, model.ID)
 	}
 
 	if len(modelNames) == 0 {
-		logger.Info("No verified models to register")
+		logger.Info("No models to register")
 		return nil, nil
 	}
 

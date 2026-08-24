@@ -2,75 +2,40 @@ package verify
 
 import (
 	"testing"
-	"time"
 )
 
-func TestApplyServerResponseKnownStatus(t *testing.T) {
-	res := Result{Alias: "test"}
-	applyServerResponse(&res, verifyModelResponse{VerificationStatus: "verified"})
-	if res.Status != StatusVerified {
-		t.Fatalf("status = %q, want verified", res.Status)
+func TestAggregateFingerprintDeterministic(t *testing.T) {
+	files := []FileMeasurement{
+		{Name: "weights.safetensors", Hash: "bbb", HashMethod: "safetensors_header", Size: 10},
+		{Name: "config.json", Hash: "aaa", HashMethod: "full", Size: 5},
+	}
+
+	fp1 := AggregateFingerprint(files)
+	fp2 := AggregateFingerprint([]FileMeasurement{
+		files[1],
+		files[0],
+	})
+	if fp1 != fp2 {
+		t.Fatalf("fingerprint not order-independent: %s vs %s", fp1, fp2)
+	}
+	if len(fp1) != 64 {
+		t.Fatalf("expected sha256 hex, got %q", fp1)
+	}
+
+	different := AggregateFingerprint([]FileMeasurement{
+		{Name: "config.json", Hash: "ccc", HashMethod: "full", Size: 5},
+	})
+	if different == fp1 {
+		t.Fatal("expected different fingerprint for different hashes")
 	}
 }
 
-func TestApplyServerResponseUnknownStatus(t *testing.T) {
-	res := Result{Alias: "test"}
-	applyServerResponse(&res, verifyModelResponse{VerificationStatus: "hacked"})
-	if res.Status != StatusFailed {
-		t.Fatalf("status = %q, want failed", res.Status)
+func TestRevisionFromSnapshotPath(t *testing.T) {
+	got := revisionFromSnapshotPath("/cache/hub/models--Org--Name/snapshots/abc123def")
+	if got != "abc123def" {
+		t.Fatalf("got %q, want abc123def", got)
 	}
-}
-
-func TestApplyServerResponseEmptyStatus(t *testing.T) {
-	res := Result{Alias: "test"}
-	applyServerResponse(&res, verifyModelResponse{})
-	if res.Status != StatusFailed {
-		t.Fatalf("status = %q, want failed", res.Status)
-	}
-}
-
-func TestVerifyResultCacheOllamaHitAndInvalidate(t *testing.T) {
-	v := &Verifier{resultCache: make(map[string]*verifyResultEntry)}
-	want := Result{Alias: "gguf/foo", Status: StatusVerified, Digest: "abc", SizeBytes: 42}
-	v.storeOllamaResult("gguf/foo", "abc", 42, want)
-
-	got, ok := v.cachedOllamaResult("gguf/foo", "abc", 42)
-	if !ok || got.Status != StatusVerified {
-		t.Fatalf("expected cache hit, got ok=%v status=%q", ok, got.Status)
-	}
-
-	if _, ok := v.cachedOllamaResult("gguf/foo", "changed", 42); ok {
-		t.Fatal("expected cache miss after digest change")
-	}
-}
-
-func TestVerifyResultCacheTTLExpiry(t *testing.T) {
-	v := &Verifier{resultCache: make(map[string]*verifyResultEntry)}
-	v.resultCache["gguf/foo"] = &verifyResultEntry{
-		result:   Result{Alias: "gguf/foo", Status: StatusVerified},
-		cachedAt: time.Now().Add(-verifyResultTTL - time.Second),
-		digest:   "abc",
-		size:     1,
-	}
-
-	if _, ok := v.cachedOllamaResult("gguf/foo", "abc", 1); ok {
-		t.Fatal("expected cache miss after TTL expiry")
-	}
-}
-
-func TestVerifyResultCacheVLLMWeightChange(t *testing.T) {
-	v := &Verifier{resultCache: make(map[string]*verifyResultEntry)}
-	stats := map[string]fileStat{"model.safetensors": {size: 100, modTime: 1}}
-	want := Result{Alias: "org/model", Status: StatusPending}
-	v.storeVLLMResult("org/model", stats, want)
-
-	got, ok := v.cachedVLLMResult("org/model", stats)
-	if !ok || got.Status != StatusPending {
-		t.Fatalf("expected cache hit, got ok=%v status=%q", ok, got.Status)
-	}
-
-	changed := map[string]fileStat{"model.safetensors": {size: 101, modTime: 1}}
-	if _, ok := v.cachedVLLMResult("org/model", changed); ok {
-		t.Fatal("expected cache miss after weight stats change")
+	if got := revisionFromSnapshotPath("/flat/local/dir"); got != "" {
+		t.Fatalf("flat dir should have empty revision, got %q", got)
 	}
 }

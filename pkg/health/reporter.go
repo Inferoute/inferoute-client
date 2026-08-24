@@ -90,14 +90,10 @@ func (r *Reporter) InitializeRegisteredModels(modelIDs []string) {
 		zap.Int("model_count", len(modelIDs)))
 }
 
-// registerNewModels checks for new verified models and registers them with pricing
+// registerNewModels checks for new models and registers them with pricing
 func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
-	// Get the current list of verified model IDs
 	currentModelIDs := make([]string, 0, len(models))
 	for _, model := range models {
-		if !verify.IsInferenceAllowed(model.VerificationStatus) {
-			continue
-		}
 		currentModelIDs = append(currentModelIDs, model.ID)
 	}
 
@@ -219,12 +215,6 @@ func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
 
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
-	if r.verifier != nil {
-		if err := r.verifier.RefreshCatalog(ctx); err != nil {
-			logger.Warn("Failed to refresh approved model catalog", zap.Error(err))
-		}
-	}
-
 	// Get health report
 	report, err := r.GetHealthReport(ctx)
 	if err != nil {
@@ -367,7 +357,7 @@ func (r *Reporter) GetLastUpdateTime() time.Time {
 	return r.lastUpdateTime
 }
 
-// RefreshModelsForDisplay polls the local LLM and returns models with verification status.
+// RefreshModelsForDisplay polls the local LLM and returns models with measurements.
 // Used by the console UI to reflect vLLM/Ollama model changes between health reports.
 func (r *Reporter) RefreshModelsForDisplay(ctx context.Context) ([]llm.Model, error) {
 	models, err := r.llmClient.ListModels(ctx)
@@ -395,7 +385,7 @@ func (r *Reporter) enrichModels(ctx context.Context, models []llm.Model) []llm.M
 	if r.verifier == nil {
 		return models
 	}
-	return r.verifier.ApplyToModels(ctx, r.llmClient, models)
+	return r.verifier.MeasureModels(ctx, r.llmClient, models)
 }
 
 func (r *Reporter) setDisplayedModels(models []llm.Model) {

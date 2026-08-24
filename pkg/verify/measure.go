@@ -45,17 +45,3 @@ func measureWeightDir(root string) ([]FileMeasurement, error) {
 	}
 	return files, nil
 }
-
-func hfRepoForCatalog(alias string, entry CatalogEntry) string {
-	if entry.HFRepo != nil && strings.TrimSpace(*entry.HFRepo) != "" {
-		return strings.TrimSpace(*entry.HFRepo)
-	}
-	return alias
-}
-
-func hfRefForCatalog(entry CatalogEntry) string {
-	if entry.HFRef != nil {
-		return strings.TrimSpace(*entry.HFRef)
-	}
-	return ""
-}
