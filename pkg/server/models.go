@@ -20,6 +20,7 @@ type Server struct {
 	llmClient        llm.Client
 	verifier         *verify.Verifier
 	cloudflareClient *cloudflare.Client
+	consoleUI        bool
 	server           *http.Server
 	errorLog         []string
 	errorLogMutex    sync.Mutex

@@ -35,7 +35,7 @@ type Hardware struct {
 	Warnings         []string   `json:"warnings,omitempty"`
 }
 
-// Detect probes local hardware for Linux NVIDIA and macOS (Apple Silicon/Intel).
+// Detect probes local hardware for Linux/Windows NVIDIA and macOS (Apple Silicon/Intel).
 // It never hard-fails solely because a GPU is missing; CPU/system-RAM fallbacks are used.
 func Detect() (*Hardware, error) {
 	hw := &Hardware{
@@ -56,8 +56,8 @@ func Detect() (*Hardware, error) {
 			hw.Warnings = append(hw.Warnings, err.Error())
 			fallbackSystemMemory(hw, "macOS GPU detection failed; using system RAM")
 		}
-	case "linux":
-		if err := detectLinuxNVIDIA(hw); err != nil {
+	case "linux", "windows":
+		if err := detectNVIDIA(hw); err != nil {
 			hw.Warnings = append(hw.Warnings, err.Error())
 			fallbackSystemMemory(hw, "NVIDIA GPU not detected; scoring against system RAM (slow/CPU path)")
 		}
@@ -164,7 +164,7 @@ func parseSystemProfilerGPU() (productName string, coreCount int, err error) {
 	return productName, coreCount, nil
 }
 
-func detectLinuxNVIDIA(hw *Hardware) error {
+func detectNVIDIA(hw *Hardware) error {
 	if _, err := exec.LookPath("nvidia-smi"); err != nil {
 		return fmt.Errorf("nvidia-smi not found: %w", err)
 	}

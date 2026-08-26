@@ -3,6 +3,12 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [Unreleased]
+
+### Added
+
+- **Windows amd64** provider client: native process supervision for cloudflared, NVIDIA/`nvidia-smi` compatibility scoring, rewritten install script (cloudflared + API key, no Administrator), and `--tray` notification-area mode. Linux and macOS behavior is unchanged.
+
 ## [1.1.5]
 
 ### Added

@@ -18,9 +18,10 @@ Entry point: `cmd/main.go`
 | `pkg/server` | HTTP server, console UI, HMAC validation, request proxying |
 | `pkg/health` | Health report assembly and push to platform |
 | `pkg/llm` | Ollama / vLLM client abstraction (`ListModels`, `ForwardRequest`) |
-| `pkg/gpu` | GPU monitoring (NVIDIA on Linux, basic info on macOS) |
+| `pkg/gpu` | GPU monitoring (NVIDIA on Linux/Windows, basic info on macOS) |
 | `pkg/compat` | Standalone hardware detection, approved-catalog fetch, fit scoring, and table/JSON output |
-| `pkg/cloudflare` | Tunnel request, `cloudflared` process supervision |
+| `pkg/cloudflare` | Tunnel request, `cloudflared` process supervision (Windows job object + HideWindow) |
+| `pkg/tray` | Windows notification-area menu (`--tray`); stub on Linux/macOS |
 | `pkg/pricing` | Model price lookup and registration |
 | `pkg/verify` | Approved-catalog fetch, local measurement, server-as-judge verification |
 | `pkg/logger` | Zap structured logging with rotation |

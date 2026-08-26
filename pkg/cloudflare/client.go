@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	appLogger "github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -50,6 +49,7 @@ type Client struct {
 	hostname string
 	cmd      *exec.Cmd
 	process  *os.Process
+	job      *procJob
 
 	// Control and monitoring
 	ctx              context.Context
@@ -83,6 +83,12 @@ func NewClient(coreURL, bearerToken, serviceURL string) *Client {
 	// Initialize cloudflared logger
 	initCloudflaredLogger()
 
+	job, err := newProcJob()
+	if err != nil {
+		appLogger.Warn("Could not create process job object; child processes may outlive the client", zap.Error(err))
+		job = &procJob{}
+	}
+
 	return &Client{
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
@@ -93,6 +99,7 @@ func NewClient(coreURL, bearerToken, serviceURL string) *Client {
 		restartCh:     make(chan struct{}, 1),
 		shutdownCh:    make(chan struct{}),
 		shouldRestart: true,
+		job:           job,
 	}
 }
 
@@ -193,25 +200,33 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 func (c *Client) startTunnelProcess() error {
 	appLogger.Info("Starting cloudflared process", zap.String("hostname", c.hostname))
 
-	// Create the command with correct flag order: tunnel [options] run [suboptions]
-	// NOT using CommandContext to test if context cancellation is the issue
-	c.cmd = exec.Command("cloudflared", "tunnel",
-		"--loglevel", "error",
-		"--logfile", "/tmp/cloudflared-debug.log",
-		"run", "--token", c.token)
+	bin, err := findCloudflared()
+	if err != nil {
+		return fmt.Errorf("cloudflared not found: %w", err)
+	}
 
-	// Start the process
+	logPath := cloudflaredLogPath()
+	c.cmd = exec.Command(bin, "tunnel",
+		"--loglevel", "error",
+		"--logfile", logPath,
+		"run", "--token", c.token)
+	configureCmd(c.cmd)
+
 	if err := c.cmd.Start(); err != nil {
-		appLogger.Error("Failed to start cloudflared process", zap.Error(err))
+		appLogger.Error("Failed to start cloudflared process", zap.Error(err), zap.String("binary", bin))
 		return fmt.Errorf("failed to start cloudflared: %w", err)
 	}
 
 	c.process = c.cmd.Process
+	if err := c.job.assign(c.process); err != nil {
+		appLogger.Warn("Failed to assign cloudflared to job object", zap.Error(err))
+	}
 
 	appLogger.Info("Cloudflared process started",
 		zap.Int("pid", c.process.Pid),
 		zap.String("hostname", c.hostname),
-		zap.String("debug_log", "/tmp/cloudflared-debug.log"))
+		zap.String("binary", bin),
+		zap.String("debug_log", logPath))
 
 	// Monitor the process exit
 	go c.monitorProcessExit()
@@ -404,13 +419,7 @@ func (c *Client) handleRestart() {
 
 // isProcessRunning checks if the cloudflared process is still alive
 func (c *Client) isProcessRunning() bool {
-	if c.process == nil {
-		return false
-	}
-
-	// Check if process is still alive by sending signal 0
-	err := c.process.Signal(syscall.Signal(0))
-	return err == nil
+	return processAlive(c.process)
 }
 
 // cleanupProcess properly terminates and cleans up the current process
@@ -421,9 +430,8 @@ func (c *Client) cleanupProcess() {
 
 	appLogger.Debug("Cleaning up cloudflared process", zap.Int("pid", c.process.Pid))
 
-	// Try graceful termination first
-	if err := c.process.Signal(syscall.SIGTERM); err != nil {
-		appLogger.Warn("Failed to send SIGTERM", zap.Error(err))
+	if err := terminateProcess(c.process); err != nil {
+		appLogger.Warn("Failed to terminate cloudflared", zap.Error(err))
 	}
 
 	// Wait for graceful shutdown
@@ -483,6 +491,9 @@ func (c *Client) StopTunnel() error {
 
 	// Clean up the current process
 	c.cleanupProcess()
+	if c.job != nil {
+		c.job.close()
+	}
 
 	c.running = false
 	appLogger.Info("Cloudflare tunnel stopped")

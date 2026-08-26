@@ -2,7 +2,7 @@
 
 By default we assume:
 
-- your provider type is Vllm  and that it's running on http://localhost:8000
+- your provider type is Ollama and that it's running on http://localhost:11434
 - Inferoute-client server port will run on port 8080
 
 If you would like to override these default parameters follow the below.
@@ -20,8 +20,17 @@ curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scr
 ```
 
 
-2. To override parameters during auto-install for Windows 
-To pass additional parameters use the below.
+2. To override parameters during auto-install for Windows
+
+```powershell
+$env:PROVIDER_API_KEY="your-key"
+$env:PROVIDER_TYPE="ollama"
+$env:LLM_URL="http://localhost:11434"
+$env:SERVER_PORT="9090"
+irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
+```
+
+Windows providers should use Ollama. vLLM is not supported on native Windows.
 
 
 3. To override parameters during Docker run

@@ -16,6 +16,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 |----------|-----|-------------|-------|
 | **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | Ollama or vLLM | Recommended for production providers |
 | **macOS** (Intel or Apple Silicon) | Basic info via `system_profiler` | Ollama (typical) | GPU busy always reported as false; no memory or utilization metrics |
+| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | **Ollama** | Native `.exe`. vLLM is not supported on Windows. Optional `--tray` runs in the notification area |
 
 ## Requirements
 
@@ -23,6 +24,7 @@ We will also add support for exo-labs and llama.cppp in the future.
 - Ollama or vLLM running locally (Ollama is typical on macOS)
 - **Linux with NVIDIA GPU:** `nvidia-smi` must be installed and available on `PATH` (required for GPU monitoring and busy-state detection). The install script does not install it; install the [NVIDIA driver](https://www.nvidia.com/drivers) for your system.
 - **macOS with Apple GPU:** Ollama running locally. The install script supports Intel and Apple Silicon Macs and installs `cloudflared` via Homebrew when available.
+- **Windows amd64:** [Ollama for Windows](https://ollama.com). The install script installs `cloudflared` and `inferoute-client`, and adds them to your user PATH. `nvidia-smi` is required for GPU monitoring (install the [NVIDIA driver](https://www.nvidia.com/drivers)); without it the client still runs. vLLM is not supported on native Windows.
 - 🚨 Post installation
     - When your client first starts it will publish your available models and add costs based on the average costs across all providers.
     - Please remember to log on and change the costs to your preference if you prefer.
@@ -53,6 +55,20 @@ PROVIDER_API_KEY="your-key" curl -fsSL https://raw.githubusercontent.com/inferou
 
 On macOS, the script installs `cloudflared` via Homebrew when available, otherwise downloads the native binary for your architecture.
 
+### Windows (PowerShell)
+
+Requires 64-bit Windows. Ollama should already be installed.
+
+```powershell
+$env:PROVIDER_API_KEY="your-key"; irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
+```
+
+Optional: `$env:PROVIDER_TYPE="ollama"`, `$env:LLM_URL="http://localhost:11434"`, `$env:SERVER_PORT="8080"`.
+
+The script installs `cloudflared` and `inferoute-client` to `%LOCALAPPDATA%\inferoute\bin`, writes `%USERPROFILE%\.config\inferoute\config.yaml`, and adds a **Start Menu → Inferoute → Inferoute Client** shortcut that runs with `--tray`. See [docs/windows.md](docs/windows.md).
+
+Or download `scripts/windows-install.bat` and double-click it (no administrator prompt).
+
 ### Manual Environment Variables
 ```bash
 export PROVIDER_API_KEY="your-provider-api-key"
@@ -75,9 +91,12 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 **INFEROUTE Start with specific config:**
 `inferoute-client --config ~/.config/inferoute/config.yaml`
 
+**Windows (notification area, no console):**
+`inferoute-client --tray`
+
 ## Model compatibility check
 
-Before deploying, check which approved Inferoute models fit this machine. Works on **Linux + NVIDIA** (`nvidia-smi`) and **macOS** (Apple Silicon unified memory via `sysctl` / `system_profiler`). Does **not** start the provider daemon and does not need an API key.
+Works on **Linux + NVIDIA** (`nvidia-smi`), **Windows + NVIDIA** (`nvidia-smi`), and **macOS** (Apple Silicon unified memory via `sysctl` / `system_profiler`). Does **not** start the provider daemon and does not need an API key.
 
 ```bash
 inferoute-client compatibility

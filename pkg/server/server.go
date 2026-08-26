@@ -50,8 +50,15 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		llmClient:        llmClient,
 		verifier:         verifier,
 		cloudflareClient: cloudflareClient,
+		consoleUI:        true,
 		errorLog:         make([]string, 0, 100),
 	}
+}
+
+// SetConsoleUI enables or disables the ANSI terminal dashboard.
+// Windows --tray mode turns this off so the process can hide its console.
+func (s *Server) SetConsoleUI(enabled bool) {
+	s.consoleUI = enabled
 }
 
 // Start starts the server
@@ -96,11 +103,10 @@ func (s *Server) Start() error {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Print startup banner with GPU info
-	s.printStartupBanner()
-
-	// Start a goroutine to periodically update the console
-	go s.consoleUpdater()
+	if s.consoleUI {
+		s.printStartupBanner()
+		go s.consoleUpdater()
+	}
 
 	// Log server start
 	logger.Info("Starting HTTP server",
