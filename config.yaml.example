@@ -2,6 +2,9 @@
 server:
   port: 8080
   host: "0.0.0.0"
+  # Max in-flight inference requests (default 1). Extra requests return 503 so
+  # Inferoute can route to another provider. Set 0 for unlimited (e.g. vLLM batching).
+  # max_concurrent_inference: 1
 
 # Provider configuration
 provider:

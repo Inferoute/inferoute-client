@@ -238,8 +238,10 @@ On Windows the same snapshot is served as HTML at `/` and JSON at `/api/status`.
 ### GPU busy (`pkg/gpu`)
 
 - **Linux + NVIDIA:** `nvidia-smi`; busy if utilization > **20%**
-- **macOS:** always not busy
+- **macOS:** no utilization; `IsBusy()` always false
 - **No monitor:** not busy
+
+Inference handlers also cap **in-flight** proxy requests (`server.max_concurrent_inference`, default **1**). At cap → **503**. This is the macOS busy signal and closes the NVIDIA race where utilization is still 0% when the second request arrives. `GET /api/busy` is true if inflight is at cap **or** GPU util is high. `0` disables the inflight cap.
 
 ## Logging (`pkg/logger`)
 
@@ -249,9 +251,9 @@ Zap structured logging; files under `logging.log_dir` (default `~/.local/state/i
 
 | Platform | GPU detail | Busy detection |
 |----------|------------|----------------|
-| Linux + NVIDIA | Full via nvidia-smi | Utilization threshold |
-| macOS | Basic via system_profiler | Always false |
-| No GPU monitor | Placeholder values in health | Always false |
+| Linux + NVIDIA | Full via nvidia-smi | Utilization threshold + in-flight cap |
+| macOS | Basic via system_profiler | In-flight cap (default 1) |
+| No GPU monitor | Placeholder values in health | In-flight cap |
 
 Client continues operating without GPU data.
 

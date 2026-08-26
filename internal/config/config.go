@@ -13,8 +13,9 @@ import (
 type Config struct {
 	// Server configuration
 	Server struct {
-		Port int    `yaml:"port"`
-		Host string `yaml:"host"`
+		Port                   int    `yaml:"port"`
+		Host                   string `yaml:"host"`
+		MaxConcurrentInference int    `yaml:"max_concurrent_inference"` // 0 = unlimited; default 1
 	} `yaml:"server"`
 
 	// Provider configuration
@@ -39,6 +40,7 @@ func Load(path string) (*Config, error) {
 	// Set default values
 	cfg.Server.Port = 8080
 	cfg.Server.Host = "0.0.0.0"
+	cfg.Server.MaxConcurrentInference = 1
 	cfg.Provider.URL = "http://localhost:80"
 	cfg.Provider.ProviderType = "ollama"
 	cfg.Provider.LLMURL = "http://localhost:11434"

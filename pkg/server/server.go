@@ -51,6 +51,7 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		verifier:         verifier,
 		cloudflareClient: cloudflareClient,
 		consoleUI:        true,
+		maxInflight:      int32(cfg.Server.MaxConcurrentInference),
 		errorLog:         make([]string, 0, 100),
 	}
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
@@ -21,6 +22,8 @@ type Server struct {
 	verifier         *verify.Verifier
 	cloudflareClient *cloudflare.Client
 	consoleUI        bool
+	maxInflight      int32
+	inflight         atomic.Int32
 	server           *http.Server
 	errorLog         []string
 	errorLogMutex    sync.Mutex

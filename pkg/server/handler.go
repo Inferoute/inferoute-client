@@ -33,142 +33,51 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
-	// Check if GPU is busy
-	var isBusy bool
-	var err error
-
-	if s.gpuMonitor != nil {
-		isBusy, err = s.gpuMonitor.IsBusy()
-		if err != nil {
-			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-			return
-		}
-	} else {
-		// If GPU monitor is not available, assume not busy
-		isBusy = false
+	isBusy, err := s.isBusy()
+	if err != nil {
+		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
+		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+		return
 	}
 
-	// Write response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(BusyResponse{Busy: isBusy})
 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
 }
 
+func (s *Server) writeBusy(w http.ResponseWriter, r *http.Request, startTime time.Time) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	json.NewEncoder(w).Encode(ErrorResponse{Error: "GPU is busy"})
+	s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
+}
+
 // handleChatCompletions handles the /v1/chat/completions endpoint
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-
-	// Check if GPU is busy
-	var isBusy bool
-	var err error
-
-	if s.gpuMonitor != nil {
-		isBusy, err = s.gpuMonitor.IsBusy()
-		if err != nil {
-			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-			return
-		}
-	} else {
-		// If GPU monitor is not available, assume not busy
-		isBusy = false
-	}
-
-	// If GPU is busy, return error
-	if isBusy {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(ErrorResponse{Error: "GPU is busy"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
-		return
-	}
-
-	// Validate HMAC from X-Request-Id header
-	hmac := r.Header.Get("X-Request-Id")
-	if hmac != "" {
-		if err := s.validateHMAC(r.Context(), hmac); err != nil {
-			s.logError(fmt.Sprintf("HMAC validation failed: %v", err))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: fmt.Sprintf("Invalid HMAC: %v", err)})
-			s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-			return
-		}
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Error: "Missing HMAC in X-Request-Id header"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-		return
-	}
-
-	// Read request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to read request body: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
-		s.logRequest(r.Method, r.URL.Path, http.StatusBadRequest, startTime)
-		return
-	}
-
-	if err := s.verifyModelInRequest(r.Context(), body); err != nil {
-		s.logError(fmt.Sprintf("Model verification failed: %v", err))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
-		s.logRequest(r.Method, r.URL.Path, http.StatusForbidden, startTime)
-		return
-	}
-
-	// Forward request to LLM provider
-	llmResp, err := s.forwardToLLM(r.Context(), "/v1/chat/completions", body)
-	if err != nil {
-		s.logError(fmt.Sprintf("Failed to forward request to LLM provider: %v", err))
-		http.Error(w, usermsg.HTTP(err, s.config.Provider.ProviderType), http.StatusBadGateway)
-		s.logRequest(r.Method, r.URL.Path, http.StatusBadGateway, startTime)
-		return
-	}
-
-	// Write response
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(llmResp)
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+	s.handleInference(w, r, "/v1/chat/completions")
 }
 
 // handleCompletions handles the /v1/completions endpoint
 func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
+	s.handleInference(w, r, "/v1/completions")
+}
+
+func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath string) {
 	startTime := time.Now()
 
-	// Check if GPU is busy
-	var isBusy bool
-	var err error
-
-	if s.gpuMonitor != nil {
-		isBusy, err = s.gpuMonitor.IsBusy()
-		if err != nil {
-			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-			return
-		}
-	} else {
-		// If GPU monitor is not available, assume not busy
-		isBusy = false
+	isBusy, err := s.isBusy()
+	if err != nil {
+		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
+		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+		return
 	}
-
-	// If GPU is busy, return error
 	if isBusy {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(ErrorResponse{Error: "GPU is busy"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
+		s.writeBusy(w, r, startTime)
 		return
 	}
 
-	// Validate HMAC from X-Request-Id header
 	hmac := r.Header.Get("X-Request-Id")
 	if hmac != "" {
 		if err := s.validateHMAC(r.Context(), hmac); err != nil {
@@ -187,7 +96,6 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.logError(fmt.Sprintf("Failed to read request body: %v", err))
@@ -205,8 +113,13 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward request to LLM provider
-	llmResp, err := s.forwardToLLM(r.Context(), "/v1/completions", body)
+	if !s.tryAcquireInference() {
+		s.writeBusy(w, r, startTime)
+		return
+	}
+	defer s.releaseInference()
+
+	llmResp, err := s.forwardToLLM(r.Context(), llmPath, body)
 	if err != nil {
 		s.logError(fmt.Sprintf("Failed to forward request to LLM provider: %v", err))
 		http.Error(w, usermsg.HTTP(err, s.config.Provider.ProviderType), http.StatusBadGateway)
@@ -214,7 +127,6 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write response
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(llmResp)
 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
