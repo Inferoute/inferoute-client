@@ -3,39 +3,26 @@
 The Inferoute Provider Client is a lightweight Go service that runs on vllm or Ollama provider machines. It handles health monitoring, reporting, and inference request handling.
 
 
-We will also add support for exo-labs and llama.cppp in the future. 
-
-🔥 What do we do?
-
-
-
-
 ## Supported platforms
 
-| Platform | GPU | LLM backend | Notes |
-|----------|-----|-------------|-------|
-| **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | Ollama or vLLM | Recommended for production providers |
-| **macOS** (Intel or Apple Silicon) | Basic info via `system_profiler` | Ollama (typical) | GPU busy always reported as false; no memory or utilization metrics |
-| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | **Ollama** | Native `.exe`. vLLM is not supported on Windows. Optional `--tray` runs in the notification area |
+| Platform | GPU | LLM backend |
+|----------|-----|-------------|
+| **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | Ollama or vLLM |
+| **macOS** (Intel or Apple Silicon) | Basic info via `system_profiler` | Ollama (typical) |
+| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | **Ollama** |
 
-## Requirements
 
-- A user and provider setup on Inferoute.com [How to add a provider](https://github.com/inferoute/inferoute-client/blob/main/docs/provider.md)
-- Ollama or vLLM running locally (Ollama is typical on macOS)
-- **Linux with NVIDIA GPU:** `nvidia-smi` must be installed and available on `PATH` (required for GPU monitoring and busy-state detection). The install script does not install it; install the [NVIDIA driver](https://www.nvidia.com/drivers) for your system.
-- **macOS with Apple GPU:** Ollama running locally. The install script supports Intel and Apple Silicon Macs and installs `cloudflared` via Homebrew when available.
-- **Windows amd64:** [Ollama for Windows](https://ollama.com). The install script installs `cloudflared` and `inferoute-client`, and adds them to your user PATH. `nvidia-smi` is required for GPU monitoring (install the [NVIDIA driver](https://www.nvidia.com/drivers)); without it the client still runs. vLLM is not supported on native Windows.
-- 🚨 Post installation
-    - When your client first starts it will publish your available models and add costs based on the average costs across all providers.
-    - Please remember to log on and change the costs to your preference if you prefer.
+## Software requirements
 
-## Exposing your machine via Cloudflare (secure HTTPS)
+In order for the inferoute-client to push inference request to your machine you need a running LLM provider. We currently support the following.
 
-The client **exposes your machine to the internet** so the Inferoute platform can send inference requests to your local Ollama or vLLM server. This is done securely using **Cloudflare Tunnel** (cloudflared):
+- **Windows:** Ollama, Fasttoken 
+- **macOS:** Ollama or vLLM
+- **Linux:** Ollama or vLLM, Fasttoken 
 
-- **Secure & HTTPS:** Traffic between the internet and your provider goes through Cloudflare's network over HTTPS. Your home IP and ports are not exposed; Cloudflare provides a stable, TLS-terminated URL which tunnels back to your IP.
-- **Why we install cloudflared:** The install script installs the `cloudflared` binary on your host so the client can run it automatically. When you start the client, it requests a tunnel from the Inferoute platform, then starts and supervises the cloudflared process. You do not need to run or configure cloudflared yourself—the client manages the tunnel for you.
-- **No open firewall ports** are required on your side; outbound HTTPS to Cloudflare is sufficient.
+## Hardware Requirements
+
+- NVIDIA GPU with at least **8 GB** of VRAM
 
 
 ## 💾 Installation
@@ -43,7 +30,7 @@ The client **exposes your machine to the internet** so the Inferoute platform ca
 ### Quick Start with Installation Script
 
 ### Prerequisites
-- Get your API key from the [Inferoute platform](https://core.inferoute.com)
+- Visit [www.inferoute.com](https://www.inferoute.com), sign up and create a cluster to obtain your API key. See TO BE INSERTED for how to create and copy the key from cluster **Settings**.
 
 ### Linux / macOS one-liner
 
