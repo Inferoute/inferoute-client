@@ -233,7 +233,7 @@ Tunnel URL included in health reports as `cloudflare.url`.
 
 Displays: session info, tunnel URL, GPU block, model approval status, recent requests, errors.
 
-On Windows the same snapshot is served as HTML at `/` and JSON at `/api/status`. Tray **Open dashboard** opens that page. Tray is the default; `--console` keeps this terminal UI. Closing the console does not stop a tray process.
+On Windows the same snapshot is served as HTML at `/` and JSON at `/api/status`. Tray **Open dashboard** opens that page. Tray is the default; `--console` keeps this terminal UI. Closing the console does not stop a tray process. On tray start the client shows a Windows balloon (`NIF_INFO`) on the existing notification-area icon.
 
 ### GPU busy (`pkg/gpu`)
 

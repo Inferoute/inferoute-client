@@ -2,6 +2,11 @@
 
 All notable changes to the Inferoute Client will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Windows:** balloon/toast on tray start so launching the `.exe` from Explorer is not silent.
 
 ## [1.1.7] - 2026-08-26
 
@@ -13,78 +18,4 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 - **Windows:** tray mode is the default. `inferoute-client` detaches from PowerShell so closing the window does not stop the client. Use `--console` for the terminal UI. `--tray` is still accepted.
 - Tray **Open dashboard** opens the local status page (`http://127.0.0.1:<port>/`), not the Inferoute website.
-
-### Fixed
-
-- Windows tray and `.exe` icon is the Inferoute lime mark.
-
-## [1.1.6] - 2026-08-26
-
-### Added
-
-- **Windows amd64** provider client: native process supervision for cloudflared, NVIDIA/`nvidia-smi` compatibility scoring, rewritten install script (cloudflared + API key, no Administrator), and `--tray` notification-area mode. Linux and macOS behavior is unchanged.
-
-## [1.1.5]
-
-### Added
-
-- **`inferoute-client compatibility`** — detect local hardware (Linux NVIDIA VRAM or macOS Apple Silicon unified memory) and list which approved Inferoute models can fit. Table and `--json` output; does not start the provider daemon. Supports `--provider-type`, `--catalog-url`, and `--offline-catalog`.
-
-## [1.1.4] - 2026-06-23
-
-### Added
-
-- **Console model status** — live model name and marketplace approval shown in the terminal UI; polls vLLM/Ollama every few seconds so model swaps are visible without restarting the client.
-
-### Changed
-
-- Health reports sent every **3 minutes** (was 5).
-- User-facing LLM errors (console and API) use clear messages such as *Could not connect to vLLM — is it running?* instead of raw connection errors.
-
-## [1.1.3] - 2026-06-22
-
-### Fixed
-
-- vLLM hub cache resolution when approved `hf_revision` is a branch name (e.g. `main`) — follow `refs/main` to the snapshot commit SHA instead of looking for `snapshots/main`.
-
-## [1.1.2] - 2026-06-22
-
-### Changed
-
-- **vLLM weight discovery** — no required `model_path`. The client reads the model id from vLLM (`GET /v1/models`), looks up the approved `hf_revision`, and fingerprints weights under `~/.cache/huggingface/hub/models--Org--Name/snapshots/<revision>`.
-- Optional `hf_hub_cache` if your HuggingFace cache is not in the default location.
-- Optional `model_path` only for flat directories from `hf download --local-dir`.
-
-## [1.1.1] - 2026-06-22
-
-### Removed
-
-- `provider.model_verification` config opt-out — integrity checks always run; there is no supported way to disable verification on the client.
-
-## [1.1.0] - 2026-06-22
-
-### Added
-
-- **Model integrity verification (SNTNL-61)** — client fetches platform-approved model builds and verifies local models before registration, health reporting, and inference.
-- **Ollama** — compares `/api/tags` digest and size against the approved build registry; no extra config required beyond `llm_url`.
-- **vLLM** — fingerprints weight files on disk via `model_path` using the same manifest hashing as the platform bootstrap script (`safetensors_header` for `.safetensors`, full SHA-256 for other manifest files).
-- Health reports now include `digest`, `weight_fingerprint`, `size_bytes`, and `verification_status` per model.
-- Inference requests for unverified models return **403 Forbidden**.
-- Config: `provider.model_path` (vLLM) for on-disk weight fingerprinting.
-
-### Changed
-
-- Only **verified** models are registered with the platform when verification is enabled.
-- Ollama model listing preserves digest and size from `/api/tags` (previously discarded).
-
-## [1.0.9] - 2025-04-30
-
-### Added
-
-- Added automated tunnel creation using cloudflare
-- Security enhancements
-
-### Fixed
-
-- Cloudflare disconnecting after 30 seconds.
 

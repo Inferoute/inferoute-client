@@ -20,7 +20,7 @@ The script installs **cloudflared** and **inferoute-client** to `%LOCALAPPDATA%\
    inferoute-client
    ```
 
-On Windows the client runs in the **notification area** by default. The PowerShell prompt returns immediately; closing that window does **not** stop the client.
+On Windows the client runs in the **notification area** by default. The PowerShell prompt returns immediately; closing that window does **not** stop the client. A notification appears when the client starts.
 
 Right-click the Inferoute icon → **Open dashboard** to view live status in your browser (same information as the Linux/macOS terminal UI). Use **Quit** on that menu to stop the client.
 

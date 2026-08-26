@@ -41,6 +41,8 @@ func onReady(opts Options) {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Stop Inferoute Client")
 
+	showStartupNotice()
+
 	go func() {
 		for {
 			select {
