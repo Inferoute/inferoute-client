@@ -56,7 +56,7 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 }
 
 // SetConsoleUI enables or disables the ANSI terminal dashboard.
-// Windows --tray mode turns this off so the process can hide its console.
+// Windows tray mode turns this off so the process can hide its console.
 func (s *Server) SetConsoleUI(enabled bool) {
 	s.consoleUI = enabled
 }
@@ -89,6 +89,8 @@ func (s *Server) Start() error {
 	r := mux.NewRouter()
 
 	// Register routes
+	r.HandleFunc("/", s.handleDashboard).Methods(http.MethodGet)
+	r.HandleFunc("/api/status", s.handleStatus).Methods(http.MethodGet)
 	r.HandleFunc("/api/health", s.handleHealth).Methods(http.MethodGet)
 	r.HandleFunc("/api/busy", s.handleBusy).Methods(http.MethodGet)
 	r.HandleFunc("/v1/chat/completions", s.handleChatCompletions).Methods(http.MethodPost)
@@ -158,108 +160,72 @@ func (s *Server) consoleUpdater() {
 
 // redrawConsole completely redraws the console
 func (s *Server) redrawConsole() {
-	// Get GPU info if available
-	var gpuInfo *gpu.GPUInfo
-	if s.gpuMonitor != nil {
-		var err error
-		gpuInfo, err = s.gpuMonitor.GetGPUInfo()
-		if err != nil {
-			logger.Error("Failed to get GPU information", zap.Error(err))
-			gpuInfo = &gpu.GPUInfo{
-				ProductName:   "Unknown",
-				DriverVersion: "Unknown",
-				CUDAVersion:   "Unknown",
-				GPUCount:      0,
-			}
-		}
-	} else {
-		// No GPU monitor available
-		gpuInfo = &gpu.GPUInfo{
-			ProductName:   "Unknown",
-			DriverVersion: "Unknown",
-			CUDAVersion:   "Unknown",
-			GPUCount:      0,
-		}
-	}
+	snap := s.snapshot()
 
-	// Get the current Cloudflare tunnel URL
-	var tunnelURL string
-	if s.cloudflareClient != nil {
-		tunnelURL = s.cloudflareClient.GetTunnelURL()
-		if tunnelURL == "" {
-			logger.Warn("Cloudflare tunnel URL not available")
-		} else {
-			logger.Debug("Using Cloudflare tunnel URL for console display", zap.String("url", tunnelURL))
-		}
-	}
-
-	// Create a buffer to build the output
 	var buf bytes.Buffer
-
-	// Clear screen
 	buf.WriteString("\033[H\033[2J")
-
-	// Print banner
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
 	buf.WriteString("║                     INFEROUTE PROVIDER CLIENT                    ║\n")
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
 
-	// Get last health update time
-	lastUpdate := s.healthReporter.GetLastUpdateTime()
-	lastUpdateStr := "Never"
-	if !lastUpdate.IsZero() {
-		lastUpdateStr = lastUpdate.Format("2006-01-02 15:04:05")
-	}
-	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", lastUpdateStr))
+	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", snap.LastHealthUpdate))
 	buf.WriteString("\033[1;35mSession Status                \033[0m\033[1;32monline\033[0m\n")
-	buf.WriteString(fmt.Sprintf("\033[1;35mProvider Type                 \033[0m%s\n", s.config.Provider.ProviderType))
-	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", maskStringHelper(s.config.Provider.APIKey)))
-	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", s.config.Provider.URL))
-	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", s.config.Provider.LLMURL))
-	if tunnelURL != "" {
-		buf.WriteString(fmt.Sprintf("\033[1;35mCloudflare Tunnel URL         \033[0m%s\n", tunnelURL))
+	buf.WriteString(fmt.Sprintf("\033[1;35mProvider Type                 \033[0m%s\n", snap.ProviderType))
+	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", snap.ProviderAPIKey))
+	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", snap.ProviderURL))
+	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", snap.LLMURL))
+	if snap.TunnelURL != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35mCloudflare Tunnel URL         \033[0m%s\n", snap.TunnelURL))
 	}
 
-	s.writeModelStatus(&buf)
+	s.writeModelStatus(&buf, snap.Models)
 
+	gpuInfo := snap.GPU
+	if gpuInfo == nil {
+		gpuInfo = &gpu.GPUInfo{ProductName: "Unknown", DriverVersion: "Unknown", CUDAVersion: "Unknown"}
+	}
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
 	buf.WriteString("║                          GPU INFORMATION                         ║\n")
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
-
 	buf.WriteString(fmt.Sprintf("\033[1;35mGPU                          \033[0m%s\n", gpuInfo.ProductName))
 	buf.WriteString(fmt.Sprintf("\033[1;35mDriver Version               \033[0m%s\n", gpuInfo.DriverVersion))
 	buf.WriteString(fmt.Sprintf("\033[1;35mCUDA Version                 \033[0m%s\n", gpuInfo.CUDAVersion))
 	buf.WriteString(fmt.Sprintf("\033[1;35mGPU Count                    \033[0m%d\n", gpuInfo.GPUCount))
 
-	// Print last 10 requests
 	buf.WriteString("\n\033[1;33mRecent Requests:\033[0m\n")
-	s.requestStats.mutex.Lock()
-	if len(s.requestStats.LastRequests) == 0 {
+	if len(snap.RecentRequests) == 0 {
 		buf.WriteString("No requests yet\n")
 	} else {
-		for _, req := range s.requestStats.LastRequests {
-			buf.WriteString(req + "\n")
+		for _, req := range snap.RecentRequests {
+			buf.WriteString(formatRequestLine(req) + "\n")
 		}
 	}
-	s.requestStats.mutex.Unlock()
 
-	// Print errors section if there are any
-	s.errorLogMutex.Lock()
-	if len(s.errorLog) > 0 {
+	if len(snap.Errors) > 0 {
 		buf.WriteString("\n\033[1;31mErrors:\033[0m\n")
-		for _, err := range s.errorLog {
+		for _, err := range snap.Errors {
 			buf.WriteString(err + "\n")
 		}
 	}
-	s.errorLogMutex.Unlock()
 
-	// Write the entire buffer to stdout at once
 	fmt.Print(buf.String())
 }
 
-func (s *Server) writeModelStatus(buf *bytes.Buffer) {
-	models := s.healthReporter.GetDisplayedModels()
+func formatRequestLine(req RequestLog) string {
+	var statusColor string
+	switch {
+	case req.Status >= 200 && req.Status < 300:
+		statusColor = "\033[1;32m"
+	case req.Status == 401:
+		statusColor = "\033[1;33m"
+	default:
+		statusColor = "\033[1;31m"
+	}
+	return fmt.Sprintf("%s UTC %s %s %s%d\033[0m %s",
+		req.Time, req.Method, req.Path, statusColor, req.Status, req.Duration)
+}
 
+func (s *Server) writeModelStatus(buf *bytes.Buffer, models []StatusModel) {
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
 	buf.WriteString("║                           MODEL STATUS                           ║\n")
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
@@ -274,9 +240,9 @@ func (s *Server) writeModelStatus(buf *bytes.Buffer) {
 		if i > 0 {
 			prefix = "                                "
 		}
-		label, color := usermsg.ApprovalConsole(m.VerificationStatus)
+		_, color := usermsg.ApprovalConsole(m.VerificationStatus)
 		buf.WriteString(fmt.Sprintf("\033[1;35m%s\033[0m%s\n", prefix, m.ID))
-		buf.WriteString(fmt.Sprintf("\033[1;35mMarketplace approval          \033[0m%s%s\033[0m\n", color, label))
+		buf.WriteString(fmt.Sprintf("\033[1;35mMarketplace approval          \033[0m%s%s\033[0m\n", color, m.MarketplaceApproval))
 	}
 }
 
@@ -291,41 +257,33 @@ func (s *Server) logRequest(method, path string, statusCode int, startTime time.
 	duration := time.Since(startTime)
 
 	// Format the log entry
-	var statusColor string
 	switch {
 	case statusCode >= 200 && statusCode < 300:
-		statusColor = "\033[1;32m" // Green
 		s.requestStats.mutex.Lock()
 		s.requestStats.Success++
 		s.requestStats.mutex.Unlock()
 	case statusCode == 401:
-		statusColor = "\033[1;33m" // Yellow
 		s.requestStats.mutex.Lock()
 		s.requestStats.Unauthorized++
 		s.requestStats.mutex.Unlock()
 	default:
-		statusColor = "\033[1;31m" // Red
 		s.requestStats.mutex.Lock()
 		s.requestStats.Errors++
 		s.requestStats.mutex.Unlock()
 	}
 
-	// Format duration with only 2 decimal places
-	var durationStr string
-	if duration.Seconds() >= 1 {
-		durationStr = fmt.Sprintf("%.2fs", duration.Seconds())
-	} else {
-		durationStr = fmt.Sprintf("%.2fms", float64(duration.Microseconds())/1000)
+	timestamp := time.Now().Format("15:04:05.000")
+	entry := RequestLog{
+		Time:     timestamp,
+		Method:   method,
+		Path:     path,
+		Status:   statusCode,
+		Duration: formatDuration(duration),
 	}
 
-	timestamp := time.Now().Format("15:04:05.000")
-	logEntry := fmt.Sprintf("%s UTC %s %s %s%d\033[0m %s",
-		timestamp, method, path, statusColor, statusCode, durationStr)
-
-	// Add to request stats
 	s.requestStats.mutex.Lock()
 	s.requestStats.Total++
-	s.requestStats.LastRequests = append(s.requestStats.LastRequests, logEntry)
+	s.requestStats.LastRequests = append(s.requestStats.LastRequests, entry)
 	if len(s.requestStats.LastRequests) > 10 {
 		s.requestStats.LastRequests = s.requestStats.LastRequests[1:]
 	}

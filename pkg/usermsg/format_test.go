@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
 func TestConsoleLLMUnreachable(t *testing.T) {
@@ -31,5 +32,14 @@ func TestConsoleUnknown(t *testing.T) {
 	want := "Could not reach vLLM"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestApprovalLabel(t *testing.T) {
+	if got := ApprovalLabel(string(verify.StatusVerified)); got != "approved" {
+		t.Fatalf("got %q, want approved", got)
+	}
+	if got := ApprovalLabel(string(verify.StatusFailed)); got != "failed verification" {
+		t.Fatalf("got %q, want failed verification", got)
 	}
 }

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inferoute Provider Client</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111111'/%3E%3Cpath fill='%23D7FD52' transform='translate(4 6) scale(1.027)' d='M20.655 6.299C21.388 9.416 20.37 13.918 16.176 19.52C17.039 16.885 17.831 13.331 16.637 9.918C18.204 8.861 19.579 7.652 20.655 6.299Z'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0b0b;
+    --fg: #ececec;
+    --cyan: #22d3ee;
+    --pink: #e879f9;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #facc15;
+    --muted: #737373;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  main { max-width: 760px; margin: 28px auto; padding: 0 16px 48px; }
+  .banner {
+    color: var(--cyan);
+    font-weight: 700;
+    text-align: center;
+    border: 1px solid var(--cyan);
+    padding: 10px 12px;
+    letter-spacing: .06em;
+    margin-bottom: 16px;
+  }
+  h2 {
+    color: var(--cyan);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-align: center;
+    border: 1px solid var(--cyan);
+    padding: 8px;
+    margin: 22px 0 10px;
+  }
+  .row { display: grid; grid-template-columns: 220px 1fr; gap: 8px; padding: 2px 0; }
+  .k { color: var(--pink); }
+  .v { overflow-wrap: anywhere; }
+  .ok { color: var(--green); font-weight: 700; }
+  .bad { color: var(--red); font-weight: 700; }
+  .warn { color: var(--yellow); font-weight: 700; }
+  .section-title { color: var(--yellow); margin: 22px 0 8px; font-weight: 700; }
+  .err-title { color: var(--red); margin: 22px 0 8px; font-weight: 700; }
+  .empty { color: var(--muted); }
+  footer { margin-top: 36px; color: var(--muted); font-size: 12px; }
+  .fail { color: var(--red); }
+</style>
+</head>
+<body>
+<main>
+  <div class="banner">INFEROUTE PROVIDER CLIENT</div>
+  <div id="app">Loading status…</div>
+  <footer>Refreshes every 3 seconds. Closing this tab does not stop the client — use Quit on the tray icon.</footer>
+</main>
+<script>
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+function cls(label) {
+  if (label === "approved") return "ok";
+  if (label === "failed verification") return "bad";
+  return "warn";
+}
+function statusCls(code) {
+  if (code >= 200 && code < 300) return "ok";
+  if (code === 401) return "warn";
+  return "bad";
+}
+function row(k, v, vClass) {
+  return `<div class="row"><span class="k">${esc(k)}</span><span class="v${vClass ? " " + vClass : ""}">${v}</span></div>`;
+}
+function render(s) {
+  const models = Array.isArray(s.models) ? s.models : [];
+  let modelHtml;
+  if (models.length === 0) {
+    modelHtml = row("Model", "(awaiting health sync)", "warn");
+  } else {
+    modelHtml = models.map((m, i) => {
+      const label = m.marketplace_approval || "unknown";
+      const name = i === 0 ? "Model" : "";
+      return row(name, esc(m.id)) + row("Marketplace approval", esc(label), cls(label));
+    }).join("");
+  }
+  const gpu = s.gpu || {};
+  const reqs = Array.isArray(s.recent_requests) ? s.recent_requests : [];
+  const errs = Array.isArray(s.errors) ? s.errors : [];
+  let reqHtml;
+  if (reqs.length === 0) {
+    reqHtml = `<div class="empty">No requests yet</div>`;
+  } else {
+    reqHtml = reqs.map(r =>
+      `<div>${esc(r.time)} UTC ${esc(r.method)} ${esc(r.path)} <span class="${statusCls(r.status)}">${esc(r.status)}</span> ${esc(r.duration)}</div>`
+    ).join("");
+  }
+  let errHtml = "";
+  if (errs.length > 0) {
+    errHtml = `<div class="err-title">Errors:</div>` + errs.map(e => `<div class="fail">${esc(e)}</div>`).join("");
+  }
+  const tunnel = s.cloudflare_tunnel_url
+    ? row("Cloudflare Tunnel URL", esc(s.cloudflare_tunnel_url))
+    : "";
+  document.getElementById("app").innerHTML = `
+    ${row("Last Health Update", esc(s.last_health_update))}
+    ${row("Session Status", "online", "ok")}
+    ${row("Provider Type", esc(s.provider_type))}
+    ${row("Provider API Key", esc(s.provider_api_key))}
+    ${row("Provider URL", esc(s.provider_url))}
+    ${row("LLM URL", esc(s.llm_url))}
+    ${tunnel}
+    <h2>MODEL STATUS</h2>
+    ${modelHtml}
+    <h2>GPU INFORMATION</h2>
+    ${row("GPU", esc(gpu.product_name || "Unknown"))}
+    ${row("Driver Version", esc(gpu.driver_version || "Unknown"))}
+    ${row("CUDA Version", esc(gpu.cuda_version || "Unknown"))}
+    ${row("GPU Count", esc(gpu.gpu_count ?? 0))}
+    <div class="section-title">Recent Requests:</div>
+    ${reqHtml}
+    ${errHtml}
+  `;
+}
+async function load() {
+  try {
+    const r = await fetch("/api/status");
+    if (!r.ok) throw new Error("status " + r.status);
+    render(await r.json());
+  } catch (e) {
+    document.getElementById("app").innerHTML = `<div class="fail">Could not load status: ${esc(e.message)}</div>`;
+  }
+}
+load();
+setInterval(load, 3000);
+</script>
+</body>
+</html>

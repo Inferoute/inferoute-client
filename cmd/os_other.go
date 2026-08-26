@@ -7,3 +7,5 @@ func enableVirtualTerminal() {}
 func hideConsole() {}
 
 func showErrorDialog(string) {}
+
+func spawnDetachedIfNeeded() bool { return false }

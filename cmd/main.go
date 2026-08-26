@@ -30,6 +30,8 @@ var (
 	date    = "unknown"
 )
 
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -arch amd64 -ico ../pkg/tray/icon.ico -o rsrc_windows_amd64.syso
+
 const helpText = `
 Inferoute Client - A client for connecting to the Inferoute network
 
@@ -43,7 +45,8 @@ Commands:
 
 Flags:
   --config string   Path to configuration file (default: ~/.config/inferoute/config.yaml)
-  --tray            Windows only: hide the console and run in the notification area
+  --tray            Windows only: run in the notification area (default on Windows)
+  --console         Show the terminal dashboard (Windows: do not use the tray)
   --version         Show version information
   --help            Show this help message
 
@@ -68,7 +71,8 @@ func main() {
 	}
 
 	configPath := flags.String("config", "", "Path to configuration file")
-	trayFlag := flags.Bool("tray", false, "Windows only: hide the console and run in the notification area")
+	trayFlag := flags.Bool("tray", false, "Windows only: run in the notification area (default on Windows)")
+	consoleFlag := flags.Bool("console", false, "Show the terminal dashboard (disables Windows tray mode)")
 	showVersion := flags.Bool("version", false, "Show version information")
 
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -88,9 +92,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	useTray := *trayFlag && tray.Supported()
+	useTray := tray.Supported() && !*consoleFlag
 	if *trayFlag && !tray.Supported() {
 		fmt.Fprintln(os.Stderr, "--tray is only supported on Windows; using console")
+	}
+	if useTray && spawnDetachedIfNeeded() {
+		return
 	}
 
 	fatal := func(format string, args ...interface{}) {
@@ -248,7 +255,7 @@ func main() {
 		tray.Run(tray.Options{
 			ConfigPath:   *configPath,
 			LogDir:       cfg.Logging.LogDir,
-			DashboardURL: cfg.Provider.URL,
+			DashboardURL: cfg.LocalDashboardURL(),
 		})
 	} else {
 		<-quit

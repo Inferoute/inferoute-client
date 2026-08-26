@@ -19,12 +19,12 @@ type Config struct {
 
 	// Provider configuration
 	Provider struct {
-		APIKey            string `yaml:"api_key"`
-		URL               string `yaml:"url"`
-		ProviderType      string `yaml:"provider_type"`
-		LLMURL            string `yaml:"llm_url"`
-		HFHubCache        string `yaml:"hf_hub_cache"` // optional; default ~/.cache/huggingface/hub
-		ModelPath         string `yaml:"model_path"`   // optional flat dir override (hf download --local-dir)
+		APIKey       string `yaml:"api_key"`
+		URL          string `yaml:"url"`
+		ProviderType string `yaml:"provider_type"`
+		LLMURL       string `yaml:"llm_url"`
+		HFHubCache   string `yaml:"hf_hub_cache"` // optional; default ~/.cache/huggingface/hub
+		ModelPath    string `yaml:"model_path"`   // optional flat dir override (hf download --local-dir)
 	} `yaml:"provider"`
 
 	// Logging configuration
@@ -80,4 +80,9 @@ func (c *Config) TunnelServiceURL() string {
 		host = "localhost"
 	}
 	return fmt.Sprintf("http://%s:%d", host, c.Server.Port)
+}
+
+// LocalDashboardURL is the loopback URL for the in-process status page.
+func (c *Config) LocalDashboardURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d/", c.Server.Port)
 }

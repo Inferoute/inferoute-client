@@ -146,15 +146,17 @@ $content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$LlmUr
 Write-Utf8File $ConfigPath $content
 Write-Ok "Configuration written."
 
+$exe = Join-Path $BinDir "inferoute-client.exe"
 $Programs = [Environment]::GetFolderPath("Programs")
 $ShortcutDir = Join-Path $Programs "Inferoute"
 New-Item -ItemType Directory -Path $ShortcutDir -Force | Out-Null
 $Wsh = New-Object -ComObject WScript.Shell
 $Shortcut = $Wsh.CreateShortcut((Join-Path $ShortcutDir "Inferoute Client.lnk"))
-$Shortcut.TargetPath = Join-Path $BinDir "inferoute-client.exe"
-$Shortcut.Arguments = "--tray --config `"$ConfigPath`""
+$Shortcut.TargetPath = $exe
+$Shortcut.Arguments = "--config `"$ConfigPath`""
 $Shortcut.WorkingDirectory = $BinDir
 $Shortcut.Description = "Start Inferoute Provider Client"
+$Shortcut.IconLocation = "$exe,0"
 $Shortcut.Save()
 Write-Ok "Start Menu shortcut created."
 
@@ -167,7 +169,10 @@ Write-Info "Start the client:"
 Write-Host "  1. Start Menu -> Inferoute -> Inferoute Client  (notification area)"
 Write-Host "  OR"
 Write-Host "  2. inferoute-client"
-Write-Host "     (open a new terminal so PATH updates apply)"
+Write-Host "     (open a new terminal so PATH updates apply; the prompt returns and the client stays in the tray)"
+Write-Host ""
+Write-Info "Right-click the Inferoute tray icon -> Open dashboard for live status."
+Write-Host "  inferoute-client --console   (terminal UI instead of tray)"
 Write-Host ""
 Write-Warn "Windows = Ollama. vLLM is not supported on native Windows."
 Write-Warn "Allow Windows Firewall if prompted. NVIDIA GPU metrics need nvidia-smi on PATH."

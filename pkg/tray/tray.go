@@ -35,7 +35,7 @@ func onReady(opts Options) {
 	systray.SetTitle("Inferoute")
 	systray.SetTooltip("Inferoute Provider Client")
 
-	mDash := systray.AddMenuItem("Open dashboard", "Open Inferoute in the browser")
+	mDash := systray.AddMenuItem("Open dashboard", "Open the local status page")
 	mConfig := systray.AddMenuItem("Open config", "Edit config.yaml")
 	mLogs := systray.AddMenuItem("Open logs", "Open the log folder")
 	systray.AddSeparator()

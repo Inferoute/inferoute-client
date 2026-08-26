@@ -12,15 +12,8 @@ The Inferoute Provider Client is a lightweight Go service that runs on vllm or O
 | **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | **Ollama** |
 
 
-## Software requirements
 
-In order for the inferoute-client to push inference request to your machine you need a running LLM provider. We currently support the following.
-
-- **Windows:** Ollama, Fasttoken 
-- **macOS:** Ollama or vLLM
-- **Linux:** Ollama or vLLM, Fasttoken 
-
-## Hardware Requirements
+## 💻 Hardware Requirements
 
 - NVIDIA GPU with at least **8 GB** of VRAM
 
@@ -30,9 +23,9 @@ In order for the inferoute-client to push inference request to your machine you 
 ### Quick Start with Installation Script
 
 ### Prerequisites
-- Visit [www.inferoute.com](https://www.inferoute.com), sign up and create a cluster to obtain your API key. See TO BE INSERTED for how to create and copy the key from cluster **Settings**.
+- Visit [www.inferoute.com](https://www.inferoute.com), sign up and create a cluster to obtain your API key. See [Signup Process](https://docs.inferoute.com/requirements/signup) for how to create and copy the key from cluster **Settings**.
 
-### Linux / macOS one-liner
+#### Linux / macOS one-liner
 
 Works on Linux (amd64/arm64) and macOS (Intel and Apple Silicon):
 
@@ -42,7 +35,7 @@ PROVIDER_API_KEY="your-key" curl -fsSL https://raw.githubusercontent.com/inferou
 
 On macOS, the script installs `cloudflared` via Homebrew when available, otherwise downloads the native binary for your architecture.
 
-### Windows (PowerShell)
+#### Windows (PowerShell)
 
 Requires 64-bit Windows. Ollama should already be installed.
 
@@ -52,11 +45,11 @@ $env:PROVIDER_API_KEY="your-key"; irm https://raw.githubusercontent.com/inferout
 
 Optional: `$env:PROVIDER_TYPE="ollama"`, `$env:LLM_URL="http://localhost:11434"`, `$env:SERVER_PORT="8080"`.
 
-The script installs `cloudflared` and `inferoute-client` to `%LOCALAPPDATA%\inferoute\bin`, writes `%USERPROFILE%\.config\inferoute\config.yaml`, and adds a **Start Menu → Inferoute → Inferoute Client** shortcut that runs with `--tray`. See [docs/windows.md](docs/windows.md).
+The script installs `cloudflared` and `inferoute-client` to `%LOCALAPPDATA%\inferoute\bin`, writes `%USERPROFILE%\.config\inferoute\config.yaml`, and adds a **Start Menu → Inferoute → Inferoute Client** shortcut. On Windows the client runs in the notification area by default — closing the terminal does not stop it. See [docs/windows.md](docs/windows.md).
 
 Or download `scripts/windows-install.bat` and double-click it (no administrator prompt).
 
-### Manual Environment Variables
+#### Manual Environment Variables
 ```bash
 export PROVIDER_API_KEY="your-provider-api-key"
 export PROVIDER_TYPE="ollama"  # or "vllm"
@@ -78,8 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 **INFEROUTE Start with specific config:**
 `inferoute-client --config ~/.config/inferoute/config.yaml`
 
-**Windows (notification area, no console):**
-`inferoute-client --tray`
+**Windows:** `inferoute-client` runs in the notification area by default. Closing PowerShell does not stop it. Right-click the tray icon → **Open dashboard** for live status in the browser, or **Quit** to stop. Use `inferoute-client --console` for the terminal UI.
 
 ## Model compatibility check
 
@@ -150,6 +142,8 @@ Please remember to visit inferoute.com and change the costs to your preference.
 
 ## 🎓 REST API 
 
+- **GET /**: Local status dashboard (same information as the terminal UI). Auto-refreshes in the browser.
+- **GET /api/status**: JSON snapshot of that dashboard (session, models, GPU, recent requests).
 - **GET /api/health**: Returns the current health status of the provider, including GPU information (if available) and available LLM models.
 - **GET /api/busy**: Returns whether the GPU is currently busy (TRUE or FALSE).
 

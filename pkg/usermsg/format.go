@@ -41,6 +41,12 @@ func formatLLM(err error, name string) string {
 	}
 }
 
+// ApprovalLabel returns a short marketplace-approval string for console and dashboard.
+func ApprovalLabel(status string) string {
+	label, _ := ApprovalConsole(status)
+	return label
+}
+
 // ApprovalConsole returns a label and ANSI color for marketplace approval status.
 func ApprovalConsole(status string) (label, color string) {
 	switch status {

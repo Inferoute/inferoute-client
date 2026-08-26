@@ -21,7 +21,7 @@ Entry point: `cmd/main.go`
 | `pkg/gpu` | GPU monitoring (NVIDIA on Linux/Windows, basic info on macOS) |
 | `pkg/compat` | Standalone hardware detection, approved-catalog fetch, fit scoring, and table/JSON output |
 | `pkg/cloudflare` | Tunnel request, `cloudflared` process supervision (Windows job object + HideWindow) |
-| `pkg/tray` | Windows notification-area menu (`--tray`); stub on Linux/macOS |
+| `pkg/tray` | Windows notification-area menu (default on Windows); stub on Linux/macOS |
 | `pkg/pricing` | Model price lookup and registration |
 | `pkg/verify` | Approved-catalog fetch, local measurement, server-as-judge verification |
 | `pkg/logger` | Zap structured logging with rotation |
@@ -220,6 +220,8 @@ Tunnel URL included in health reports as `cloudflare.url`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| GET | `/` | HTML status dashboard (console equivalent) |
+| GET | `/api/status` | JSON status snapshot |
 | GET | `/api/health` | Health snapshot |
 | GET | `/api/busy` | GPU busy |
 | POST | `/v1/chat/completions` | OpenAI-compatible chat |
@@ -230,6 +232,8 @@ Tunnel URL included in health reports as `cloudflare.url`.
 `consoleUpdater` redraws every **3 seconds**. Model status is read from `healthReporter.GetDisplayedModels()` (last health-sync snapshot) — **not** re-verified on every redraw.
 
 Displays: session info, tunnel URL, GPU block, model approval status, recent requests, errors.
+
+On Windows the same snapshot is served as HTML at `/` and JSON at `/api/status`. Tray **Open dashboard** opens that page. Tray is the default; `--console` keeps this terminal UI. Closing the console does not stop a tray process.
 
 ### GPU busy (`pkg/gpu`)
 

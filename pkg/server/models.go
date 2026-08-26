@@ -29,7 +29,7 @@ type Server struct {
 		Success      int
 		Errors       int
 		Unauthorized int
-		LastRequests []string
+		LastRequests []RequestLog
 		mutex        sync.Mutex
 	}
 }
