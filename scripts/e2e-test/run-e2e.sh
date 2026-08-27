@@ -20,6 +20,8 @@
 #   RUN_VLLM=0 ./run-e2e.sh      # Ollama only
 #   ./run-e2e.sh teardown        # just pause the instance and exit
 #
+# Windows GCE counterpart (Ollama only, same .env): ./run-e2e-windows.sh
+#
 # Config comes from references/.env next to this script (override path with E2E_ENV).
 # references/.env is git-ignored — never commit filled secrets.
 set -euo pipefail
