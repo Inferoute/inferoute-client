@@ -167,7 +167,7 @@ func main() {
 		logger.Warn("Continuing without GPU monitoring")
 	}
 
-	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL)
+	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL, cfg.LLMTimeout())
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	catalog := verify.NewCatalog(cfg.Provider.URL, cfg.Provider.ProviderType)
@@ -231,6 +231,20 @@ func main() {
 			case <-ticker.C:
 				if err := healthReporter.SendHealthReport(ctx); err != nil {
 					logger.Error("Failed to send health report", zap.Error(err))
+				}
+			case <-healthReporter.BusyChanges():
+				// Busy-state transition: push immediately so the central
+				// provider_busy flag is seconds, not minutes, stale.
+				if err := healthReporter.SendHealthReport(ctx); err != nil {
+					logger.Error("Failed to send busy-transition health report", zap.Error(err))
+				}
+				// Cool down so rapid request bursts don't flood the platform.
+				// A transition during the cooldown leaves a pending signal
+				// (buffered channel), which sends a fresh report right after.
+				select {
+				case <-time.After(10 * time.Second):
+				case <-ctx.Done():
+					return
 				}
 			case <-ctx.Done():
 				return

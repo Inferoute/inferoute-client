@@ -185,6 +185,105 @@ func TestInflightCapRejectsConcurrentInference(t *testing.T) {
 	}
 }
 
+func TestSameSessionRequestQueuesInsteadOf503(t *testing.T) {
+	node := nodeStub(t, true)
+	block := &blockingLLM{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		inner:   fakeLLM{forwardResp: []byte(`{"ok":true}`)},
+	}
+	s := newTestServer(node.URL, block)
+	s.sessionQueueWait = 5 * time.Second
+
+	postSession := func(sessionKey string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+		req.Header.Set("X-Request-Id", "hmac")
+		req.Header.Set("X-Session-Key", sessionKey)
+		rec := httptest.NewRecorder()
+		s.handleChatCompletions(rec, req)
+		return rec
+	}
+
+	first := make(chan int, 1)
+	go func() { first <- postSession("sess-1").Code }()
+	select {
+	case <-block.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request never reached LLM")
+	}
+
+	// Different or missing session key while busy: immediate 503 as before.
+	if got := postSession("other-session").Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("different-session status = %d, want 503", got)
+	}
+	if got := postChat(s, "hmac", `{"model":"m"}`).Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("no-session status = %d, want 503", got)
+	}
+
+	// Same session key: queues for the slot instead of failing.
+	second := make(chan int, 1)
+	go func() { second <- postSession("sess-1").Code }()
+
+	select {
+	case code := <-second:
+		t.Fatalf("same-session request returned %d while slot was held, expected it to wait", code)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(block.release)
+	for i, ch := range []chan int{first, second} {
+		select {
+		case code := <-ch:
+			if code != http.StatusOK {
+				t.Fatalf("request %d status = %d, want 200", i+1, code)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("request %d did not finish", i+1)
+		}
+	}
+}
+
+func TestSameSessionQueueTimesOut(t *testing.T) {
+	node := nodeStub(t, true)
+	block := &blockingLLM{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		inner:   fakeLLM{forwardResp: []byte(`{"ok":true}`)},
+	}
+	s := newTestServer(node.URL, block)
+	s.sessionQueueWait = 300 * time.Millisecond
+
+	postSession := func(sessionKey string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+		req.Header.Set("X-Request-Id", "hmac")
+		req.Header.Set("X-Session-Key", sessionKey)
+		rec := httptest.NewRecorder()
+		s.handleChatCompletions(rec, req)
+		return rec
+	}
+
+	first := make(chan int, 1)
+	go func() { first <- postSession("sess-1").Code }()
+	select {
+	case <-block.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request never reached LLM")
+	}
+
+	// The slot never frees within the bounded wait: 503 so the orchestrator
+	// can fail over.
+	if got := postSession("sess-1").Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("queued request status = %d, want 503 after wait timeout", got)
+	}
+
+	close(block.release)
+	select {
+	case <-first:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request did not finish")
+	}
+}
+
 func TestTryAcquireInference(t *testing.T) {
 	s := &Server{maxInflight: 1}
 	if !s.tryAcquireInference() {

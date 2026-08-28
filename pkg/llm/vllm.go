@@ -20,11 +20,13 @@ type VLLMClient struct {
 }
 
 // NewVLLMClient creates a new vLLM client
-func NewVLLMClient(baseURL string) Client {
-	logger.Debug("Creating new vLLM client", zap.String("base_url", baseURL))
+func NewVLLMClient(baseURL string, timeout time.Duration) Client {
+	logger.Debug("Creating new vLLM client",
+		zap.String("base_url", baseURL),
+		zap.Duration("timeout", timeout))
 	return &VLLMClient{
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  &http.Client{Timeout: timeout},
 	}
 }
 

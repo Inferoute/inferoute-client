@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
@@ -24,6 +25,12 @@ type Server struct {
 	consoleUI        bool
 	maxInflight      int32
 	inflight         atomic.Int32
+	sessionQueueWait time.Duration
+	// activeSessionKey is the X-Session-Key of the in-flight (or last
+	// completed) inference. Matching follow-up turns queue for the slot
+	// instead of being rejected, because their KV cache is warm here.
+	sessionMu        sync.Mutex
+	activeSessionKey string
 	server           *http.Server
 	errorLog         []string
 	errorLogMutex    sync.Mutex

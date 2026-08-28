@@ -67,12 +67,21 @@ type Client interface {
 	ForwardRequest(ctx context.Context, path string, body []byte) ([]byte, error)
 }
 
-// NewClient creates a new LLM client based on the provider type
-func NewClient(providerType string, baseURL string) Client {
+// DefaultTimeout is used when no explicit LLM timeout is configured. Aligned
+// with the orchestrator's sticky inference timeout so queued same-session
+// turns can finish decoding.
+const DefaultTimeout = 120 * time.Second
+
+// NewClient creates a new LLM client based on the provider type.
+// timeout <= 0 falls back to DefaultTimeout.
+func NewClient(providerType string, baseURL string, timeout time.Duration) Client {
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
 	switch providerType {
 	case "vllm":
-		return NewVLLMClient(baseURL)
+		return NewVLLMClient(baseURL, timeout)
 	default:
-		return NewOllamaClient(baseURL)
+		return NewOllamaClient(baseURL, timeout)
 	}
 }

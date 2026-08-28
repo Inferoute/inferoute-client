@@ -41,9 +41,9 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.TunnelServiceURL())
 
 	// Create LLM client based on provider type
-	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL)
+	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL, cfg.LLMTimeout())
 
-	return &Server{
+	s := &Server{
 		config:           cfg,
 		gpuMonitor:       gpuMonitor,
 		healthReporter:   healthReporter,
@@ -52,8 +52,17 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		cloudflareClient: cloudflareClient,
 		consoleUI:        true,
 		maxInflight:      int32(cfg.Server.MaxConcurrentInference),
+		sessionQueueWait: cfg.SessionQueueWait(),
 		errorLog:         make([]string, 0, 100),
 	}
+
+	// Health reports include the inflight-slot state in is_busy so the
+	// central busy flag reflects actual serving, not just GPU utilization.
+	if healthReporter != nil {
+		healthReporter.SetSlotBusyFunc(s.slotsBusy)
+	}
+
+	return s
 }
 
 // SetConsoleUI enables or disables the ANSI terminal dashboard.
@@ -97,12 +106,13 @@ func (s *Server) Start() error {
 	r.HandleFunc("/v1/chat/completions", s.handleChatCompletions).Methods(http.MethodPost)
 	r.HandleFunc("/v1/completions", s.handleCompletions).Methods(http.MethodPost)
 
-	// Create server
+	// Create server. Read/write timeouts must cover the session queue wait
+	// plus inference so the orchestrator's sticky timeout is usable.
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", s.config.Server.Host, s.config.Server.Port),
 		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  s.config.RequestTimeout(),
+		WriteTimeout: s.config.RequestTimeout(),
 		IdleTimeout:  120 * time.Second,
 	}
 

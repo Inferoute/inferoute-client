@@ -37,6 +37,14 @@ type Reporter struct {
 
 	displayedModelsMu sync.RWMutex
 	displayedModels   []llm.Model
+
+	// slotBusyFn reports whether all inference slots are taken; folded into
+	// the health report's is_busy alongside GPU utilization.
+	slotBusyFn func() bool
+	// busyChanges signals busy-state transitions so a report can be pushed
+	// immediately instead of waiting for the next 3-minute tick. Buffered by
+	// one: rapid flips coalesce into a single pending report.
+	busyChanges chan struct{}
 }
 
 const (
@@ -73,7 +81,29 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Clie
 		pricingClient:    pricingClient,
 		client:           &http.Client{Timeout: 10 * time.Second},
 		registeredModels: make(map[string]bool),
+		busyChanges:      make(chan struct{}, 1),
 	}
+}
+
+// SetSlotBusyFunc attaches the server's inflight-slot state so health reports
+// mark the provider busy while it is actually serving, not only when GPU
+// utilization crosses the threshold.
+func (r *Reporter) SetSlotBusyFunc(fn func() bool) {
+	r.slotBusyFn = fn
+}
+
+// NotifyBusyChange requests an immediate health report because the busy state
+// flipped. Non-blocking; pending notifications coalesce.
+func (r *Reporter) NotifyBusyChange() {
+	select {
+	case r.busyChanges <- struct{}{}:
+	default:
+	}
+}
+
+// BusyChanges is consumed by the report loop to push transition reports.
+func (r *Reporter) BusyChanges() <-chan struct{} {
+	return r.busyChanges
 }
 
 // InitializeRegisteredModels initializes the set of registered models
@@ -321,6 +351,12 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 			CUDAVersion:   "Unknown",
 			GPUCount:      0,
 		}
+	}
+
+	// Busy means "cannot take a fresh request right now": either the GPU is
+	// under load or every inference slot is taken.
+	if r.slotBusyFn != nil && r.slotBusyFn() {
+		gpuInfo.IsBusy = true
 	}
 
 	// Get Cloudflare info if available

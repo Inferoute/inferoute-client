@@ -66,16 +66,25 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath string) {
 	startTime := time.Now()
 
-	isBusy, err := s.isBusy()
-	if err != nil {
-		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
-		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-		return
-	}
-	if isBusy {
-		s.writeBusy(w, r, startTime)
-		return
+	// A matching X-Session-Key means this is a follow-up turn of the
+	// conversation whose KV cache is warm on this GPU. Those turns skip the
+	// busy rejection (the GPU-util arm fires exactly while the previous turn
+	// of the same session is decoding) and queue for the slot instead.
+	sessionKey := r.Header.Get("X-Session-Key")
+	sameSession := sessionKey != "" && s.isActiveSession(sessionKey)
+
+	if !sameSession {
+		isBusy, err := s.isBusy()
+		if err != nil {
+			s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
+			http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
+			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+			return
+		}
+		if isBusy {
+			s.writeBusy(w, r, startTime)
+			return
+		}
 	}
 
 	hmac := r.Header.Get("X-Request-Id")
@@ -113,11 +122,20 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 		return
 	}
 
-	if !s.tryAcquireInference() {
+	acquired := false
+	if sameSession {
+		// Same-session turns are serial, so this queue has depth 1 in
+		// practice; the bounded wait covers the previous turn's decode.
+		acquired = s.acquireInferenceWait(r.Context(), s.sessionQueueWait)
+	} else {
+		acquired = s.tryAcquireInference()
+	}
+	if !acquired {
 		s.writeBusy(w, r, startTime)
 		return
 	}
 	defer s.releaseInference()
+	s.setActiveSession(sessionKey)
 
 	llmResp, err := s.forwardToLLM(r.Context(), llmPath, body)
 	if err != nil {

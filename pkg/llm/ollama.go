@@ -36,11 +36,13 @@ type OllamaListModelsResponse struct {
 }
 
 // NewOllamaClient creates a new Ollama client
-func NewOllamaClient(baseURL string) Client {
-	logger.Debug("Creating new Ollama client", zap.String("base_url", baseURL))
+func NewOllamaClient(baseURL string, timeout time.Duration) Client {
+	logger.Debug("Creating new Ollama client",
+		zap.String("base_url", baseURL),
+		zap.Duration("timeout", timeout))
 	return &OllamaClient{
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  &http.Client{Timeout: timeout},
 	}
 }
 
