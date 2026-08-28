@@ -143,6 +143,9 @@ func (s *Server) Stop(ctx context.Context) error {
 		}
 	}
 
+	if s.server == nil {
+		return nil
+	}
 	return s.server.Shutdown(ctx)
 }
 

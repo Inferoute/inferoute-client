@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 )
 
@@ -55,5 +58,30 @@ func TestHandleStatusMasksAPIKey(t *testing.T) {
 	}
 	if snap.LastHealthUpdate != "Never" {
 		t.Fatalf("last_health_update = %q", snap.LastHealthUpdate)
+	}
+}
+
+func TestStopWithoutStartDoesNotPanic(t *testing.T) {
+	s := &Server{}
+	if err := s.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop on unstarted server: %v", err)
+	}
+}
+
+func TestStartReturnsListenError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	cfg := &config.Config{}
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.Port = port
+	cfg.Server.RequestTimeoutSeconds = 5
+	s := &Server{config: cfg}
+	if err := s.Start(); err == nil {
+		t.Fatal("expected listen error when port is already taken")
 	}
 }
