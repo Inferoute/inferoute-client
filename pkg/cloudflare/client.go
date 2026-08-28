@@ -187,6 +187,10 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 
 	// Start the tunnel for the first time
 	if err := c.startTunnelProcess(); err != nil {
+		// Disarm before unlocking: monitorProcessExit is blocked on this
+		// mutex after Wait, and would otherwise queue a restart after Start()
+		// has already failed. The child would then outlive os.Exit.
+		c.shouldRestart = false
 		c.cancel()
 		c.monitoringCancel()
 		return fmt.Errorf("failed to start initial tunnel process: %w", err)
@@ -474,14 +478,21 @@ func (c *Client) StopTunnel() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Always disarm: StartTunnel can fail after spawning supervision but
+	// before setting running, and Stop() is still called on that path.
+	c.shouldRestart = false
+
 	if !c.running {
+		if c.monitoringCancel != nil {
+			c.monitoringCancel()
+		}
+		if c.cancel != nil {
+			c.cancel()
+		}
 		return nil
 	}
 
 	appLogger.Info("Stopping cloudflared tunnel supervision")
-
-	// Stop restart behavior
-	c.shouldRestart = false
 
 	// Signal monitoring to stop
 	if c.monitoringCancel != nil {

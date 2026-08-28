@@ -2,6 +2,9 @@ package cloudflare
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -62,5 +65,57 @@ func TestStartTunnelRejectsCanceledCallerContext(t *testing.T) {
 	c.token = "tunnel-token"
 	if err := c.StartTunnel(ctx); err == nil {
 		t.Fatal("expected StartTunnel to fail when caller context is already canceled")
+	}
+}
+
+func TestStopTunnelDisarmsRestartWhenNotRunning(t *testing.T) {
+	logger.SetDefaultLogger(&logger.Logger{Logger: zap.NewNop()})
+
+	c := NewClient("http://example", "token", "http://localhost:8080")
+	if !c.shouldRestart {
+		t.Fatal("NewClient should arm supervision")
+	}
+	if err := c.StopTunnel(); err != nil {
+		t.Fatalf("StopTunnel on unstarted client: %v", err)
+	}
+	if c.shouldRestart {
+		t.Fatal("StopTunnel must disarm shouldRestart even when running is false")
+	}
+}
+
+func TestStartTunnelFailureDisarmsRestart(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake cloudflared is a shell script")
+	}
+	logger.SetDefaultLogger(&logger.Logger{Logger: zap.NewNop()})
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "cloudflared")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	c := NewClient("http://example", "token", "http://localhost:8080")
+	c.token = "tunnel-token"
+	if err := c.StartTunnel(context.Background()); err == nil {
+		t.Fatal("expected StartTunnel to fail when cloudflared exits immediately")
+	}
+	defer c.StopTunnel()
+
+	c.mu.RLock()
+	armed := c.shouldRestart
+	running := c.running
+	c.mu.RUnlock()
+	if armed {
+		t.Fatal("failed StartTunnel left shouldRestart set; supervision would orphan cloudflared")
+	}
+	if running {
+		t.Fatal("failed StartTunnel set running")
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+	if c.IsRunning() {
+		t.Fatal("supervision restarted cloudflared after StartTunnel failed")
 	}
 }

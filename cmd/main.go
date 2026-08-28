@@ -289,6 +289,15 @@ func main() {
 		exitMu.Unlock()
 	}
 
+	shutdown := func() {
+		cancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		if err := srv.Stop(stopCtx); err != nil {
+			logger.Error("Server shutdown failed", zap.Error(err))
+		}
+	}
+
 	if useTray {
 		// RequestTunnel can fail in tens of ms, before tray.Run has an event
 		// loop. systray.Quit is a no-op until then, so drain first and fatal
@@ -296,6 +305,7 @@ func main() {
 		select {
 		case err := <-serverErr:
 			if isFatalServerErr(err) {
+				shutdown()
 				fatal("Failed to start server: %v", err)
 			}
 		default:
@@ -308,7 +318,10 @@ func main() {
 				if isFatalServerErr(err) {
 					setExitErr(err)
 					logger.Error("Server failed", zap.Error(err))
-					showErrorDialog(fmt.Sprintf("Inferoute Client failed to start: %v", err))
+					// Stop health immediately. Do not block on a modal dialog
+					// here: that kept the tunnel up and health advertising a
+					// hostname whose HTTP server was already dead.
+					cancel()
 				}
 			}
 			<-trayStarted
@@ -333,17 +346,15 @@ func main() {
 	}
 
 	logger.Info("Shutting down gracefully...")
-	cancel()
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer stopCancel()
-	if err := srv.Stop(stopCtx); err != nil {
-		logger.Fatal("Server shutdown failed", zap.Error(err))
-	}
+	shutdown()
 
 	exitMu.Lock()
 	err = exitErr
 	exitMu.Unlock()
 	if err != nil {
+		if useTray {
+			showErrorDialog(fmt.Sprintf("Inferoute Client failed to start: %v", err))
+		}
 		os.Exit(1)
 	}
 }
