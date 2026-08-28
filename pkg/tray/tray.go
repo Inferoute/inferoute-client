@@ -17,6 +17,9 @@ type Options struct {
 	ConfigPath   string
 	LogDir       string
 	DashboardURL string
+	// Started is closed once the tray event loop is running. Quit is a no-op
+	// until then; callers that exit on Start() failure must wait for this.
+	Started chan<- struct{}
 }
 
 // Supported reports whether the system tray is available on this OS.
@@ -31,6 +34,9 @@ func Run(opts Options) {
 }
 
 func onReady(opts Options) {
+	if opts.Started != nil {
+		close(opts.Started)
+	}
 	systray.SetIcon(icon)
 	systray.SetTitle("Inferoute")
 	systray.SetTooltip("Inferoute Provider Client")

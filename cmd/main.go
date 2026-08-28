@@ -290,6 +290,17 @@ func main() {
 	}
 
 	if useTray {
+		// RequestTunnel can fail in tens of ms, before tray.Run has an event
+		// loop. systray.Quit is a no-op until then, so drain first and fatal
+		// without entering the tray. Slow failures wait for Started.
+		select {
+		case err := <-serverErr:
+			if isFatalServerErr(err) {
+				fatal("Failed to start server: %v", err)
+			}
+		default:
+		}
+		trayStarted := make(chan struct{})
 		go func() {
 			select {
 			case <-quit:
@@ -300,12 +311,14 @@ func main() {
 					showErrorDialog(fmt.Sprintf("Inferoute Client failed to start: %v", err))
 				}
 			}
+			<-trayStarted
 			tray.Quit()
 		}()
 		tray.Run(tray.Options{
 			ConfigPath:   *configPath,
 			LogDir:       cfg.Logging.LogDir,
 			DashboardURL: cfg.LocalDashboardURL(),
+			Started:      trayStarted,
 		})
 	} else {
 		select {
@@ -320,8 +333,10 @@ func main() {
 	}
 
 	logger.Info("Shutting down gracefully...")
-
-	if err := srv.Stop(ctx); err != nil {
+	cancel()
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stopCancel()
+	if err := srv.Stop(stopCtx); err != nil {
 		logger.Fatal("Server shutdown failed", zap.Error(err))
 	}
 
