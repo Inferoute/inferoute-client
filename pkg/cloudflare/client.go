@@ -168,9 +168,15 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 		return fmt.Errorf("tunnel is already running")
 	}
 
-	// Create contexts for tunnel and monitoring
-	c.ctx, c.cancel = context.WithCancel(ctx)
-	c.monitoringCtx, c.monitoringCancel = context.WithCancel(ctx)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start tunnel: %w", err)
+	}
+
+	// Supervision must outlive the caller context. Server.Start passes a 30s
+	// timeout that only bounds RequestTunnel/startup; deriving from it killed
+	// the restart loop ~30s after boot while cloudflared kept running.
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+	c.monitoringCtx, c.monitoringCancel = context.WithCancel(context.Background())
 
 	// Start the monitoring goroutine
 	go c.supervisionLoop()
