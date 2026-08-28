@@ -43,6 +43,7 @@ JL_MACHINE_ID="$(resolve_machine_id)"
 : "${INFEROUTE_PLATFORM_URL:?set INFEROUTE_PLATFORM_URL in e2e.env}"
 : "${INFEROUTE_CONSUMER_URL:?set INFEROUTE_CONSUMER_URL in e2e.env}"
 : "${CONSUMER_API_KEY:?set CONSUMER_API_KEY in e2e.env}"
+: "${PROVIDER_API_KEY:?set PROVIDER_API_KEY in e2e.env}"
 : "${VLLM_MODEL:?set VLLM_MODEL in e2e.env}"
 : "${INFEROUTE_MODEL_ALIAS:?set INFEROUTE_MODEL_ALIAS in e2e.env}"
 
@@ -62,6 +63,7 @@ DB_NAME="${DB_NAME:-inferoute}"
 # Backend / client-config knobs (see references/env.example).
 CLIENT_CONFIG="${CLIENT_CONFIG:-config.yaml}"
 OLLAMA_CLIENT_CONFIG="${OLLAMA_CLIENT_CONFIG:-config-ollama.yaml}"
+VLLM_URL="${VLLM_URL:-http://localhost:8000}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
 OLLAMA_MODEL_ALIAS="${OLLAMA_MODEL_ALIAS:-gguf/qwen3:0.6b}"
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
@@ -237,8 +239,9 @@ log "GPU -> platform OK (http=$gcode)"
 
 # ── 4. sync latest source from GitHub + build so every e2e runs the newest binary
 # The JL client dir is a deployment, not a dev tree — hard-reset to the upstream
-# branch so we always test exactly what's on GitHub. config.yaml is git-ignored,
-# so it survives the reset. Set CLIENT_GIT_PULL=0 to build the current checkout.
+# branch so we always test exactly what's on GitHub. Set CLIENT_GIT_PULL=0 to
+# build the current checkout. config.yaml is rewritten from config.yaml.example
+# + PROVIDER_API_KEY / INFEROUTE_PLATFORM_URL after the reset.
 step "sync + build inferoute-client (branch: $CLIENT_GIT_BRANCH)"
 jl exec "$JL_MACHINE_ID" -- sh -lc "
   set -e
@@ -259,6 +262,21 @@ jl exec "$JL_MACHINE_ID" -- sh -lc "
     echo '[build] CLIENT_GIT_PULL=0 — building current checkout'
   fi
   bash scripts/build.sh
+"
+
+# ── 4b. write client config (always, so rotated provider keys take effect) ───
+step "write $CLIENT_CONFIG from config.yaml.example"
+jl exec "$JL_MACHINE_ID" -- sh -lc "
+  set -e
+  cd '$CLIENT_DIR'
+  [ -f config.yaml.example ] || { echo 'config.yaml.example missing'; exit 1; }
+  sed -e 's|^[[:space:]]*api_key:.*|  api_key: \"$PROVIDER_API_KEY\"|' \
+      -e 's|^[[:space:]]*url:.*|  url: \"$INFEROUTE_PLATFORM_URL\"|' \
+      -e 's|^[[:space:]]*provider_type:.*|  provider_type: \"vllm\"|' \
+      -e 's|^[[:space:]]*llm_url:.*|  llm_url: \"$VLLM_URL\"|' \
+      config.yaml.example > '$CLIENT_CONFIG'
+  echo '--- $CLIENT_CONFIG (provider block) ---'
+  grep -E 'url:|provider_type:|llm_url:' '$CLIENT_CONFIG'
 "
 
 # ── 5. vLLM phase ────────────────────────────────────────────────────────────
@@ -311,8 +329,8 @@ if [ "$RUN_OLLAMA" = "1" ]; then
   step "[Ollama] generate $OLLAMA_CLIENT_CONFIG from $CLIENT_CONFIG"
   jl exec "$JL_MACHINE_ID" -- sh -lc "
     cd '$CLIENT_DIR'
-    sed -e 's|provider_type:.*|provider_type: \"ollama\"|' \
-        -e 's|llm_url:.*|llm_url: \"$OLLAMA_URL\"|' \
+    sed -e 's|^[[:space:]]*provider_type:.*|  provider_type: \"ollama\"|' \
+        -e 's|^[[:space:]]*llm_url:.*|  llm_url: \"$OLLAMA_URL\"|' \
         '$CLIENT_CONFIG' > '$OLLAMA_CLIENT_CONFIG'
     echo '--- $OLLAMA_CLIENT_CONFIG (provider block) ---'
     grep -E 'provider_type|llm_url' '$OLLAMA_CLIENT_CONFIG'
