@@ -168,6 +168,10 @@ func (c *Client) StartTunnel(ctx context.Context) error {
 		return fmt.Errorf("tunnel is already running")
 	}
 
+	// Re-arm supervision: StopTunnel sets shouldRestart to false, so a
+	// subsequent start must restore crash/restart handling.
+	c.shouldRestart = true
+
 	// Create contexts for tunnel and monitoring
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.monitoringCtx, c.monitoringCancel = context.WithCancel(ctx)
