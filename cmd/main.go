@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -196,11 +199,9 @@ func main() {
 		srv.SetConsoleUI(false)
 	}
 
-	serverReady := make(chan error, 1)
+	serverErr := make(chan error, 1)
 	go func() {
-		if err := srv.Start(); err != nil {
-			serverReady <- err
-		}
+		serverErr <- srv.Start()
 	}()
 
 	healthReporter.SetCloudflareClient(srv.GetCloudflareClient())
@@ -209,20 +210,35 @@ func main() {
 		ticker := time.NewTicker(health.ReportInterval)
 		defer ticker.Stop()
 
-		waitDeadline := time.Now().Add(30 * time.Second)
+		// StartTunnel holds ~10s after RequestTunnel sets the hostname, so a
+		// URL is not proof the tunnel is up. Wait for the supervised process.
+		waitDeadline := time.Now().Add(45 * time.Second)
 		for {
+			if ctx.Err() != nil {
+				return
+			}
 			cf := srv.GetCloudflareClient()
-			if cf != nil && cf.GetTunnelURL() != "" {
+			if cf != nil && cf.IsRunning() && cf.GetTunnelURL() != "" {
 				break
 			}
 			if time.Now().After(waitDeadline) {
-				logger.Warn("Cloudflare tunnel URL not ready before initial health report timeout")
+				logger.Warn("Cloudflare tunnel not running before initial health report timeout")
 				break
 			}
-			time.Sleep(1 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+			}
 		}
 
-		if err := healthReporter.SendHealthReport(ctx); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		cf := srv.GetCloudflareClient()
+		if cf == nil || !cf.IsRunning() {
+			logger.Warn("Skipping initial health report; tunnel is not running")
+		} else if err := healthReporter.SendHealthReport(ctx); err != nil {
 			logger.Error("Failed to send initial health report", zap.Error(err))
 		}
 
@@ -252,32 +268,86 @@ func main() {
 		}
 	}()
 
-	select {
-	case err := <-serverReady:
-		fatal("Failed to start server: %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	// Start() blocks in ListenAndServe after ~10s of tunnel startup. A 100ms
+	// wait returned long before tunnel/listen failures, so the process sat in
+	// the tray with a dead server while health still advertised the tunnel.
+	var (
+		exitMu  sync.Mutex
+		exitErr error
+	)
+	setExitErr := func(err error) {
+		if !isFatalServerErr(err) {
+			return
+		}
+		exitMu.Lock()
+		if exitErr == nil {
+			exitErr = err
+		}
+		exitMu.Unlock()
+	}
+
 	if useTray {
+		// RequestTunnel can fail in tens of ms, before tray.Run has an event
+		// loop. systray.Quit is a no-op until then, so drain first and fatal
+		// without entering the tray. Slow failures wait for Started.
+		select {
+		case err := <-serverErr:
+			if isFatalServerErr(err) {
+				fatal("Failed to start server: %v", err)
+			}
+		default:
+		}
+		trayStarted := make(chan struct{})
 		go func() {
-			<-quit
+			select {
+			case <-quit:
+			case err := <-serverErr:
+				if isFatalServerErr(err) {
+					setExitErr(err)
+					logger.Error("Server failed", zap.Error(err))
+					showErrorDialog(fmt.Sprintf("Inferoute Client failed to start: %v", err))
+				}
+			}
+			<-trayStarted
 			tray.Quit()
 		}()
 		tray.Run(tray.Options{
 			ConfigPath:   *configPath,
 			LogDir:       cfg.Logging.LogDir,
 			DashboardURL: cfg.LocalDashboardURL(),
+			Started:      trayStarted,
 		})
 	} else {
-		<-quit
+		select {
+		case <-quit:
+		case err := <-serverErr:
+			if isFatalServerErr(err) {
+				setExitErr(err)
+				logger.Error("Server failed", zap.Error(err))
+				fmt.Fprintln(os.Stderr, "Failed to start server:", err)
+			}
+		}
 	}
 
 	logger.Info("Shutting down gracefully...")
-
-	if err := srv.Stop(ctx); err != nil {
+	cancel()
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stopCancel()
+	if err := srv.Stop(stopCtx); err != nil {
 		logger.Fatal("Server shutdown failed", zap.Error(err))
 	}
+
+	exitMu.Lock()
+	err = exitErr
+	exitMu.Unlock()
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+func isFatalServerErr(err error) bool {
+	return err != nil && !errors.Is(err, http.ErrServerClosed)
 }

@@ -371,12 +371,12 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 			zap.String("hostname", hostname),
 			zap.Bool("is_running", isRunning))
 
-		if tunnelURL != "" {
-			cloudflareInfo = map[string]interface{}{
-				"url": tunnelURL,
-			}
+		cloudflareInfo = cloudflareReportInfo(tunnelURL, isRunning)
+		if cloudflareInfo != nil {
 			logger.Info("Cloudflare info will be included in health report",
 				zap.Any("cloudflare_info", cloudflareInfo))
+		} else if !isRunning {
+			logger.Warn("Omitting Cloudflare URL; tunnel is not running")
 		} else {
 			logger.Warn("No Cloudflare tunnel URL available for health report")
 		}
@@ -394,6 +394,16 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	}
 
 	return report, nil
+}
+
+// cloudflareReportInfo omits the tunnel URL unless the process is actually
+// running. RequestTunnel sets the hostname before StartTunnel, and StopTunnel
+// leaves it set, so a URL alone would advertise a dead endpoint.
+func cloudflareReportInfo(url string, running bool) map[string]interface{} {
+	if url == "" || !running {
+		return nil
+	}
+	return map[string]interface{}{"url": url}
 }
 
 // GetLastUpdateTime gets the time of the last successful health update
