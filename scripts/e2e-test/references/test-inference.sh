@@ -127,7 +127,7 @@ fi
 # Docs: https://docs.inferoute.com/monthly-spending-caps/request-routing-options
 # The `inferoute` block is stripped before the request is forwarded to the provider.
 ROUTE_MIN_TPS_OK="${ROUTE_MIN_TPS_OK:-1}"
-ROUTE_MAX_PRICE_OK="${ROUTE_MAX_PRICE_OK:-1.0}"          # provider ~$0.46/1M tokens
+ROUTE_MAX_PRICE_OK="${ROUTE_MAX_PRICE_OK:-50.0}"         # Qwen2.5-7B market ~$40/1M; must be <= profile ceiling
 
 CHAT_MSG='{"role":"user","content":"Say hello in one short sentence"}'
 
