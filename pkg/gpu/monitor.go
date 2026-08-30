@@ -1,20 +1,38 @@
 package gpu
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"go.uber.org/zap"
 )
 
+// gpuInfoCacheTTL is long enough to collapse a request flood into one
+// nvidia-smi, short enough that busy detection stays useful.
+const gpuInfoCacheTTL = time.Second
+
+// nvidiaSMITimeout bounds nvidia-smi / system_profiler so a hung driver
+// cannot pin every GetGPUInfo caller behind the cache mutex.
+const nvidiaSMITimeout = 5 * time.Second
+
 // Monitor provides GPU monitoring functionality
 type Monitor struct {
 	isMacOS bool
+
+	mu        sync.Mutex
+	cached    *GPUInfo
+	cachedErr error
+	cachedAt  time.Time
+	cacheTTL  time.Duration
+	queryFn   func() (*GPUInfo, error) // tests; nil uses nvidia-smi / system_profiler
 }
 
 // GPUInfo represents information about the GPU
@@ -83,19 +101,57 @@ func NewMonitor() (*Monitor, error) {
 	}
 
 	logger.Debug("GPU monitor initialized successfully", zap.Bool("is_macos", isMacOS))
-	return &Monitor{isMacOS: isMacOS}, nil
+	return &Monitor{isMacOS: isMacOS, cacheTTL: gpuInfoCacheTTL}, nil
 }
 
-// GetGPUInfo returns information about the GPU
+// GetGPUInfo returns information about the GPU. Results are cached for
+// gpuInfoCacheTTL; callers receive a copy so mutations do not poison the cache.
 func (m *Monitor) GetGPUInfo() (*GPUInfo, error) {
-	logger.Debug("Getting GPU information")
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	ttl := m.cacheTTL
+	if ttl <= 0 {
+		ttl = gpuInfoCacheTTL
+	}
+	if !m.cachedAt.IsZero() && time.Since(m.cachedAt) < ttl {
+		if m.cachedErr != nil {
+			return nil, m.cachedErr
+		}
+		if m.cached != nil {
+			info := *m.cached
+			return &info, nil
+		}
+	}
+
+	info, err := m.queryGPUInfo()
+	m.cachedAt = time.Now()
+	m.cachedErr = err
+	if err != nil {
+		m.cached = nil
+		return nil, err
+	}
+	m.cached = info
+	out := *info
+	return &out, nil
+}
+
+func (m *Monitor) queryGPUInfo() (*GPUInfo, error) {
+	if m.queryFn != nil {
+		return m.queryFn()
+	}
 	if m.isMacOS {
 		return m.getMacGPUInfo()
 	}
+	return m.getNvidiaGPUInfo()
+}
 
-	// Run nvidia-smi command for non-macOS systems
-	cmd := exec.Command("nvidia-smi", "-x", "-q")
+func (m *Monitor) getNvidiaGPUInfo() (*GPUInfo, error) {
+	logger.Debug("Getting GPU information")
+
+	ctx, cancel := context.WithTimeout(context.Background(), nvidiaSMITimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "nvidia-smi", "-x", "-q")
 	output, err := cmd.Output()
 	if err != nil {
 		logger.Error("Failed to run nvidia-smi", zap.Error(err))
@@ -176,8 +232,9 @@ func (m *Monitor) GetGPUInfo() (*GPUInfo, error) {
 func (m *Monitor) getMacGPUInfo() (*GPUInfo, error) {
 	logger.Debug("Getting macOS GPU information")
 
-	// Run system_profiler command
-	cmd := exec.Command("system_profiler", "SPDisplaysDataType")
+	ctx, cancel := context.WithTimeout(context.Background(), nvidiaSMITimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "system_profiler", "SPDisplaysDataType")
 	output, err := cmd.Output()
 	if err != nil {
 		logger.Error("Failed to run system_profiler", zap.Error(err))

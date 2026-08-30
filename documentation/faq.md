@@ -76,10 +76,9 @@ Health reports include:
 
 ### How does the Provider Client handle inference requests?
 When an inference request is received:
-1. It checks if the GPU is busy
-2. If busy, it responds with a 503 Service Unavailable status
-3. If available, it validates the HMAC (if present)
-4. If validation succeeds, it forwards the request to the local Ollama instance
+1. It requires a valid HMAC in `X-Request-Id` (missing, oversized, or invalid → 401)
+2. If the GPU is busy, it responds with a 503 Service Unavailable status
+3. If validation succeeds and the GPU is free, it forwards the request to the local Ollama instance
 
 ### What API endpoints does the Provider Client support?
 The Provider Client supports OpenAI-compatible endpoints:

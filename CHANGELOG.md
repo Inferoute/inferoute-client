@@ -3,16 +3,16 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
-## [1.1.7] - 2026-08-26
+## [1.1.8] - 2026-09-30
 
-### Added
+### Security
 
-- **Windows:** balloon/toast on tray start so launching the `.exe` from Explorer is not silent.
-- **Local status dashboard** at `GET /` (HTML) and `GET /api/status` (JSON) — same session, model, GPU, and recent-request stats as the terminal UI.
-
-- **In-flight inference cap** (default 1) so a second request gets **503** instead of queueing in Ollama/vLLM. Fixes macOS (no GPU busy signal) and the NVIDIA race where utilization is still 0% at request start. Set `server.max_concurrent_inference` to raise the cap, or `0` for unlimited.
+- Default listen address is **`127.0.0.1`** (was `0.0.0.0`). The local dashboard and `/api/*` stay off the LAN unless you set `server.host` yourself. Docker examples no longer publish port 8080 — the Cloudflare tunnel does not need it.
+- Platform tunnel ingress forwards only **`POST /v1/chat/completions`** and **`POST /v1/completions`**. Operator routes (`/`, `/api/health`, `/api/busy`, `/api/status`) are loopback-only.
+- Inference authenticates **before** the GPU busy check. Missing, oversized (`>256` bytes), or invalid `X-Request-Id` returns **401** without running `nvidia-smi` or revealing whether the GPU is busy (`503` vs `401`).
+- `nvidia-smi` results are cached for **1s** and queries are serialized, so a request flood cannot stampede the NVIDIA driver.
 
 ### Changed
 
-- **Windows:** tray mode is the default. `inferoute-client` detaches from PowerShell so closing the window does not stop the client. Use `--console` for the terminal UI. `--tray` is still accepted.
-- Tray **Open dashboard** opens the local status page (`http://127.0.0.1:<port>/`), not the Inferoute website.
+- Docker: to open the host dashboard, set `server.host: 0.0.0.0` and publish `-p 127.0.0.1:8080:8080`.
+

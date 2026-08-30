@@ -37,7 +37,7 @@ flowchart LR
 | `pkg/server` | HTTP, console/HTML UI, HMAC, session queue, proxy |
 | `pkg/health` | Assemble + push health; busy-transition reports |
 | `pkg/llm` | Ollama / vLLM (`ListModels`, `ForwardRequest`) |
-| `pkg/gpu` | NVIDIA `nvidia-smi` (Linux/Windows); basic info on macOS |
+| `pkg/gpu` | NVIDIA `nvidia-smi` (Linux/Windows, ~1s cache); basic info on macOS |
 | `pkg/compat` | Pre-flight hardware vs catalog scoring |
 | `pkg/cloudflare` | Tunnel request + `cloudflared` supervision |
 | `pkg/tray` | Windows notification area; stub elsewhere |
@@ -75,9 +75,9 @@ Windows: tray is default; process detaches so closing PowerShell does not kill i
 
 Order is load-bearing:
 
-1. Read `X-Session-Key`. If it matches the in-flight/last session → **skip** the busy reject (GPU util >20% fires while the previous turn of *this* chat is still decoding).
-2. Else: 503 if in-flight cap reached **or** NVIDIA util > 20%.
-3. Require `X-Request-Id`; `POST /api/provider/validate_hmac`.
+1. Require `X-Request-Id` (reject missing or >256 bytes) and `POST /api/provider/validate_hmac`. Fail → **401**. No GPU query yet.
+2. Read `X-Session-Key`. If it matches the in-flight/last session → **skip** the busy reject (GPU util >20% fires while the previous turn of *this* chat is still decoding).
+3. Else: 503 if in-flight cap reached **or** NVIDIA util > 20% (`nvidia-smi` cached ~1s).
 4. Parse `model`; `CheckInference` must be `verification_status == verified` for allowlisted aliases.
 5. Same session → `acquireInferenceWait` up to `session_queue_wait_seconds`; other → `tryAcquireInference`. Fail → 503.
 6. `forwardToLLM`, write **entire** body, release slot.

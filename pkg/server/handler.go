@@ -10,6 +10,10 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 )
 
+// maxRequestIDLength is larger than a real HMAC (SHA-256 base64url, ~44 bytes)
+// and small enough that a flood cannot push megabyte tokens at the platform.
+const maxRequestIDLength = 256
+
 // handleHealth handles the /api/health endpoint
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
@@ -53,6 +57,13 @@ func (s *Server) writeBusy(w http.ResponseWriter, r *http.Request, startTime tim
 	s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
 }
 
+func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request, startTime time.Time, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(ErrorResponse{Error: msg})
+	s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
+}
+
 // handleChatCompletions handles the /v1/chat/completions endpoint
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	s.handleInference(w, r, "/v1/chat/completions")
@@ -65,6 +76,21 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath string) {
 	startTime := time.Now()
+
+	hmac := r.Header.Get("X-Request-Id")
+	switch {
+	case hmac == "":
+		s.writeUnauthorized(w, r, startTime, "Missing HMAC in X-Request-Id header")
+		return
+	case len(hmac) > maxRequestIDLength:
+		s.writeUnauthorized(w, r, startTime, "Invalid HMAC in X-Request-Id header")
+		return
+	}
+	if err := s.validateHMAC(r.Context(), hmac); err != nil {
+		s.logError(fmt.Sprintf("HMAC validation failed: %v", err))
+		s.writeUnauthorized(w, r, startTime, fmt.Sprintf("Invalid HMAC: %v", err))
+		return
+	}
 
 	// A matching X-Session-Key means this is a follow-up turn of the
 	// conversation whose KV cache is warm on this GPU. Those turns skip the
@@ -85,24 +111,6 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 			s.writeBusy(w, r, startTime)
 			return
 		}
-	}
-
-	hmac := r.Header.Get("X-Request-Id")
-	if hmac != "" {
-		if err := s.validateHMAC(r.Context(), hmac); err != nil {
-			s.logError(fmt.Sprintf("HMAC validation failed: %v", err))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: fmt.Sprintf("Invalid HMAC: %v", err)})
-			s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-			return
-		}
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(ErrorResponse{Error: "Missing HMAC in X-Request-Id header"})
-		s.logRequest(r.Method, r.URL.Path, http.StatusUnauthorized, startTime)
-		return
 	}
 
 	body, err := io.ReadAll(r.Body)

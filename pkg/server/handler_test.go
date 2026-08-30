@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,6 +104,41 @@ func TestHandleChatCompletionsGuardChain(t *testing.T) {
 			t.Fatalf("forwarded path = %q", fake.gotPath)
 		}
 	})
+
+	t.Run("oversized HMAC returns 401 without calling the platform", func(t *testing.T) {
+		var hits atomic.Int32
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			json.NewEncoder(w).Encode(HMACValidationResponse{Valid: true})
+		}))
+		t.Cleanup(ts.Close)
+		s := newTestServer(ts.URL, &fakeLLM{})
+		huge := strings.Repeat("a", maxRequestIDLength+1)
+		if got := postChat(s, huge, `{"model":"m"}`).Code; got != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", got)
+		}
+		if got := hits.Load(); got != 0 {
+			t.Fatalf("validate_hmac hits = %d, want 0", got)
+		}
+	})
+
+	t.Run("HMAC at max length is forwarded to the platform", func(t *testing.T) {
+		var hits atomic.Int32
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			json.NewEncoder(w).Encode(HMACValidationResponse{Valid: true})
+		}))
+		t.Cleanup(ts.Close)
+		fake := &fakeLLM{forwardResp: []byte(`{"ok":true}`)}
+		s := newTestServer(ts.URL, fake)
+		id := strings.Repeat("a", maxRequestIDLength)
+		if got := postChat(s, id, `{"model":"m"}`).Code; got != http.StatusOK {
+			t.Fatalf("status = %d, want 200", got)
+		}
+		if got := hits.Load(); got != 1 {
+			t.Fatalf("validate_hmac hits = %d, want 1", got)
+		}
+	})
 }
 
 func TestVerifyModelInRequestNilVerifierPasses(t *testing.T) {
@@ -182,6 +218,47 @@ func TestInflightCapRejectsConcurrentInference(t *testing.T) {
 
 	if got := postChat(s, "hmac", `{"model":"m"}`).Code; got != http.StatusOK {
 		t.Fatalf("after release status = %d, want 200", got)
+	}
+}
+
+func TestHandleChatCompletionsAuthBeforeBusy(t *testing.T) {
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req HMACValidationRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(HMACValidationResponse{Valid: req.HMAC == "hmac"})
+	}))
+	t.Cleanup(node.Close)
+
+	block := &blockingLLM{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		inner:   fakeLLM{forwardResp: []byte(`{"ok":true}`)},
+	}
+	s := newTestServer(node.URL, block)
+
+	done := make(chan int, 1)
+	go func() { done <- postChat(s, "hmac", `{"model":"m"}`).Code }()
+	select {
+	case <-block.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request never reached LLM")
+	}
+
+	if got := postChat(s, "", `{"model":"m"}`).Code; got != http.StatusUnauthorized {
+		t.Fatalf("missing HMAC while busy status = %d, want 401", got)
+	}
+	if got := postChat(s, "bad-hmac", `{"model":"m"}`).Code; got != http.StatusUnauthorized {
+		t.Fatalf("invalid HMAC while busy status = %d, want 401", got)
+	}
+	if got := postChat(s, "hmac", `{"model":"m"}`).Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("valid HMAC while busy status = %d, want 503", got)
+	}
+
+	close(block.release)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request did not finish")
 	}
 }
 

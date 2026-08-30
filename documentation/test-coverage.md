@@ -38,7 +38,7 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 
 | File | What is tested |
 |------|----------------|
-| `handler_test.go` | `handleChatCompletions` guard chain: missing HMAC → 401; invalid HMAC → 401; valid HMAC → 200 and LLM response forwarded; `verifyModelInRequest` with nil verifier passes |
+| `handler_test.go` | `handleChatCompletions` guard chain: missing HMAC → 401; invalid HMAC → 401; oversized `X-Request-Id` → 401 without calling the platform; valid HMAC → 200 and LLM response forwarded; HMAC before busy (missing/invalid HMAC while a slot is held → 401, not 503); `verifyModelInRequest` with nil verifier passes |
 | `hmac_test.go` | `validateHMAC`: valid response; `valid=false`; non-200 status; malformed JSON |
 
 ### `pkg/pricing`
@@ -73,6 +73,12 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 |------|----------------|
 | `format_test.go` | LLM unreachable / HTTP / unknown error → console and HTTP message strings |
 
+### `pkg/gpu`
+
+| File | What is tested |
+|------|----------------|
+| `monitor_test.go` | `GetGPUInfo` 1s cache hit/expiry/error cache; returned copy is isolated from caller mutation; concurrent refresh is a single query; `IsBusy` uses the cache |
+
 ---
 
 ## Not covered (high priority gaps)
@@ -87,7 +93,7 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 | `pkg/verify/catalog.go`, `server.go`, `measure.go` | Catalog refresh and server-side verification |
 | `pkg/llm/vllm.go` | vLLM client behavior |
 | `pkg/cloudflare/client.go` | Tunnel request, start, stop |
-| `pkg/gpu/monitor.go` | `nvidia-smi` parsing, busy detection |
+| `pkg/gpu/monitor.go` | `nvidia-smi` XML parsing |
 | `internal/config/config.go` | YAML load and defaults |
 | `cmd/main.go` startup wiring | End-to-end process bootstrap |
 | Integration against live `inferoute-node` | Wire protocol and auth |
@@ -104,5 +110,6 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 | `pkg/verify` | `verifier_test.go`, `fingerprint_test.go`, `hfresolve_test.go` |
 | `pkg/geoloc` | `lookup_test.go` |
 | `pkg/usermsg` | `format_test.go` |
+| `pkg/gpu` | `monitor_test.go` |
 
-**Total:** 9 test files across 6 packages. `cmd/`, `internal/config`, `pkg/health`, `pkg/cloudflare`, and `pkg/gpu` have no tests yet.
+**Total:** 10 test files across 7 packages. `cmd/`, `internal/config`, `pkg/health`, and `pkg/cloudflare` have no tests yet.
