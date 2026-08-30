@@ -12,7 +12,7 @@ Providers install it with a one-liner (Linux/macOS) or a PowerShell script (Wind
 
 ## What it does
 
-1. **Opens a private path to the platform.** At startup it asks Inferoute for a Cloudflare tunnel and runs `cloudflared`. Inferoute can reach the machine without any inbound firewall ports. The public hostname looks like `user-clustername` on the Inferoute tunnel domain.
+1. **Opens a private path to the platform.** At startup it asks Inferoute for a Cloudflare tunnel and runs `cloudflared`. Inferoute can reach the machine without any inbound firewall ports. Each cluster gets its own hostname on the Inferoute tunnel domain.
 2. **Tells the platform the machine is alive.** Every three minutes (and immediately when the GPU goes busy or idle) it reports loaded models, GPU info, and the tunnel URL. If reports stop for five minutes, the platform stops sending work.
 3. **Registers models and default prices.** On first start it publishes whatever Ollama/vLLM has loaded, using market-average prices. The provider then sets real prices in the dashboard.
 4. **Proves the weights match the name.** For marketplace-listed models, the client measures local files (Ollama digest, or a hash of vLLM weight files) and the platform decides `verified` / `failed`. Unverified allowlisted models are not served.

@@ -65,11 +65,11 @@ Windows: tray is default; process detaches so closing PowerShell does not kill i
 
 | Section | Fields that matter |
 |---------|-------------------|
-| `server` | `port` (8080), `host` (`0.0.0.0`), `max_concurrent_inference` (**1**; `0` = unlimited), `session_queue_wait_seconds` (**90**), `request_timeout_seconds` (**240** — must cover queue + inference) |
+| `server` | `port` (8080), `host` (`127.0.0.1`; set `0.0.0.0` only for LAN/Docker host dashboard), `max_concurrent_inference` (**1**; `0` = unlimited), `session_queue_wait_seconds` (**90**), `request_timeout_seconds` (**240** — must cover queue + inference) |
 | `provider` | `api_key`, `url` (platform base), `provider_type` (`ollama` \| `vllm`), `llm_url`, `llm_timeout_seconds` (**120**, matches platform sticky timeout), optional `hf_hub_cache` / `model_path` |
 | `logging` | level, `log_dir`, rotation |
 
-`TunnelServiceURL()` is `http://localhost:<port>` when host is `0.0.0.0`. No Cloudflare block in YAML — token comes from the platform.
+`TunnelServiceURL()` is `http://localhost:<port>` when host is loopback or `0.0.0.0`. No Cloudflare block in YAML — token comes from the platform. Platform tunnel ingress forwards only `/v1/chat/completions` and `/v1/completions`.
 
 ## Inference path (`handleInference`)
 
@@ -157,7 +157,7 @@ Startup: list models → `POST /api/model-pricing/get-prices` → `POST /api/pro
 | POST | `/v1/chat/completions` | Proxy |
 | POST | `/v1/completions` | Proxy |
 
-TUI redraw 3s. Windows tray “Open dashboard” → `http://127.0.0.1:<port>/`.
+TUI redraw 3s. Windows tray “Open dashboard” → `http://127.0.0.1:<port>/`. Operator routes (`/`, `/api/*`) are local-only; the tunnel forwards only the two inference POSTs.
 
 ## Platforms
 
@@ -173,7 +173,7 @@ Client keeps running without GPU data. Compat probes can still score RAM.
 ## Deploy
 
 - Install scripts: `scripts/install.sh`, macOS/Windows variants; Docker `Dockerfile` + `scripts/entrypoint.sh`
-- Docker: LLM must bind `0.0.0.0`; `LLM_URL=http://host.docker.internal:<port>`
+- Docker: LLM must bind `0.0.0.0`; `LLM_URL=http://host.docker.internal:<port>`. Client default bind is `127.0.0.1` — tunnel does not need a published port. Host dashboard requires `server.host: 0.0.0.0` plus `-p 127.0.0.1:8080:8080`.
 - Binary config default `~/.config/inferoute/config.yaml`
 
 ## Cross-repo contracts

@@ -95,14 +95,14 @@ The official Inferoute Docker image inferoute/inferoute-client is available on D
 
 Please note if running Inferoute within Docker you need to ensure your Ollama instance is running on port 0.0.0.0 (This allows the Docker container to access the Ollama Server - [See Ollama guide for help](https://github.com/inferoute/inferoute-client/blob/main/docs/ollama.md))
 
-We set the LLM_URL to http://host.docker.internal (resolves to the internal IP address used by the Docker host)
+We set the LLM_URL to http://host.docker.internal (resolves to the internal IP address used by the Docker host).
 
+The client listens on `127.0.0.1` inside the container. The Cloudflare tunnel does **not** need a published port. To open the local dashboard from the host, set `server.host` to `0.0.0.0` in the container config and publish the port (for example `-p 127.0.0.1:8080:8080`).
 
 ### Docker Quick Start
 ```bash
 docker run -d \
   --name inferoute-client \
-  -p 8080:8080 \
   -e PROVIDER_API_KEY="your-key" \
   -e PROVIDER_TYPE="ollama" \
   -e LLM_URL="http://host.docker.internal:11434" \
@@ -115,8 +115,6 @@ version: '3.8'
 services:
   inferoute-client:
     image: inferoute/inferoute-client:latest
-    ports:
-      - "8080:8080"
     environment:
       - PROVIDER_API_KEY=your-key
       - PROVIDER_TYPE=ollama
@@ -129,7 +127,6 @@ services:
 docker build -t inferoute-client .
 docker run -d \
   --name inferoute-client \
-  -p 8080:8080 \
   -e PROVIDER_API_KEY="your-key" \
   inferoute-client
 ```
@@ -141,6 +138,8 @@ When your client first starts it will publish your available models with default
 Please remember to visit inferoute.com and change the costs to your preference.
 
 ## 🎓 REST API 
+
+Local-only (loopback). Not reachable through the Cloudflare tunnel.
 
 - **GET /**: Local status dashboard (same information as the terminal UI). Auto-refreshes in the browser.
 - **GET /api/status**: JSON snapshot of that dashboard (session, models, GPU, recent requests).

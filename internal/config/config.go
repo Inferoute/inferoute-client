@@ -52,7 +52,7 @@ func Load(path string) (*Config, error) {
 
 	// Set default values
 	cfg.Server.Port = 8080
-	cfg.Server.Host = "0.0.0.0"
+	cfg.Server.Host = "127.0.0.1"
 	cfg.Server.MaxConcurrentInference = 1
 	cfg.Server.SessionQueueWaitSeconds = 90
 	cfg.Server.RequestTimeoutSeconds = 240
@@ -106,10 +106,12 @@ func (c *Config) LLMTimeout() time.Duration {
 }
 
 // TunnelServiceURL returns the URL the Cloudflare tunnel should target (the proxy).
-// Uses localhost when Server.Host is 0.0.0.0 so cloudflared connects to the proxy on the same machine.
+// Loopback and all-interfaces binds are rewritten to localhost so cloudflared
+// on the same machine keeps a stable service_url.
 func (c *Config) TunnelServiceURL() string {
 	host := c.Server.Host
-	if host == "0.0.0.0" || host == "" {
+	switch host {
+	case "", "0.0.0.0", "127.0.0.1", "::1":
 		host = "localhost"
 	}
 	return fmt.Sprintf("http://%s:%d", host, c.Server.Port)
