@@ -58,6 +58,16 @@ Install the [NVIDIA driver](https://www.nvidia.com/drivers) so `nvidia-smi` is o
 
 The client requests a Cloudflare tunnel from the platform and runs **cloudflared** for you.
 
+## Build from source
+
+Requires [Go 1.22+](https://go.dev/dl/) on PATH. From a clone of this repo:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1
+```
+
+Or double-click `scripts\build.bat`. Writes `inferoute-client.exe` in the repo root.
+
 ## Related
 
 - [Installation](installation.md)

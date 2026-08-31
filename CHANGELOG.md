@@ -13,6 +13,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 ### Changed
 
 - Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
+- `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
 
 ## [1.1.8] - 2026-09-30
 
