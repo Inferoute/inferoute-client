@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/exechide"
 )
 
 type procJob struct{}
@@ -18,7 +20,9 @@ func (j *procJob) assign(*os.Process) error { return nil }
 
 func (j *procJob) close() {}
 
-func configureCmd(*exec.Cmd) {}
+func configureCmd(cmd *exec.Cmd) {
+	exechide.Apply(cmd)
+}
 
 func processAlive(p *os.Process) bool {
 	if p == nil {

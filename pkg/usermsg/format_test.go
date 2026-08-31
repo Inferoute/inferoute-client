@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
@@ -41,5 +42,21 @@ func TestApprovalLabel(t *testing.T) {
 	}
 	if got := ApprovalLabel(string(verify.StatusFailed)); got != "failed verification" {
 		t.Fatalf("got %q, want failed verification", got)
+	}
+}
+
+func TestStartupInvalidAPIKey(t *testing.T) {
+	err := fmt.Errorf("failed to request tunnel: %w", cloudflare.ErrInvalidAPIKey)
+	if got := Startup(err); got != InvalidAPIKey {
+		t.Fatalf("Startup() = %q, want %q", got, InvalidAPIKey)
+	}
+}
+
+func TestStartupOther(t *testing.T) {
+	err := errors.New("listen tcp :8080: bind: address already in use")
+	got := Startup(err)
+	want := "Failed to start server: listen tcp :8080: bind: address already in use"
+	if got != want {
+		t.Fatalf("Startup() = %q, want %q", got, want)
 	}
 }

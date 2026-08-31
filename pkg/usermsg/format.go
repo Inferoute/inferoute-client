@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
@@ -39,6 +40,17 @@ func formatLLM(err error, name string) string {
 	default:
 		return "Could not reach " + name
 	}
+}
+
+// InvalidAPIKey is the operator-facing text for a rejected provider key.
+const InvalidAPIKey = "Invalid provider API key. Copy it from cluster Settings on the Inferoute dashboard and set api_key in config.yaml."
+
+// Startup maps a fatal startup error to a message for stderr and the Windows dialog.
+func Startup(err error) string {
+	if errors.Is(err, cloudflare.ErrInvalidAPIKey) {
+		return InvalidAPIKey
+	}
+	return "Failed to start server: " + err.Error()
 }
 
 // ApprovalLabel returns a short marketplace-approval string for console and dashboard.

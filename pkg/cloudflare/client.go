@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -78,6 +80,25 @@ type TunnelResponse struct {
 	Hostname string `json:"hostname"`
 }
 
+// ErrInvalidAPIKey is returned when the platform rejects the provider API key.
+var ErrInvalidAPIKey = errors.New("invalid provider API key")
+
+func tunnelRequestError(status int, body []byte) error {
+	msg := strings.ToLower(string(body))
+	if status == http.StatusUnauthorized ||
+		strings.Contains(msg, "invalid api key") ||
+		strings.Contains(msg, "not associated with a provider") {
+		return ErrInvalidAPIKey
+	}
+	if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
+		if len(trimmed) > 256 {
+			trimmed = trimmed[:256]
+		}
+		return fmt.Errorf("tunnel API returned status %d: %s", status, trimmed)
+	}
+	return fmt.Errorf("tunnel API returned status code: %d", status)
+}
+
 // NewClient creates a new supervised Cloudflare client
 func NewClient(coreURL, bearerToken, serviceURL string) *Client {
 	// Initialize cloudflared logger
@@ -136,8 +157,12 @@ func (c *Client) RequestTunnel(ctx context.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		appLogger.Error("Cloudflare tunnel API returned non-OK status", zap.Int("status_code", resp.StatusCode))
-		return fmt.Errorf("tunnel API returned status code: %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		err := tunnelRequestError(resp.StatusCode, body)
+		appLogger.Error("Cloudflare tunnel API returned non-OK status",
+			zap.Int("status_code", resp.StatusCode),
+			zap.Error(err))
+		return err
 	}
 
 	var tunnelResp TunnelResponse

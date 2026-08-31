@@ -37,9 +37,9 @@ flowchart LR
 | `pkg/server` | HTTP, console/HTML UI, HMAC, session queue, proxy |
 | `pkg/health` | Assemble + push health; busy-transition reports |
 | `pkg/llm` | Ollama / vLLM (`ListModels`, `ForwardRequest`) |
-| `pkg/gpu` | NVIDIA `nvidia-smi` (Linux/Windows, ~1s cache); basic info on macOS |
+| `pkg/gpu` | NVIDIA `nvidia-smi` (Linux/Windows, ~1s cache); basic info on macOS. Windows spawn uses `CREATE_NO_WINDOW` so the console does not flash. |
 | `pkg/compat` | Pre-flight hardware vs catalog scoring |
-| `pkg/cloudflare` | Tunnel request + `cloudflared` supervision |
+| `pkg/cloudflare` | Tunnel request + `cloudflared` supervision. Invalid provider API key → `ErrInvalidAPIKey` (**401** from the platform). |
 | `pkg/tray` | Windows notification area; stub elsewhere |
 | `pkg/pricing` | Market prices + `POST /api/provider/models` |
 | `pkg/verify` | Catalog fetch, local measure, cache, inference gate |
@@ -56,7 +56,7 @@ Daemon:
 2. Logger, optional GPU monitor, LLM client
 3. `GET /api/models/approved-builds`
 4. Verifier + pricing registration
-5. HTTP server; `POST /api/cloudflare/tunnel/request`; start `cloudflared`
+5. HTTP server; `POST /api/cloudflare/tunnel/request`; start `cloudflared`. Invalid API key → process exits with an operator-facing message (not a raw 500).
 6. Health loop (`ReportInterval` = **3 minutes**): wait up to 30s for tunnel URL, initial push, then ticker **and** busy-edge pushes (10s cooldown)
 
 Windows: tray is default; process detaches so closing PowerShell does not kill it. `--console` for the TUI.

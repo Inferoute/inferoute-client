@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/exechide"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -152,6 +153,7 @@ func (m *Monitor) getNvidiaGPUInfo() (*GPUInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), nvidiaSMITimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "nvidia-smi", "-x", "-q")
+	exechide.Apply(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		logger.Error("Failed to run nvidia-smi", zap.Error(err))

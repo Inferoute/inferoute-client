@@ -3,6 +3,17 @@
 All notable changes to the Inferoute Client will be documented in this file.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Windows: `nvidia-smi` (and `cloudflared`) no longer flash a console window. The dashboard polls GPU status every few seconds; those child processes now start with `CREATE_NO_WINDOW`.
+- A wrong or missing provider API key now fails startup with a clear message instead of a generic platform **500**.
+
+### Changed
+
+- Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
+
 ## [1.1.8] - 2026-09-30
 
 ### Security

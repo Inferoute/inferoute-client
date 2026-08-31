@@ -71,13 +71,26 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 
 | File | What is tested |
 |------|----------------|
-| `format_test.go` | LLM unreachable / HTTP / unknown error → console and HTTP message strings |
+| `format_test.go` | LLM unreachable / HTTP / unknown error → console and HTTP message strings; invalid API key startup message |
 
 ### `pkg/gpu`
 
 | File | What is tested |
 |------|----------------|
 | `monitor_test.go` | `GetGPUInfo` 1s cache hit/expiry/error cache; returned copy is isolated from caller mutation; concurrent refresh is a single query; `IsBusy` uses the cache |
+
+### `pkg/cloudflare`
+
+| File | What is tested |
+|------|----------------|
+| `client_test.go` | Supervision loop vs startup timeout; `StartTunnel` rejects canceled context; `RequestTunnel` 401 / consumer-key → `ErrInvalidAPIKey`; success decodes token |
+| `process_test.go` | cloudflared log path is OS-correct |
+
+### `pkg/exechide`
+
+| File | What is tested |
+|------|----------------|
+| `hide_*_test.go` | Windows: `CREATE_NO_WINDOW` + `HideWindow`; other OS: no-op |
 
 ---
 
@@ -92,7 +105,6 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 | `pkg/pricing/registration.go` — `RegisterLocalModels` | Skips unverified models, default-price fallback |
 | `pkg/verify/catalog.go`, `server.go`, `measure.go` | Catalog refresh and server-side verification |
 | `pkg/llm/vllm.go` | vLLM client behavior |
-| `pkg/cloudflare/client.go` | Tunnel request, start, stop |
 | `pkg/gpu/monitor.go` | `nvidia-smi` XML parsing |
 | `internal/config/config.go` | YAML load and defaults |
 | `cmd/main.go` startup wiring | End-to-end process bootstrap |
@@ -111,5 +123,7 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 | `pkg/geoloc` | `lookup_test.go` |
 | `pkg/usermsg` | `format_test.go` |
 | `pkg/gpu` | `monitor_test.go` |
+| `pkg/cloudflare` | `client_test.go`, `process_test.go` |
+| `pkg/exechide` | `hide_windows_test.go`, `hide_other_test.go` |
 
-**Total:** 10 test files across 7 packages. `cmd/`, `internal/config`, `pkg/health`, and `pkg/cloudflare` have no tests yet.
+**Total:** 14 test files. `cmd/`, `internal/config`, and `pkg/health` still have no tests.

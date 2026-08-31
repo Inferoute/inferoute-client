@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/tray"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
 )
@@ -142,6 +144,9 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fatal("Failed to load configuration: %v", err)
+	}
+	if strings.TrimSpace(cfg.Provider.APIKey) == "" || cfg.Provider.APIKey == "your_api_key_here" {
+		fatal("%s", usermsg.InvalidAPIKey)
 	}
 
 	log, err := logger.New(&cfg.Logging)
@@ -296,7 +301,7 @@ func main() {
 		select {
 		case err := <-serverErr:
 			if isFatalServerErr(err) {
-				fatal("Failed to start server: %v", err)
+				fatal("%s", usermsg.Startup(err))
 			}
 		default:
 		}
@@ -308,7 +313,7 @@ func main() {
 				if isFatalServerErr(err) {
 					setExitErr(err)
 					logger.Error("Server failed", zap.Error(err))
-					showErrorDialog(fmt.Sprintf("Inferoute Client failed to start: %v", err))
+					showErrorDialog(usermsg.Startup(err))
 				}
 			}
 			<-trayStarted
@@ -327,7 +332,7 @@ func main() {
 			if isFatalServerErr(err) {
 				setExitErr(err)
 				logger.Error("Server failed", zap.Error(err))
-				fmt.Fprintln(os.Stderr, "Failed to start server:", err)
+				fmt.Fprintln(os.Stderr, usermsg.Startup(err))
 			}
 		}
 	}

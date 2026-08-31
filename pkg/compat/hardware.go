@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/exechide"
 )
 
 // MemoryKind describes which memory pool the scorer should use.
@@ -169,6 +171,7 @@ func detectNVIDIA(hw *Hardware) error {
 		return fmt.Errorf("nvidia-smi not found: %w", err)
 	}
 	cmd := exec.Command("nvidia-smi", "--query-gpu=name,driver_version,memory.total,memory.used,memory.free,uuid", "--format=csv,noheader,nounits")
+	exechide.Apply(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("nvidia-smi: %w", err)
@@ -241,6 +244,7 @@ func detectNVIDIA(hw *Hardware) error {
 
 func queryCUDAVersion() string {
 	cmd := exec.Command("nvidia-smi")
+	exechide.Apply(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

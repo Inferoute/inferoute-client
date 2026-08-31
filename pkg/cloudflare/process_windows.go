@@ -5,9 +5,9 @@ package cloudflare
 import (
 	"os"
 	"os/exec"
-	"syscall"
 	"unsafe"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/exechide"
 	"golang.org/x/sys/windows"
 )
 
@@ -60,7 +60,7 @@ func (j *procJob) close() {
 }
 
 func configureCmd(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	exechide.Apply(cmd)
 }
 
 func processAlive(p *os.Process) bool {
