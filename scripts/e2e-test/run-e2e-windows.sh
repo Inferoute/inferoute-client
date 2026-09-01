@@ -280,7 +280,11 @@ gce compute ssh "${WIN_SSH_USER}@${GCE_INSTANCE}" \
 wipe_remote_params
 
 wait_gate "inferoute-client HTTP" "$CLIENT_WAIT_SEC" client_ready \
-  || die "client not ready after setup"
+  || {
+    warn "client HTTP timeout — process + last logs:"
+    win_ps "Get-Process -Name inferoute-client,ollama,cloudflared -ErrorAction SilentlyContinue | Format-Table Id,ProcessName,StartTime -AutoSize; Write-Output '--- err ---'; if (Test-Path '${WIN_LOG_DIR}/inferoute-client.err.log') { Get-Content '${WIN_LOG_DIR}/inferoute-client.err.log' -Tail 50 }; Write-Output '--- log ---'; if (Test-Path '${WIN_LOG_DIR}/inferoute-client.log') { Get-Content '${WIN_LOG_DIR}/inferoute-client.log' -Tail 50 }" || true
+    die "client not ready after setup"
+  }
 
 step "client health"
 health=$(win_ps "curl.exe -s http://127.0.0.1:8080/api/health" | tr -d '\r')

@@ -68,6 +68,101 @@ function Stop-NamedProcess([string]$Name) {
     }
 }
 
+# OpenSSH on Windows puts the session in a job with KILL_ON_JOB_CLOSE.
+# Start-Process children stay in that job and die when this SSH session
+# ends — which is exactly after this script returns "ready". CreateProcess
+# with CREATE_BREAKAWAY_FROM_JOB is what the client's tray spawn uses.
+if (-not ([System.Management.Automation.PSTypeName]"E2E.Breakaway").Type) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace E2E {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct STARTUPINFO {
+    public int cb;
+    public string lpReserved;
+    public string lpDesktop;
+    public string lpTitle;
+    public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+    public short wShowWindow, cbReserved2;
+    public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct PROCESS_INFORMATION {
+    public IntPtr hProcess, hThread;
+    public int dwProcessId, dwThreadId;
+  }
+  public static class Breakaway {
+    public const uint CREATE_NEW_PROCESS_GROUP = 0x00000200;
+    public const uint CREATE_NO_WINDOW = 0x08000000;
+    public const uint CREATE_BREAKAWAY_FROM_JOB = 0x01000000;
+    public const uint DETACHED_PROCESS = 0x00000008;
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CreateProcess(
+      string app, StringBuilder cmd, IntPtr pa, IntPtr ta, bool inherit,
+      uint flags, IntPtr env, string cwd, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+    [DllImport("kernel32.dll", SetLastError = true)] public static extern bool CloseHandle(IntPtr h);
+  }
+}
+"@
+}
+
+function Start-BreakawayProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string]$ArgumentList = "",
+        [string]$WorkingDirectory = "",
+        [string]$RedirectStandardOutput = "",
+        [string]$RedirectStandardError = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        $WorkingDirectory = Split-Path -Parent $FilePath
+    }
+    $app = $FilePath
+    $cmdLine = "`"$FilePath`""
+    if (-not [string]::IsNullOrWhiteSpace($ArgumentList)) {
+        $cmdLine = "$cmdLine $ArgumentList"
+    }
+    if ($RedirectStandardOutput -or $RedirectStandardError) {
+        $launcherDir = Split-Path -Parent $RedirectStandardOutput
+        if ([string]::IsNullOrWhiteSpace($launcherDir)) { $launcherDir = $WorkingDirectory }
+        New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
+        $launcher = Join-Path $launcherDir ("e2e-launch-{0}.cmd" -f [IO.Path]::GetFileNameWithoutExtension($FilePath))
+        $out = if ($RedirectStandardOutput) { "> `"$RedirectStandardOutput`"" } else { "" }
+        $err = if ($RedirectStandardError) { "2> `"$RedirectStandardError`"" } else { "" }
+        $batch = @(
+            "@echo off"
+            "cd /d `"$WorkingDirectory`""
+            "`"$FilePath`" $ArgumentList $out $err"
+        )
+        $utf8 = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllLines($launcher, $batch, $utf8)
+        $app = Join-Path $env:SystemRoot "System32\cmd.exe"
+        $cmdLine = "`"$app`" /c `"$launcher`""
+    }
+    $flagSets = @(
+        ([E2E.Breakaway]::CREATE_NEW_PROCESS_GROUP -bor [E2E.Breakaway]::DETACHED_PROCESS -bor [E2E.Breakaway]::CREATE_NO_WINDOW -bor [E2E.Breakaway]::CREATE_BREAKAWAY_FROM_JOB),
+        ([E2E.Breakaway]::CREATE_NEW_PROCESS_GROUP -bor [E2E.Breakaway]::CREATE_NO_WINDOW -bor [E2E.Breakaway]::CREATE_BREAKAWAY_FROM_JOB),
+        ([E2E.Breakaway]::CREATE_NEW_PROCESS_GROUP -bor [E2E.Breakaway]::CREATE_NO_WINDOW)
+    )
+    $lastErr = 0
+    foreach ($flags in $flagSets) {
+        $si = New-Object E2E.STARTUPINFO
+        $si.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][E2E.STARTUPINFO])
+        $pi = New-Object E2E.PROCESS_INFORMATION
+        $sb = New-Object System.Text.StringBuilder $cmdLine
+        $ok = [E2E.Breakaway]::CreateProcess($app, $sb, [IntPtr]::Zero, [IntPtr]::Zero, $false, $flags, [IntPtr]::Zero, $WorkingDirectory, [ref]$si, [ref]$pi)
+        if ($ok) {
+            [E2E.Breakaway]::CloseHandle($pi.hProcess) | Out-Null
+            [E2E.Breakaway]::CloseHandle($pi.hThread) | Out-Null
+            return
+        }
+        $lastErr = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    }
+    throw "CreateProcess failed ($FilePath): Win32 $lastErr"
+}
+
 # Non-interactive SSH sessions don't load the user PATH. Prepend the usual
 # install locations so git/go/ollama/cloudflared/nvidia-smi resolve.
 Add-PathIfExists $E2E.GoBinDir
@@ -173,11 +268,13 @@ if (-not (Test-Path -LiteralPath $example)) {
 }
 Copy-Item -LiteralPath $example -Destination $configPath -Force
 $content = [System.IO.File]::ReadAllText($configPath)
+$logDirYaml = ($logDir -replace '\\', '/')
 $content = [regex]::Replace($content, '(?m)^(\s*port:\s*).*$', '${1}8080')
 $content = [regex]::Replace($content, '(?m)^(\s*api_key:\s*).*$', "`${1}`"$providerApiKey`"")
 $content = [regex]::Replace($content, '(?m)^(\s*url:\s*).*$', "`${1}`"$platformUrl`"")
 $content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', '${1}"ollama"')
 $content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$ollamaUrl`"")
+$content = [regex]::Replace($content, '(?m)^(\s*log_dir:\s*).*$', "`${1}`"$logDirYaml`"")
 Write-Utf8File $configPath $content
 Write-Ok "wrote $configPath (provider_type=ollama url=$platformUrl)"
 
@@ -187,7 +284,7 @@ if (-not (Test-HttpOk $ollamaTags)) {
     Write-Info "starting ollama serve"
     $ollamaExe = (Get-Command ollama).Source
     $ollamaLog = Join-Path $logDir "ollama.log"
-    Start-Process -FilePath $ollamaExe -ArgumentList @("serve") -WorkingDirectory $clientDir -WindowStyle Hidden `
+    Start-BreakawayProcess -FilePath $ollamaExe -ArgumentList "serve" -WorkingDirectory $clientDir `
         -RedirectStandardOutput $ollamaLog -RedirectStandardError (Join-Path $logDir "ollama.err.log")
     Wait-HttpOk "ollama" $ollamaTags 120
 } else {
@@ -211,7 +308,9 @@ while ((Get-Date) -lt $deadline) {
 if (-not $haveModel) { throw "ollama does not list $ollamaModel after pull" }
 Write-Ok "ollama has $ollamaModel"
 
-# --- inferoute-client (--console so it does not detach into the tray) --------
+# --- inferoute-client --------------------------------------------------------
+# --console: skip tray/systray (SSH sessions have no desktop). Must break
+# away from the OpenSSH job — Start-Process is killed when this session ends.
 Stop-NamedProcess "inferoute-client"
 # Leftover tunnel from a previous run; the new client starts its own.
 Stop-NamedProcess "cloudflared"
@@ -219,9 +318,9 @@ Stop-NamedProcess "cloudflared"
 $exe = Join-Path $clientDir "inferoute-client.exe"
 $clientLog = Join-Path $logDir "inferoute-client.log"
 $clientErr = Join-Path $logDir "inferoute-client.err.log"
-Write-Info "starting $exe --console --config $configPath"
-Start-Process -FilePath $exe -ArgumentList @("--console", "--config", $configPath) `
-    -WorkingDirectory $clientDir -WindowStyle Hidden `
+Write-Info "starting $exe --console --config $configPath (breakaway from SSH job)"
+Start-BreakawayProcess -FilePath $exe -ArgumentList "--console --config `"$configPath`"" `
+    -WorkingDirectory $clientDir `
     -RedirectStandardOutput $clientLog -RedirectStandardError $clientErr
 
 Wait-HttpOk "inferoute-client" "http://127.0.0.1:8080/api/health" 180 5
