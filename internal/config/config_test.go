@@ -66,10 +66,11 @@ func TestTunnelServiceURL(t *testing.T) {
 		port int
 		want string
 	}{
-		{name: "empty", host: "", port: 8080, want: "http://localhost:8080"},
-		{name: "all interfaces", host: "0.0.0.0", port: 8080, want: "http://localhost:8080"},
-		{name: "loopback v4", host: "127.0.0.1", port: 8080, want: "http://localhost:8080"},
-		{name: "loopback v6", host: "::1", port: 9090, want: "http://localhost:9090"},
+		{name: "empty", host: "", port: 8080, want: "http://127.0.0.1:8080"},
+		{name: "all interfaces", host: "0.0.0.0", port: 8080, want: "http://127.0.0.1:8080"},
+		{name: "loopback v4", host: "127.0.0.1", port: 8080, want: "http://127.0.0.1:8080"},
+		{name: "localhost alias", host: "localhost", port: 8080, want: "http://127.0.0.1:8080"},
+		{name: "loopback v6", host: "::1", port: 9090, want: "http://[::1]:9090"},
 		{name: "explicit LAN", host: "192.168.1.10", port: 8080, want: "http://192.168.1.10:8080"},
 	}
 	for _, tt := range tests {

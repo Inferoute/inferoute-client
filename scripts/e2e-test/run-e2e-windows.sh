@@ -4,7 +4,8 @@
 #   start VM -> wait for boot/SSH -> pull + rebuild client -> Ollama + config
 #   -> inference tests (Mac consumer, same suite as run-e2e.sh) -> stop VM
 #
-# Native Windows is Ollama-only (no vLLM). Same references/.env as run-e2e.sh.
+# Native Windows is Ollama-only (no vLLM). Same references/.env as run-e2e-linux.sh.
+# Mac Mini counterpart (Ollama only, Mini stays up): ./run-e2e-mac.sh
 #
 # The instance is ALWAYS stopped on exit (success, failure, or Ctrl-C) unless KEEP=1.
 #
