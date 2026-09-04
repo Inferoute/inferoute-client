@@ -5,7 +5,7 @@
 # Usage:
 #   $env:PROVIDER_API_KEY="your-key"; irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
 #
-# Optional env: PROVIDER_TYPE (default ollama), LLM_URL, SERVER_PORT (default 8080)
+# Optional env: PROVIDER_API_KEY, PROVIDER_TYPE, INFEROUTE_SKIP_SETUP=1
 
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -41,16 +41,9 @@ if (-not [Environment]::Is64BitOperatingSystem) {
     exit 1
 }
 
-$ProviderApiKey = $env:PROVIDER_API_KEY
-if ([string]::IsNullOrWhiteSpace($ProviderApiKey)) {
-    Write-Warn "PROVIDER_API_KEY is not set."
-    $ProviderApiKey = Read-Host "Enter your Inferoute provider API key"
-}
-if ([string]::IsNullOrWhiteSpace($ProviderApiKey)) {
-    Write-Err "PROVIDER_API_KEY is required. Get one from https://core.inferoute.com"
-    exit 1
-}
+$SkipSetup = $env:INFEROUTE_SKIP_SETUP -eq "1"
 
+$ProviderApiKey = $env:PROVIDER_API_KEY
 $ProviderType = $env:PROVIDER_TYPE
 if ([string]::IsNullOrWhiteSpace($ProviderType)) {
     $ProviderType = "ollama"
@@ -64,9 +57,11 @@ if ([string]::IsNullOrWhiteSpace($ServerPort)) {
 $LlmUrl = $env:LLM_URL
 if ([string]::IsNullOrWhiteSpace($LlmUrl)) {
     if ($ProviderType -eq "vllm") {
-        $LlmUrl = "http://localhost:8000"
+        $LlmUrl = "http://127.0.0.1:8000"
+    } elseif ($ProviderType -eq "freetoken") {
+        $LlmUrl = "http://127.0.0.1:1919"
     } else {
-        $LlmUrl = "http://localhost:11434"
+        $LlmUrl = "http://127.0.0.1:11434"
     }
 }
 
@@ -128,25 +123,44 @@ Write-Ok "inferoute-client installed."
 Add-UserPath $BinDir
 Write-Ok "Added $BinDir to your user PATH."
 
-Write-Info "Downloading config template..."
-$ExampleUrl = "https://raw.githubusercontent.com/inferoute/inferoute-client/main/config.yaml.example"
+$exe = Join-Path $BinDir "inferoute-client.exe"
 $ConfigPath = Join-Path $ConfigDir "config.yaml"
-try {
-    Invoke-WebRequest -Uri $ExampleUrl -OutFile $ConfigPath -UseBasicParsing
-} catch {
-    Write-Err "Failed to download config.yaml.example: $_"
-    exit 1
+
+if ($SkipSetup) {
+    if ([string]::IsNullOrWhiteSpace($ProviderApiKey)) {
+        Write-Err "PROVIDER_API_KEY is required when INFEROUTE_SKIP_SETUP=1"
+        exit 1
+    }
+    Write-Info "Downloading config template..."
+    $ExampleUrl = "https://raw.githubusercontent.com/inferoute/inferoute-client/main/config.yaml.example"
+    try {
+        Invoke-WebRequest -Uri $ExampleUrl -OutFile $ConfigPath -UseBasicParsing
+    } catch {
+        Write-Err "Failed to download config.yaml.example: $_"
+        exit 1
+    }
+    $content = [System.IO.File]::ReadAllText($ConfigPath)
+    $content = [regex]::Replace($content, '(?m)^(\s*port:\s*).*$', "`${1}$ServerPort")
+    $content = [regex]::Replace($content, '(?m)^(\s*api_key:\s*).*$', "`${1}`"$ProviderApiKey`"")
+    $content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', "`${1}`"$ProviderType`"")
+    $content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$LlmUrl`"")
+    Write-Utf8File $ConfigPath $content
+    Write-Ok "Configuration written."
+} else {
+    $setupArgs = @("setup", "--config", $ConfigPath)
+    if (-not [string]::IsNullOrWhiteSpace($ProviderApiKey)) {
+        $setupArgs += @("--api-key", $ProviderApiKey)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:PROVIDER_TYPE)) {
+        $setupArgs += @("--engine", $ProviderType)
+    }
+    Write-Info "Starting setup wizard..."
+    & $exe @setupArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Setup wizard exited with code $LASTEXITCODE. Re-run: inferoute-client setup"
+    }
 }
 
-$content = [System.IO.File]::ReadAllText($ConfigPath)
-$content = [regex]::Replace($content, '(?m)^(\s*port:\s*).*$', "`${1}$ServerPort")
-$content = [regex]::Replace($content, '(?m)^(\s*api_key:\s*).*$', "`${1}`"$ProviderApiKey`"")
-$content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', "`${1}`"$ProviderType`"")
-$content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$LlmUrl`"")
-Write-Utf8File $ConfigPath $content
-Write-Ok "Configuration written."
-
-$exe = Join-Path $BinDir "inferoute-client.exe"
 $Programs = [Environment]::GetFolderPath("Programs")
 $ShortcutDir = Join-Path $Programs "Inferoute"
 New-Item -ItemType Directory -Path $ShortcutDir -Force | Out-Null
@@ -171,9 +185,9 @@ Write-Host "  OR"
 Write-Host "  2. inferoute-client"
 Write-Host "     (open a new terminal so PATH updates apply; the prompt returns and the client stays in the tray)"
 Write-Host ""
+Write-Info "Re-run the wizard anytime:  inferoute-client setup"
 Write-Info "Right-click the Inferoute tray icon -> Open dashboard for live status."
 Write-Host "  inferoute-client --console   (terminal UI instead of tray)"
 Write-Host ""
-Write-Warn "Windows = Ollama. vLLM is not supported on native Windows."
-Write-Warn "Allow Windows Firewall if prompted. NVIDIA GPU metrics need nvidia-smi on PATH."
+Write-Warn "Windows: Ollama or FreeToken. Allow Windows Firewall if prompted. NVIDIA GPU metrics need nvidia-smi on PATH."
 Write-Warn "Unsigned download: SmartScreen may show 'Windows protected your PC' -> More info -> Run anyway."

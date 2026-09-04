@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -78,8 +79,8 @@ func NewClient(providerType string, baseURL string, timeout time.Duration) Clien
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	switch providerType {
-	case "vllm":
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "vllm", "vllm-metal", "freetoken":
 		return NewVLLMClient(baseURL, timeout)
 	default:
 		return NewOllamaClient(baseURL, timeout)

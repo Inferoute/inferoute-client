@@ -17,9 +17,13 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 - Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
 - `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
+- Linux/macOS `install.sh` no longer requires `PROVIDER_API_KEY` in the curl line. The wizard asks. Use `INFEROUTE_SKIP_SETUP=1` for the old env-only path.
 
 ### Added
 
+- `inferoute-client setup` walks through engine, model, and API key. Re-run anytime to update config. Install scripts launch it after placing the binary.
+- Auto-start: if `auto_start` is set, the client starts Ollama / vLLM / vLLM Metal / FreeToken when `llm_url` is down, then leaves that process running.
+- Windows wizard can silently install FreeToken (`FreeToken-Setup-win-x64.exe /S`) and locate `ft.exe`.
 - `scripts/e2e-test/run-cluster.sh` brings up Linux, Windows, and Mac Mini as three Ollama providers (same model), holds until Y/Ctrl-C, then pauses Windows + JarvisLab. Mini stays up. Per-machine keys: `PROVIDER_API_KEY_{LINUX,WINDOWS,MAC}`.
 
 ## [1.1.8] - 2026-09-30

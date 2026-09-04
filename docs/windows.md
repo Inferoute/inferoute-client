@@ -1,20 +1,19 @@
 # Setup: Windows
 
-Use this guide when you run the provider client natively on 64-bit Windows with [Ollama](https://ollama.com). vLLM is not supported on native Windows.
+Use this guide when you run the provider client natively on 64-bit Windows. The setup wizard offers **Ollama** or **FreeToken**. Native vLLM is not supported.
 
 ## Quick install (recommended)
 
-1. Install [Ollama for Windows](https://ollama.com) and pull at least one model.
-2. Get your provider API key from the [Inferoute platform](https://core.inferoute.com).
-3. In **PowerShell**:
+1. Get your provider API key from the [Inferoute platform](https://core.inferoute.com).
+2. In **PowerShell**:
 
    ```powershell
-   $env:PROVIDER_API_KEY="your-key"; irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
+   irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
    ```
 
-The script installs **cloudflared** and **inferoute-client** to `%LOCALAPPDATA%\inferoute\bin`, writes config to `%USERPROFILE%\.config\inferoute\config.yaml`, and adds that folder to your user **PATH**. It does **not** require Administrator.
+The script installs **cloudflared** and **inferoute-client** to `%LOCALAPPDATA%\inferoute\bin`, runs `inferoute-client setup`, and adds that folder to your user **PATH**. It does **not** require Administrator. Re-run `inferoute-client setup` anytime to change engine, model, or API key.
 
-4. Start the client from **Start Menu → Inferoute → Inferoute Client**, or from a **new** terminal:
+3. Start the client from **Start Menu → Inferoute → Inferoute Client**, or from a **new** terminal:
 
    ```powershell
    inferoute-client

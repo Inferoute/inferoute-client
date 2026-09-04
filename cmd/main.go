@@ -9,19 +9,20 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/setup"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/tray"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
@@ -42,9 +43,11 @@ Inferoute Client - A client for connecting to the Inferoute network
 
 Usage:
   inferoute-client [flags]
+  inferoute-client setup [flags]
   inferoute-client compatibility [flags]
 
 Commands:
+  setup           Interactive engine, model, and API key wizard (safe to re-run)
   compatibility   Detect local hardware and list which approved models can run
                   (does not start the provider daemon)
 
@@ -65,6 +68,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "compatibility" {
 		if err := compat.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "compatibility: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "setup" {
+		if err := setup.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -97,6 +107,24 @@ func main() {
 		os.Exit(0)
 	}
 
+	fatal := func(format string, args ...interface{}) {
+		msg := fmt.Sprintf(format, args...)
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(1)
+	}
+
+	if *configPath == "" {
+		resolved, err := resolveConfigPath()
+		if err != nil {
+			fatal("%s", err.Error())
+		}
+		*configPath = resolved
+	}
+
+	if err := maybeFirstRunSetup(*configPath); err != nil {
+		fatal("%s", err.Error())
+	}
+
 	useTray := tray.Supported() && !*consoleFlag
 	if *trayFlag && !tray.Supported() {
 		fmt.Fprintln(os.Stderr, "--tray is only supported on Windows; using console")
@@ -105,7 +133,7 @@ func main() {
 		return
 	}
 
-	fatal := func(format string, args ...interface{}) {
+	fatal = func(format string, args ...interface{}) {
 		msg := fmt.Sprintf(format, args...)
 		fmt.Fprintln(os.Stderr, msg)
 		if useTray {
@@ -114,39 +142,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *configPath == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			fatal("Failed to get user home directory: %v", err)
-		}
-
-		configLocations := []string{
-			filepath.Join(homeDir, ".config", "inferoute", "config.yaml"),
-			"config.yaml",
-		}
-
-		for _, location := range configLocations {
-			if _, err := os.Stat(location); err == nil {
-				*configPath = location
-				break
-			}
-		}
-
-		if *configPath == "" {
-			msg := "No configuration file found in standard locations:\n"
-			for _, location := range configLocations {
-				msg += fmt.Sprintf("  - %s\n", location)
-			}
-			fatal("%s", msg)
-		}
-	}
-
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fatal("Failed to load configuration: %v", err)
 	}
-	if strings.TrimSpace(cfg.Provider.APIKey) == "" || cfg.Provider.APIKey == "your_api_key_here" {
-		fatal("%s", usermsg.InvalidAPIKey)
+	if !cfg.HasAPIKey() {
+		fatal("%s\nOr run: inferoute-client setup", usermsg.InvalidAPIKey)
 	}
 
 	log, err := logger.New(&cfg.Logging)
@@ -160,6 +161,7 @@ func main() {
 		zap.String("config_path", *configPath),
 		zap.String("log_level", cfg.Logging.Level),
 		zap.String("log_dir", cfg.Logging.LogDir),
+		zap.String("engine", cfg.Provider.Engine),
 		zap.Bool("tray", useTray))
 
 	if useTray {
@@ -168,6 +170,15 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if cfg.Provider.AutoStart {
+		startCtx, startCancel := context.WithTimeout(ctx, engine.DefaultStartTimeout)
+		if err := engine.EnsureReady(startCtx, cfg, cfg.Logging.LogDir); err != nil {
+			logger.Warn("Local inference engine is not ready", zap.Error(err))
+			fmt.Fprintf(os.Stderr, "warning: inference engine not ready: %v\n", err)
+		}
+		startCancel()
+	}
 
 	gpuMonitor, err := gpu.NewMonitor()
 	if err != nil {
@@ -355,4 +366,44 @@ func main() {
 
 func isFatalServerErr(err error) bool {
 	return err != nil && !errors.Is(err, http.ErrServerClosed)
+}
+
+func resolveConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	locations := []string{
+		filepath.Join(homeDir, ".config", "inferoute", "config.yaml"),
+		"config.yaml",
+	}
+	for _, location := range locations {
+		if _, err := os.Stat(location); err == nil {
+			return location, nil
+		}
+	}
+	return locations[0], nil
+}
+
+func maybeFirstRunSetup(configPath string) error {
+	needs := false
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		needs = true
+	} else if err != nil {
+		return err
+	} else {
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			return err
+		}
+		needs = !cfg.HasAPIKey()
+	}
+	if !needs {
+		return nil
+	}
+	if !setup.IsInteractive() {
+		return fmt.Errorf("no valid configuration at %s\nRun: inferoute-client setup", configPath)
+	}
+	fmt.Println("No provider API key configured. Starting setup...")
+	return setup.Run([]string{"--config", configPath})
 }

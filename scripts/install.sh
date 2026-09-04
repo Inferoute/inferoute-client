@@ -268,68 +268,61 @@ else
     install_binary
 fi
 
-# Now handle config.yaml setup
+# Configuration: interactive wizard, or env-based when INFEROUTE_SKIP_SETUP=1
 echo -e "\n${BLUE}=== Configuration Setup ===${NC}"
 
-# Download config.yaml.example first
-echo -e "${BLUE}Downloading config.yaml.example...${NC}"
-curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
-echo -e "${GREEN}Configuration template downloaded.${NC}"
-
-# Get configuration values from environment variables
-PROVIDER_API_KEY=$(check_env_var "PROVIDER_API_KEY" "$PROVIDER_API_KEY" "")
-PROVIDER_TYPE=$(check_env_var "PROVIDER_TYPE" "$PROVIDER_TYPE" "ollama")
-
-# Set default LLM_URL based on provider type
-if [ "$PROVIDER_TYPE" = "vllm" ]; then
-    DEFAULT_LLM_URL="http://127.0.0.1:8000"
+if [ "${INFEROUTE_SKIP_SETUP:-0}" = "1" ]; then
+    echo -e "${YELLOW}INFEROUTE_SKIP_SETUP=1 — writing config from environment (no wizard).${NC}"
+    curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
+    PROVIDER_API_KEY="${PROVIDER_API_KEY:-}"
+    PROVIDER_TYPE="${PROVIDER_TYPE:-ollama}"
+    if [ "$PROVIDER_TYPE" = "vllm" ]; then
+        DEFAULT_LLM_URL="http://127.0.0.1:8000"
+    else
+        DEFAULT_LLM_URL="http://127.0.0.1:11434"
+    fi
+    LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "$DEFAULT_LLM_URL")
+    SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
+    if [ -z "$PROVIDER_API_KEY" ]; then
+        echo -e "${RED}Error: PROVIDER_API_KEY is required when INFEROUTE_SKIP_SETUP=1${NC}"
+        exit 1
+    fi
+    if [ "$(uname)" = "Darwin" ]; then
+        sed -i '' "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
+        sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
+        sed -i '' "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
+        sed -i '' "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
+    else
+        sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
+        sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
+        sed -i "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
+        sed -i "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
+    fi
+    echo -e "${GREEN}Configuration file written.${NC}"
 else
-    DEFAULT_LLM_URL="http://localhost:11434"
+    SETUP_ARGS=(setup --config "$CONFIG_DIR/config.yaml")
+    if [ -n "$PROVIDER_API_KEY" ]; then
+        SETUP_ARGS+=(--api-key "$PROVIDER_API_KEY")
+    fi
+    if [ -n "$PROVIDER_TYPE" ]; then
+        SETUP_ARGS+=(--engine "$PROVIDER_TYPE")
+    fi
+    if [ -r /dev/tty ]; then
+        echo -e "${BLUE}Starting setup wizard...${NC}"
+        inferoute-client "${SETUP_ARGS[@]}" </dev/tty
+    else
+        echo -e "${YELLOW}No TTY detected. Run the wizard next:${NC}"
+        echo -e "  ${YELLOW}inferoute-client setup${NC}"
+    fi
 fi
-
-LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "$DEFAULT_LLM_URL")
-SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
-
-# Verify required configuration
-if [ -z "$PROVIDER_API_KEY" ]; then
-    echo -e "${RED}Error: PROVIDER_API_KEY environment variable is required${NC}"
-    echo -e "Please set it before running the install script:"
-    echo -e "export PROVIDER_API_KEY=\"your-api-key\""
-    exit 1
-fi
-
-echo -e "${GREEN}Cloudflared is installed and configuration is ready.${NC}"
-echo -e "${BLUE}Note: Cloudflare tunnel will be automatically started by the inferoute-client.${NC}"
-
-# Update configuration values
-echo -e "${BLUE}Updating configuration values...${NC}"
-if [ "$(uname)" = "Darwin" ]; then
-    # macOS version
-    sed -i '' "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
-    sed -i '' "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
-else
-    # Linux version
-    sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
-    sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
-    sed -i "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
-fi
-
-echo -e "${GREEN}Configuration file updated successfully.${NC}"
 
 echo -e "\n${GREEN}Installation complete!${NC}"
-echo -e "\n${BLUE}Cloudflare tunnel setup:${NC}"
-echo -e "Tunnel will be automatically managed by inferoute-client (targets proxy at http://localhost:$SERVER_PORT)"
-echo -e "API Key: ${YELLOW}${PROVIDER_API_KEY:0:8}...${NC}"
-
 echo -e "\n${BLUE}INFEROUTE Files:${NC}"
 echo -e "Config file: $CONFIG_DIR/config.yaml"
 echo -e "Log directory: $LOG_DIR"
 
-echo -e "\n${BLUE}INFEROUTE Start Command (Defaults to $CONFIG_DIR/config.yaml ):${NC}"
-echo -e "${YELLOW}inferoute-client${NC}"
-echo -e "Start with specific config:  ${YELLOW}inferoute-client --config $CONFIG_DIR/config.yaml${NC}"
+echo -e "\n${BLUE}Start the client:${NC}"
+echo -e "  ${YELLOW}inferoute-client${NC}"
+echo -e "Re-run the wizard anytime:  ${YELLOW}inferoute-client setup${NC}"
 
 

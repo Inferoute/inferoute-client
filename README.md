@@ -8,8 +8,9 @@ The Inferoute Provider Client is a lightweight Go service that runs on vllm or O
 | Platform | GPU | LLM backend |
 |----------|-----|-------------|
 | **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | Ollama or vLLM |
-| **macOS** (Intel or Apple Silicon) | Basic info via `system_profiler` | Ollama (typical) |
-| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | **Ollama** |
+| **macOS** (Apple Silicon) | Basic info via `system_profiler` | Ollama or vLLM Metal |
+| **macOS** (Intel) | Basic info via `system_profiler` | Ollama |
+| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | Ollama or FreeToken |
 
 
 
@@ -27,36 +28,37 @@ The Inferoute Provider Client is a lightweight Go service that runs on vllm or O
 
 #### Linux / macOS one-liner
 
-Works on Linux (amd64/arm64) and macOS (Intel and Apple Silicon):
+Works on Linux (amd64/arm64) and macOS (Intel and Apple Silicon). The wizard asks for your API key, engine, and model:
 
 ```bash
-PROVIDER_API_KEY="your-key" curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
+
+Re-run the wizard anytime: `inferoute-client setup`.
 
 On macOS, the script installs `cloudflared` via Homebrew when available, otherwise downloads the native binary for your architecture.
 
 #### Windows (PowerShell)
 
-Requires 64-bit Windows. Ollama should already be installed.
+Requires 64-bit Windows. The wizard offers Ollama or FreeToken.
 
 ```powershell
-$env:PROVIDER_API_KEY="your-key"; irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
+irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
 ```
 
-Optional: `$env:PROVIDER_TYPE="ollama"`, `$env:LLM_URL="http://localhost:11434"`, `$env:SERVER_PORT="8080"`.
-
-The script installs `cloudflared` and `inferoute-client` to `%LOCALAPPDATA%\inferoute\bin`, writes `%USERPROFILE%\.config\inferoute\config.yaml`, and adds a **Start Menu → Inferoute → Inferoute Client** shortcut. On Windows the client runs in the notification area by default — closing the terminal does not stop it. See [docs/windows.md](docs/windows.md).
+The script installs `cloudflared` and `inferoute-client` to `%LOCALAPPDATA%\inferoute\bin`, runs setup, and adds a **Start Menu → Inferoute → Inferoute Client** shortcut. On Windows the client runs in the notification area by default — closing the terminal does not stop it. See [docs/windows.md](docs/windows.md).
 
 Or download `scripts/windows-install.bat` and double-click it (no administrator prompt).
 
-#### Manual Environment Variables
+#### Skip the wizard
+
 ```bash
+export INFEROUTE_SKIP_SETUP=1
 export PROVIDER_API_KEY="your-provider-api-key"
 export PROVIDER_TYPE="ollama"  # or "vllm"
-export LLM_URL="http://localhost:11434"  # or "http://localhost:8000" for vllm
+export LLM_URL="http://127.0.0.1:11434"
 export SERVER_PORT="8080"
 
-# Then run the install script
 curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
 
@@ -78,6 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 Works on **Linux + NVIDIA** (`nvidia-smi`), **Windows + NVIDIA** (`nvidia-smi`), and **macOS** (Apple Silicon unified memory via `sysctl` / `system_profiler`). Does **not** start the provider daemon and does not need an API key.
 
 ```bash
+inferoute-client setup
 inferoute-client compatibility
 inferoute-client compatibility --provider-type ollama
 inferoute-client compatibility --provider-type vllm

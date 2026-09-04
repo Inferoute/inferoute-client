@@ -1,0 +1,23 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "1",
+      "alias": "gguf/qwen3:0.6b",
+      "service_type": "ollama",
+      "display_name": "Qwen3 0.6B",
+      "min_size_bytes": 1000000,
+      "is_active": true
+    },
+    {
+      "id": "2",
+      "alias": "Qwen/Qwen3-0.6B",
+      "service_type": "vllm",
+      "display_name": "Qwen3 0.6B",
+      "hf_repo": "Qwen/Qwen3-0.6B",
+      "hf_ref": "main",
+      "min_size_bytes": 1000000,
+      "is_active": true
+    }
+  ]
+}

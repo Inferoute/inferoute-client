@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -32,9 +33,18 @@ type Config struct {
 		APIKey       string `yaml:"api_key"`
 		URL          string `yaml:"url"`
 		ProviderType string `yaml:"provider_type"`
-		LLMURL       string `yaml:"llm_url"`
-		HFHubCache   string `yaml:"hf_hub_cache"` // optional; default ~/.cache/huggingface/hub
-		ModelPath    string `yaml:"model_path"`   // optional flat dir override (hf download --local-dir)
+		// Engine is the local inference binary: ollama, vllm, vllm-metal, freetoken.
+		// Empty defaults from ProviderType so existing configs keep working.
+		Engine string `yaml:"engine,omitempty"`
+		// EngineBin is an absolute path when the binary is not on PATH (Windows FreeToken).
+		EngineBin string `yaml:"engine_bin,omitempty"`
+		LLMURL    string `yaml:"llm_url"`
+		// Model is the catalog alias (or HF repo) used to start the engine.
+		Model string `yaml:"model,omitempty"`
+		// AutoStart, when true, starts the engine if llm_url is down.
+		AutoStart  bool   `yaml:"auto_start"`
+		HFHubCache string `yaml:"hf_hub_cache,omitempty"` // optional; default ~/.cache/huggingface/hub
+		ModelPath  string `yaml:"model_path,omitempty"`   // optional flat dir override (hf download --local-dir)
 		// LLMTimeoutSeconds is the timeout for requests forwarded to the
 		// local vLLM/Ollama instance. Default 120, aligned with the
 		// orchestrator's sticky inference timeout.
@@ -77,17 +87,91 @@ func Load(path string) (*Config, error) {
 		// If file doesn't exist, use default configuration
 		if os.IsNotExist(err) {
 			fmt.Printf("Configuration file %s not found, using defaults\n", path)
+			cfg.normalize()
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("failed to read configuration file: %w", err)
 	}
 
-	// Parse YAML
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse configuration file: %w", err)
 	}
 
+	cfg.normalize()
 	return cfg, nil
+}
+
+func (c *Config) normalize() {
+	c.Provider.ProviderType = strings.ToLower(strings.TrimSpace(c.Provider.ProviderType))
+	c.Provider.Engine = strings.ToLower(strings.TrimSpace(c.Provider.Engine))
+	c.Provider.EngineBin = strings.TrimSpace(c.Provider.EngineBin)
+	c.Provider.Model = strings.TrimSpace(c.Provider.Model)
+	if c.Provider.Engine != "" {
+		c.Provider.ProviderType = PlatformType(c.Provider.Engine)
+		return
+	}
+	switch c.Provider.ProviderType {
+	case "vllm":
+		c.Provider.Engine = "vllm"
+	default:
+		c.Provider.Engine = "ollama"
+		if c.Provider.ProviderType == "" {
+			c.Provider.ProviderType = "ollama"
+		}
+	}
+}
+
+// PlatformType is the Inferoute provider_type for a local engine.
+func PlatformType(engine string) string {
+	if strings.EqualFold(strings.TrimSpace(engine), "ollama") {
+		return "ollama"
+	}
+	return "vllm"
+}
+
+// DefaultLLMURL is the loopback URL for an engine.
+func DefaultLLMURL(engine string) string {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "ollama":
+		return "http://127.0.0.1:11434"
+	case "freetoken":
+		return "http://127.0.0.1:1919"
+	default:
+		return "http://127.0.0.1:8000"
+	}
+}
+
+// DefaultPath is ~/.config/inferoute/config.yaml.
+func DefaultPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("user home directory: %w", err)
+	}
+	return filepath.Join(home, ".config", "inferoute", "config.yaml"), nil
+}
+
+// HasAPIKey reports whether api_key is set to a real value.
+func (c *Config) HasAPIKey() bool {
+	k := strings.TrimSpace(c.Provider.APIKey)
+	return k != "" && k != "your_api_key_here"
+}
+
+// Save writes cfg to path, creating the parent directory.
+func Save(path string, cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal configuration: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write configuration file: %w", err)
+	}
+	return nil
 }
 
 // SessionQueueWait is the bounded wait for same-session queued requests.
