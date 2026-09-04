@@ -11,6 +11,7 @@ import (
 )
 
 func TestExecuteYesWritesConfig(t *testing.T) {
+	t.Setenv("INFEROUTE_URL", "")
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	catalog := filepath.Join("testdata", "catalog.json")
@@ -42,7 +43,7 @@ func TestExecuteYesWritesConfig(t *testing.T) {
 	if cfg.Provider.Model != "gguf/qwen3:0.6b" {
 		t.Errorf("model = %q", cfg.Provider.Model)
 	}
-	if cfg.Provider.URL != coreURL {
+	if cfg.Provider.URL != config.DefaultPlatformURL {
 		t.Errorf("url = %q", cfg.Provider.URL)
 	}
 	if !strings.Contains(out.String(), "inferoute-client setup") {
@@ -155,5 +156,61 @@ func TestExecuteRerunKeepsServerPort(t *testing.T) {
 	}
 	if cfg.Provider.APIKey != "second-key" || cfg.Provider.Engine != "vllm" {
 		t.Errorf("key/engine = %q/%q", cfg.Provider.APIKey, cfg.Provider.Engine)
+	}
+}
+
+func TestExecuteURLFromEnv(t *testing.T) {
+	t.Setenv("INFEROUTE_URL", "https://dev.inferoute.example")
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	var out bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		Engine:         "ollama",
+		Model:          "gguf/qwen3:0.6b",
+		APIKey:         "k",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		Yes:            true,
+		NoStart:        true,
+	}, Streams{In: strings.NewReader(""), Out: &out, Err: &out})
+	if err != nil {
+		t.Fatalf("Execute: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "https://dev.inferoute.example") {
+		t.Errorf("stdout should show override URL: %s", out.String())
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.URL != "https://dev.inferoute.example" {
+		t.Errorf("url = %q", cfg.Provider.URL)
+	}
+}
+
+func TestExecuteCatalogURLFlagBeatsEnv(t *testing.T) {
+	t.Setenv("INFEROUTE_URL", "https://env.example")
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	var out bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		Engine:         "ollama",
+		Model:          "gguf/qwen3:0.6b",
+		APIKey:         "k",
+		CatalogURL:     "https://flag.example",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		Yes:            true,
+		NoStart:        true,
+	}, Streams{In: strings.NewReader(""), Out: &out, Err: &out})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.URL != "https://flag.example" {
+		t.Errorf("url = %q, want flag", cfg.Provider.URL)
 	}
 }

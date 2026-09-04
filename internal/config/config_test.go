@@ -202,3 +202,29 @@ func TestPlatformTypeAndDefaultURL(t *testing.T) {
 		t.Errorf("DefaultLLMURL(freetoken) = %q", got)
 	}
 }
+
+func TestResolvePlatformURL(t *testing.T) {
+	t.Setenv(EnvPlatformURL, "")
+	if got := ResolvePlatformURL("", ""); got != DefaultPlatformURL {
+		t.Errorf("empty = %q", got)
+	}
+	if got := ResolvePlatformURL("https://flag.example/", "https://cfg.example"); got != "https://flag.example" {
+		t.Errorf("flag = %q", got)
+	}
+	if got := ResolvePlatformURL("", "http://localhost:80"); got != DefaultPlatformURL {
+		t.Errorf("placeholder config = %q", got)
+	}
+	t.Setenv(EnvPlatformURL, "https://env.example/")
+	if got := ResolvePlatformURL("", "https://cfg.example"); got != "https://env.example" {
+		t.Errorf("env = %q", got)
+	}
+	if got := ResolvePlatformURL("https://flag.example", "https://cfg.example"); got != "https://flag.example" {
+		t.Errorf("flag beats env = %q", got)
+	}
+	cfg := &Config{}
+	cfg.Provider.URL = "https://cfg.example"
+	ApplyEnvOverrides(cfg)
+	if cfg.Provider.URL != "https://env.example" {
+		t.Errorf("ApplyEnvOverrides = %q", cfg.Provider.URL)
+	}
+}

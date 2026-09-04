@@ -60,12 +60,12 @@ func fetchCatalogOnce(ctx context.Context, client *http.Client, base, serviceTyp
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch catalog: %w", err)
+		return nil, fmt.Errorf("fetch catalog %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("catalog returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%s returned %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var list struct {

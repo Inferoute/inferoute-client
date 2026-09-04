@@ -19,12 +19,17 @@ Flags:
   --engine string        ollama, vllm, vllm-metal, or freetoken
   --model string         Catalog alias to serve
   --api-key string       Provider API key (or PROVIDER_API_KEY)
+  --url string           Inferoute API base (alias: --catalog-url)
   --catalog-url string   Inferoute API base (default: https://core.inferoute.com)
   --offline-catalog path Load catalog JSON from a file
   --yes                  Non-interactive: require --engine, --model, --api-key
   --install              Install the engine if it is missing (--yes does not install)
   --no-start             Do not start the engine after writing config
   --help                 Show this help
+
+Env:
+  INFEROUTE_URL          Override Inferoute API base (also used by first-run setup)
+  PROVIDER_API_KEY       Default for --api-key
 `
 
 // Options configures the setup wizard.
@@ -45,12 +50,13 @@ func Run(args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 
-	opts := Options{CatalogURL: "https://core.inferoute.com"}
+	opts := Options{}
 	fs.StringVar(&opts.ConfigPath, "config", "", "Path to configuration file")
 	fs.StringVar(&opts.Engine, "engine", "", "Engine: ollama, vllm, vllm-metal, freetoken")
 	fs.StringVar(&opts.Model, "model", "", "Catalog alias")
 	fs.StringVar(&opts.APIKey, "api-key", "", "Provider API key")
-	fs.StringVar(&opts.CatalogURL, "catalog-url", "https://core.inferoute.com", "Inferoute catalog base URL")
+	fs.StringVar(&opts.CatalogURL, "url", "", "Inferoute API base URL")
+	fs.StringVar(&opts.CatalogURL, "catalog-url", "", "Inferoute API base URL")
 	fs.StringVar(&opts.OfflineCatalog, "offline-catalog", "", "Path to offline approved-builds JSON")
 	fs.BoolVar(&opts.Yes, "yes", false, "Non-interactive")
 	fs.BoolVar(&opts.Install, "install", false, "Install the engine if missing")

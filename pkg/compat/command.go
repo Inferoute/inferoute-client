@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
@@ -19,7 +20,7 @@ Does not start the provider daemon. Does not require an API key.
 
 Flags:
   --provider-type string   Filter catalog: ollama, vllm, or empty for both (default: both)
-  --catalog-url string     Inferoute API base URL (default: https://core.inferoute.com)
+  --catalog-url string     Inferoute API base URL (default: https://core.inferoute.com, or INFEROUTE_URL)
   --offline-catalog path   Load catalog JSON from a local file instead of the network
   --json                   Emit machine-readable JSON
   --show-too-large         Include too_large models in table/JSON model list (default: true)
@@ -41,11 +42,10 @@ func Run(args []string) error {
 	fs.SetOutput(os.Stderr)
 
 	opts := Options{
-		CatalogURL:   defaultCatalogURL,
 		ShowTooLarge: true,
 	}
 	fs.StringVar(&opts.ProviderType, "provider-type", "", "Filter by provider type: ollama, vllm, or empty for both")
-	fs.StringVar(&opts.CatalogURL, "catalog-url", defaultCatalogURL, "Inferoute catalog base URL")
+	fs.StringVar(&opts.CatalogURL, "catalog-url", "", "Inferoute catalog base URL")
 	fs.StringVar(&opts.OfflineCatalog, "offline-catalog", "", "Path to offline approved-builds JSON")
 	fs.BoolVar(&opts.JSON, "json", false, "Emit JSON output")
 	showTooLarge := fs.Bool("show-too-large", true, "Include too_large models in the model list")
@@ -75,6 +75,9 @@ func Run(args []string) error {
 		return fmt.Errorf("--provider-type must be ollama, vllm, or empty")
 	}
 	opts.ProviderType = pt
+	if opts.CatalogURL == "" {
+		opts.CatalogURL = config.ResolvePlatformURL("", "")
+	}
 
 	return Execute(opts)
 }

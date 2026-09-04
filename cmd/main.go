@@ -146,6 +146,7 @@ func main() {
 	if err != nil {
 		fatal("Failed to load configuration: %v", err)
 	}
+	config.ApplyEnvOverrides(cfg)
 	if !cfg.HasAPIKey() {
 		fatal("%s\nOr run: inferoute-client setup", usermsg.InvalidAPIKey)
 	}
@@ -162,6 +163,7 @@ func main() {
 		zap.String("log_level", cfg.Logging.Level),
 		zap.String("log_dir", cfg.Logging.LogDir),
 		zap.String("engine", cfg.Provider.Engine),
+		zap.String("platform_url", cfg.Provider.URL),
 		zap.Bool("tray", useTray))
 
 	if useTray {

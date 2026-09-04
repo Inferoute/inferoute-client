@@ -11,6 +11,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultPlatformURL is the production Inferoute API.
+const DefaultPlatformURL = "https://core.inferoute.com"
+
+// EnvPlatformURL is the testing override for the Inferoute API base.
+const EnvPlatformURL = "INFEROUTE_URL"
+
 // Config represents the application configuration
 type Config struct {
 	// Server configuration
@@ -66,7 +72,7 @@ func Load(path string) (*Config, error) {
 	cfg.Server.MaxConcurrentInference = 1
 	cfg.Server.SessionQueueWaitSeconds = 90
 	cfg.Server.RequestTimeoutSeconds = 240
-	cfg.Provider.URL = "http://localhost:80"
+	cfg.Provider.URL = DefaultPlatformURL
 	cfg.Provider.ProviderType = "ollama"
 	cfg.Provider.LLMURL = "http://localhost:11434"
 	cfg.Provider.LLMTimeoutSeconds = 120
@@ -207,4 +213,35 @@ func (c *Config) TunnelServiceURL() string {
 // LocalDashboardURL is the loopback URL for the in-process status page.
 func (c *Config) LocalDashboardURL() string {
 	return fmt.Sprintf("http://127.0.0.1:%d/", c.Server.Port)
+}
+
+// PlatformURLFromEnv returns INFEROUTE_URL when set.
+func PlatformURLFromEnv() string {
+	return strings.TrimRight(strings.TrimSpace(os.Getenv(EnvPlatformURL)), "/")
+}
+
+// ResolvePlatformURL picks the Inferoute API base.
+// Order: explicit flag, INFEROUTE_URL, existing config, production default.
+func ResolvePlatformURL(explicit, fromConfig string) string {
+	if v := strings.TrimRight(strings.TrimSpace(explicit), "/"); v != "" {
+		return v
+	}
+	if v := PlatformURLFromEnv(); v != "" {
+		return v
+	}
+	v := strings.TrimRight(strings.TrimSpace(fromConfig), "/")
+	if v != "" && v != "http://localhost:80" {
+		return v
+	}
+	return DefaultPlatformURL
+}
+
+// ApplyEnvOverrides applies process env on top of a loaded config.
+func ApplyEnvOverrides(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	if u := PlatformURLFromEnv(); u != "" {
+		cfg.Provider.URL = u
+	}
 }

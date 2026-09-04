@@ -21,6 +21,8 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 ### Added
 
+- Setup shows a spinner while fetching the approved-model catalog, including the API URL it is calling.
+- `INFEROUTE_URL` / `setup --url` override the Inferoute API base (catalog + `provider.url`). Flag wins over env.
 - `inferoute-client setup` walks through engine, model, and API key. Re-run anytime to update config. Install scripts launch it after placing the binary.
 - Auto-start: if `auto_start` is set, the client starts Ollama / vLLM / vLLM Metal / FreeToken when `llm_url` is down, then leaves that process running.
 - Windows wizard can silently install FreeToken (`FreeToken-Setup-win-x64.exe /S`) and locate `ft.exe`.

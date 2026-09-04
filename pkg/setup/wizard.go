@@ -13,8 +13,6 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
-const coreURL = "https://core.inferoute.com"
-
 // Execute runs the setup wizard.
 func Execute(opts Options, io Streams) error {
 	if io.Out == nil {
@@ -38,8 +36,12 @@ func Execute(opts Options, io Streams) error {
 		return err
 	}
 
+	platformURL := config.ResolvePlatformURL(opts.CatalogURL, cfg.Provider.URL)
+	cfg.Provider.URL = platformURL
+
 	fmt.Fprintln(io.Out, "=== Inferoute Client Setup ===")
-	fmt.Fprintf(io.Out, "Config: %s\n\n", path)
+	fmt.Fprintf(io.Out, "Config: %s\n", path)
+	fmt.Fprintf(io.Out, "API:    %s\n\n", platformURL)
 
 	if err := applyAPIKey(cfg, opts, io); err != nil {
 		return err
@@ -78,7 +80,7 @@ func Execute(opts Options, io Streams) error {
 		fmt.Fprintf(io.Out, "Found %s at %s\n", kind, detected.Bin)
 	}
 
-	entry, err := applyModel(cfg, opts, kind, io)
+	entry, err := applyModel(cfg, opts, kind, platformURL, io)
 	if err != nil {
 		return err
 	}
@@ -87,9 +89,6 @@ func Execute(opts Options, io Streams) error {
 	cfg.Provider.ProviderType = engine.PlatformType(kind)
 	cfg.Provider.LLMURL = engine.DefaultURL(kind)
 	cfg.Provider.AutoStart = autoStart && detected.Found
-	if strings.TrimSpace(cfg.Provider.URL) == "" || cfg.Provider.URL == "http://localhost:80" {
-		cfg.Provider.URL = coreURL
-	}
 
 	hfRepo := engine.HFRepo(entry)
 	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo)
@@ -118,7 +117,7 @@ func loadOrFresh(path string) (*config.Config, error) {
 		cfg.Server.MaxConcurrentInference = 1
 		cfg.Server.SessionQueueWaitSeconds = 90
 		cfg.Server.RequestTimeoutSeconds = 240
-		cfg.Provider.URL = coreURL
+		cfg.Provider.URL = config.DefaultPlatformURL
 		cfg.Provider.LLMTimeoutSeconds = 120
 		cfg.Logging.Level = "info"
 		cfg.Logging.MaxSize = 100
@@ -201,7 +200,7 @@ func applyEngine(cfg *config.Config, opts Options, io Streams) (engine.Kind, err
 	return selectable[choice-1].Kind, nil
 }
 
-func applyModel(cfg *config.Config, opts Options, kind engine.Kind, io Streams) (verify.CatalogEntry, error) {
+func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL string, io Streams) (verify.CatalogEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
@@ -210,10 +209,18 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, io Streams) 
 	if opts.OfflineCatalog != "" {
 		entries, err = compat.LoadOfflineCatalog(opts.OfflineCatalog, engine.CatalogType(kind))
 	} else {
-		entries, err = compat.FetchCatalog(ctx, opts.CatalogURL, engine.CatalogType(kind))
+		msg := fmt.Sprintf("Fetching approved models from %s", platformURL)
+		err = spinWhile(io.Out, msg, func() error {
+			var fetchErr error
+			entries, fetchErr = compat.FetchCatalog(ctx, platformURL, engine.CatalogType(kind))
+			return fetchErr
+		})
+		if err == nil {
+			fmt.Fprintf(io.Out, "Loaded %d models from %s\n", len(entries), platformURL)
+		}
 	}
 	if err != nil {
-		return verify.CatalogEntry{}, fmt.Errorf("catalog: %w", err)
+		return verify.CatalogEntry{}, fmt.Errorf("catalog from %s: %w\nSet %s or --catalog-url to a reachable Inferoute API, or pass --offline-catalog", platformURL, err, config.EnvPlatformURL)
 	}
 
 	hw, hwErr := compat.Detect()
