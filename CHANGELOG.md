@@ -7,6 +7,8 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 ### Fixed
 
+- Cluster Ctrl-C now kills the per-machine runners. Background jobs were ignoring SIGINT, so JarvisLab wait loops kept printing after the prompt.
+- JarvisLab resume treats "No free GPUs" / non-zero `jl resume` as a retry, not success — GPU fallback (H200 etc.) actually runs.
 - Cloudflare tunnel origin now uses `http://127.0.0.1:<port>` instead of `localhost`. On macOS `localhost` is `::1` first, the client listens on IPv4 only, and inference through the tunnel 502s (Linux/Windows were fine).
 - Windows: `nvidia-smi` (and `cloudflared`) no longer flash a console window. The dashboard polls GPU status every few seconds; those child processes now start with `CREATE_NO_WINDOW`.
 - A wrong or missing provider API key now fails startup with a clear message instead of a generic platform **500**.
@@ -15,6 +17,10 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 - Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
 - `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
+
+### Added
+
+- `scripts/e2e-test/run-cluster.sh` brings up Linux, Windows, and Mac Mini as three Ollama providers (same model), holds until Y/Ctrl-C, then pauses Windows + JarvisLab. Mini stays up. Per-machine keys: `PROVIDER_API_KEY_{LINUX,WINDOWS,MAC}`.
 
 ## [1.1.8] - 2026-09-30
 

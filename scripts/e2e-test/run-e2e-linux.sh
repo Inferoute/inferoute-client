@@ -14,11 +14,12 @@
 # The instance is ALWAYS paused on exit (success, failure, or Ctrl-C) unless KEEP=1.
 #
 # Usage:
-#   ./run-e2e.sh                 # full run (vLLM + Ollama), pause at the end
-#   KEEP=1 ./run-e2e.sh          # leave instance running for debugging
-#   RUN_OLLAMA=0 ./run-e2e.sh    # vLLM only
-#   RUN_VLLM=0 ./run-e2e.sh      # Ollama only
-#   ./run-e2e.sh teardown        # just pause the instance and exit
+#   ./run-e2e-linux.sh                 # full run (vLLM + Ollama), pause at the end
+#   KEEP=1 ./run-e2e-linux.sh          # leave instance running for debugging
+#   RUN_OLLAMA=0 ./run-e2e-linux.sh    # vLLM only
+#   RUN_VLLM=0 ./run-e2e-linux.sh      # Ollama only
+#   SKIP_TESTS=1 KEEP=1 ./run-e2e-linux.sh  # bring up, skip inference suite (used by run-cluster.sh)
+#   ./run-e2e-linux.sh teardown        # just pause the instance and exit
 #
 # Windows GCE counterpart (Ollama only, same .env): ./run-e2e-windows.sh
 # Mac Mini counterpart (Ollama only, same .env):    ./run-e2e-mac.sh
@@ -78,6 +79,10 @@ KEEP="${KEEP:-0}"
 STARTED_NGROK=0
 OVERALL=0
 TUNNEL=""
+RESUME_ATTEMPTS="${RESUME_ATTEMPTS:-8}"
+RESUME_RETRY_SEC="${RESUME_RETRY_SEC:-20}"
+# Tried in order after the instance's original GPU. Override in .env.
+JL_GPU_FALLBACK="${JL_GPU_FALLBACK:-L4,A5000,RTX6000,A6000}"
 
 log()  { printf '\n\033[1;36m[e2e] %s\033[0m\n' "$*"; }
 step() { printf '\033[1;35m[e2e] ── %s\033[0m\n' "$*"; }
@@ -91,6 +96,7 @@ finish() {
     warn "KEEP=1 — leaving JarvisLab $JL_MACHINE_ID running (pause manually: jl pause $JL_MACHINE_ID --yes)"
   else
     log "Pausing JarvisLab $JL_MACHINE_ID"
+    refresh_machine_id
     jl pause "$JL_MACHINE_ID" --yes || warn "pause FAILED — run: jl pause $JL_MACHINE_ID --yes"
   fi
   [ "$STARTED_NGROK" = "1" ] && { log "Stopping ngrok (we started it)"; pkill -f "ngrok http" 2>/dev/null || true; }
@@ -98,10 +104,18 @@ finish() {
   exit "$code"
 }
 
+refresh_machine_id() {
+  local id
+  id=$(resolve_machine_id)
+  [ -n "$id" ] && JL_MACHINE_ID="$id"
+}
+
 # 'teardown' shortcut: just pause and exit.
 if [ "${1:-}" = "teardown" ]; then
+  refresh_machine_id
   log "Teardown: pausing $JL_MACHINE_ID"
-  jl pause "$JL_MACHINE_ID" --yes
+  jl pause "$JL_MACHINE_ID" --yes \
+    || warn "pause failed — instance already gone? (jl pause $JL_MACHINE_ID --yes)"
   exit 0
 fi
 
@@ -177,12 +191,16 @@ run_client_phase() {
   step "[$label] provider health (DB)"
   wait_provider_green
 
-  step "[$label] inference tests (alias=$alias)"
-  if SKIP_WAIT=1 MODEL_ALIAS="$alias" bash "$SCRIPT_DIR/references/test-inference.sh"; then
-    log "[$label] TESTS PASSED"
+  if [ "${SKIP_TESTS:-0}" = "1" ]; then
+    log "[$label] SKIP_TESTS=1 — leaving client up (no inference suite)"
   else
-    OVERALL=1
-    warn "[$label] TESTS FAILED"
+    step "[$label] inference tests (alias=$alias)"
+    if SKIP_WAIT=1 MODEL_ALIAS="$alias" bash "$SCRIPT_DIR/references/test-inference.sh"; then
+      log "[$label] TESTS PASSED"
+    else
+      OVERALL=1
+      warn "[$label] TESTS FAILED"
+    fi
   fi
 }
 
@@ -205,21 +223,74 @@ log "ngrok tunnel started: $INFEROUTE_PLATFORM_URL"
 # Pause always runs from here on.
 trap finish EXIT INT TERM
 
-# ── 2. resume JarvisLab (handles instance-id rotation) ───────────────────────
+# ── 2. resume JarvisLab (handles instance-id rotation + GPU capacity) ────────
+# Capacity / stale-id errors we retry with the next GPU. Anything else is fatal.
+resume_rejected() {
+  printf '%s' "$1" | grep -qiE 'not available|No free|Try again later|Instance creation failed|Invalid Machine|Request Connection failed|out of stock|capacity'
+}
+
+apply_resume_id() {
+  local out=$1 new_id
+  refresh_machine_id
+  new_id=$(printf '%s' "$out" | grep -i "changed" | grep -oE '[0-9]{4,}' | tail -1 || true)
+  if [ -n "$new_id" ] && [ "$new_id" != "$JL_MACHINE_ID" ]; then
+    log "instance id rotated: $JL_MACHINE_ID -> $new_id"
+    JL_MACHINE_ID="$new_id"
+  fi
+}
+
+gpus=()
+[ -n "${JL_GPU:-}" ] && gpus+=("$JL_GPU")
+gpus+=("")
+old_ifs=$IFS
+IFS=,
+# shellcheck disable=SC2086
+for g in $JL_GPU_FALLBACK; do
+  IFS=$old_ifs
+  g="${g#"${g%%[![:space:]]*}"}"
+  g="${g%"${g##*[![:space:]]}"}"
+  [ -n "$g" ] && gpus+=("$g")
+done
+IFS=$old_ifs
+
 step "resume JarvisLab $JL_MACHINE_ID"
-resume_out=$(jl resume "$JL_MACHINE_ID" --yes ${JL_GPU:+--gpu "$JL_GPU"} 2>&1 || true)
-printf '%s\n' "$resume_out"
-new_id=$(printf '%s' "$resume_out" | grep -i "changed" | grep -oE '[0-9]{4,}' | tail -1 || true)
-if [ -n "$new_id" ] && [ "$new_id" != "$JL_MACHINE_ID" ]; then
-  log "instance id rotated: $JL_MACHINE_ID -> $new_id"
-  JL_MACHINE_ID="$new_id"
-fi
+resumed=0
+attempt=0
+while [ "$attempt" -lt "$RESUME_ATTEMPTS" ]; do
+  gpu="${gpus[$((attempt % ${#gpus[@]}))]}"
+  attempt=$((attempt + 1))
+  resume_rc=0
+  if [ -n "$gpu" ]; then
+    log "resume attempt $attempt/$RESUME_ATTEMPTS --gpu $gpu (id=$JL_MACHINE_ID)"
+    resume_out=$(jl resume "$JL_MACHINE_ID" --yes --gpu "$gpu" 2>&1) || resume_rc=$?
+  else
+    log "resume attempt $attempt/$RESUME_ATTEMPTS original GPU (id=$JL_MACHINE_ID)"
+    resume_out=$(jl resume "$JL_MACHINE_ID" --yes ${JL_GPU:+--gpu "$JL_GPU"} 2>&1) || resume_rc=$?
+  fi
+  printf '%s\n' "$resume_out"
+  apply_resume_id "$resume_out"
+  # Don't treat stderr-only failures as success — "No free H100" used to skip H200
+  # and wait 360s for Running on a still-paused box.
+  if [ "$resume_rc" -eq 0 ] && ! resume_rejected "$resume_out"; then
+    resumed=1
+    break
+  fi
+  if resume_rejected "$resume_out"; then
+    warn "resume rejected — retry in ${RESUME_RETRY_SEC}s"
+    sleep "$RESUME_RETRY_SEC"
+    refresh_machine_id
+    continue
+  fi
+  die "JarvisLab resume failed (exit $resume_rc): $resume_out"
+done
+[ "$resumed" = "1" ] || die "JarvisLab resume failed after ${RESUME_ATTEMPTS} attempts (GPU capacity?). id=$JL_MACHINE_ID"
 
 log "waiting for Running (max ${RUNNING_WAIT_SEC}s)"
 start=$SECONDS
 until [ "$(jl get "$JL_MACHINE_ID" --json 2>/dev/null | jq -r '.status // empty')" = "Running" ]; do
   (( SECONDS - start >= RUNNING_WAIT_SEC )) && die "instance not Running after ${RUNNING_WAIT_SEC}s"
-  sleep 10; echo "  ...waiting Running"
+  refresh_machine_id
+  sleep 10; echo "  ...waiting Running (id=$JL_MACHINE_ID)"
 done
 jl get "$JL_MACHINE_ID" --json | jq '{status, gpu, ssh_command}'
 

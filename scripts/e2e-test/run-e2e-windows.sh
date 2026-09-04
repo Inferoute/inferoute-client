@@ -12,6 +12,7 @@
 # Usage:
 #   ./run-e2e-windows.sh              # start, test, stop
 #   KEEP=1 ./run-e2e-windows.sh       # leave the VM running for debugging
+#   SKIP_TESTS=1 KEEP=1 ./run-e2e-windows.sh  # bring up, skip inference suite (used by run-cluster.sh)
 #   ./run-e2e-windows.sh teardown     # just stop the VM and exit
 #
 # Config comes from references/.env (override path with E2E_ENV).
@@ -295,12 +296,16 @@ TUNNEL=$(printf '%s' "$health" | jq -r '.cloudflare.url // empty')
 step "provider health (DB)"
 wait_provider_green
 
-step "inference tests (alias=$OLLAMA_MODEL_ALIAS)"
-if SKIP_WAIT=1 MODEL_ALIAS="$OLLAMA_MODEL_ALIAS" bash "$SCRIPT_DIR/references/test-inference.sh"; then
-  log "TESTS PASSED"
+if [ "${SKIP_TESTS:-0}" = "1" ]; then
+  log "SKIP_TESTS=1 — leaving VM + client up (no inference suite)"
 else
-  OVERALL=1
-  warn "TESTS FAILED"
+  step "inference tests (alias=$OLLAMA_MODEL_ALIAS)"
+  if SKIP_WAIT=1 MODEL_ALIAS="$OLLAMA_MODEL_ALIAS" bash "$SCRIPT_DIR/references/test-inference.sh"; then
+    log "TESTS PASSED"
+  else
+    OVERALL=1
+    warn "TESTS FAILED"
+  fi
 fi
 
 exit "$OVERALL"
