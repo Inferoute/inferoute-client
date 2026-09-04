@@ -121,19 +121,40 @@ func WriteTable(w io.Writer, report Report) error {
 		return nil
 	}
 
-	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "STATUS\tSERVICE\tMODEL\tSIZE\tREQUIRED\tREASON")
-	for _, m := range report.Models {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+	var raw strings.Builder
+	tw := tabwriter.NewWriter(&raw, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "#\tSTATUS\tSERVICE\tMODEL\tSIZE\tREQUIRED")
+	for i, m := range report.Models {
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n",
+			i+1,
 			m.Status,
 			m.ServiceType,
 			shortAlias(m.Alias),
 			formatBytes(m.MinSizeBytes),
 			formatBytes(m.RequiredBytes),
-			m.Reason,
 		)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	lines := strings.Split(strings.TrimSuffix(raw.String(), "\n"), "\n")
+	for i, line := range lines {
+		if i == 0 {
+			fmt.Fprintln(w, line)
+			continue
+		}
+		if usableFit(report.Models[i-1].Status) {
+			fmt.Fprintf(w, "\033[1;32m%s\033[0m\n", line)
+			continue
+		}
+		fmt.Fprintln(w, line)
+	}
+	return nil
+}
+
+func usableFit(s FitStatus) bool {
+	return s == StatusRunsWell || s == StatusFits || s == StatusTight
 }
 
 func shortAlias(alias string) string {
