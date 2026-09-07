@@ -12,7 +12,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Cloudflare tunnel origin now uses `http://127.0.0.1:<port>` instead of `localhost`. On macOS `localhost` is `::1` first, the client listens on IPv4 only, and inference through the tunnel 502s (Linux/Windows were fine).
 - Windows: `nvidia-smi` (and `cloudflared`) no longer flash a console window. The dashboard polls GPU status every few seconds; those child processes now start with `CREATE_NO_WINDOW`.
 - A wrong or missing provider API key now fails startup with a clear message instead of a generic platform **500**.
-- Windows FreeToken setup no longer hangs on the Desktop installer and then fails to find `ft.exe`. The wizard shows a spinner, starts the NSIS installer in the background, bootstraps `uv` (no system Python 3.12 required), and installs the `ft` CLI from the beta engine wheels into `%LOCALAPPDATA%\inferoute\venv-freetoken`.
+- Windows FreeToken setup installs only the CLI wheels (uv + beta `engine-win_amd64.json`) into `%LOCALAPPDATA%\inferoute\venv-freetoken`. It no longer runs the Desktop NSIS installer. Detect and auto-start ignore Desktop's bundled `resources\ft.exe`, which is not a serving binary.
 
 ### Changed
 
@@ -21,7 +21,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
 - `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
 - Linux/macOS `install.sh` no longer requires `PROVIDER_API_KEY` in the curl line. The wizard asks. Use `INFEROUTE_SKIP_SETUP=1` for the old env-only path.
-- Windows FreeToken installer download now uses the `beta` GitHub release instead of `latest`.
+- Windows FreeToken engine wheels are resolved from the `beta` GitHub release (`engine-win_amd64.json`), not `latest`.
 
 ### Added
 
@@ -32,7 +32,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - `INFEROUTE_URL` / `setup --url` override the Inferoute API base (catalog + `provider.url`). Flag wins over env.
 - `inferoute-client setup` walks through engine, model, and API key. Re-run anytime to update config. Install scripts launch it after placing the binary.
 - Auto-start: if `auto_start` is set, the client starts Ollama / vLLM / vLLM Metal / FreeToken when `llm_url` is down, then leaves that process running.
-- Windows wizard can silently install FreeToken (`FreeToken-Setup-win-x64.exe /S`) and locate `ft.exe`.
+- Windows wizard installs the FreeToken CLI into `%LOCALAPPDATA%\inferoute\venv-freetoken` (not FreeToken Desktop).
 - `scripts/e2e-test/run-cluster.sh` brings up Linux, Windows, and Mac Mini as three Ollama providers (same model), holds until Y/Ctrl-C, then pauses Windows + JarvisLab. Mini stays up. Per-machine keys: `PROVIDER_API_KEY_{LINUX,WINDOWS,MAC}`.
 
 ## [1.1.8] - 2026-09-30

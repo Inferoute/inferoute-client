@@ -2,6 +2,8 @@
 
 Use this guide when you run the provider client natively on 64-bit Windows. The setup wizard offers **Ollama** or **FreeToken**. Native vLLM is not supported.
 
+FreeToken here is the **`ft` CLI** (`ft serve` on port **1919**), installed into `%LOCALAPPDATA%\inferoute\venv-freetoken`. It is not **FreeToken Desktop**. If that app is already on the machine, close it before setup — it binds the same API port and its bundled `ft.exe` cannot serve models for Inferoute.
+
 ## Quick install (recommended)
 
 1. Get your provider API key from the [Inferoute platform](https://core.inferoute.com).

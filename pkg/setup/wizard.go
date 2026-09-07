@@ -65,7 +65,7 @@ func Execute(opts Options, io Streams) error {
 		if doInstall {
 			var err error
 			if kind == engine.KindFreeToken {
-				err = spinWhile(io.Out, "Installing FreeToken (Windows may ask for permission; engine download can take several minutes)", func() error {
+				err = spinWhile(io.Out, "Installing FreeToken CLI (engine download can take several minutes)", func() error {
 					return engine.Install(context.Background(), kind, nil)
 				})
 			} else {
@@ -86,6 +86,8 @@ func Execute(opts Options, io Streams) error {
 	if detected.Found {
 		cfg.Provider.EngineBin = detected.Bin
 		fmt.Fprintf(io.Out, "Found %s at %s\n", kind, detected.Bin)
+	} else {
+		cfg.Provider.EngineBin = ""
 	}
 
 	entry, err := applyModel(cfg, opts, kind, platformURL, io)

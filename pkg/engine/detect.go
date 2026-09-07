@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // Detected is the result of looking for an engine binary.
@@ -53,18 +54,7 @@ func lookup(kind Kind) string {
 		}
 		return lookPath("vllm")
 	case KindFreeToken:
-		if p := lookPath("ft"); p != "" {
-			return p
-		}
-		if runtime.GOOS == "windows" {
-			return findFreeTokenWindows()
-		}
-		if home != "" {
-			return firstExisting(
-				filepath.Join(home, ".local", "bin", "ft"),
-				filepath.Join(os.Getenv("LOCALAPPDATA"), "inferoute", "venv-freetoken", "bin", "ft"),
-			)
-		}
+		return lookupFreeToken(home)
 	}
 	return ""
 }
@@ -90,41 +80,42 @@ func firstExisting(paths ...string) string {
 }
 
 func findFreeTokenWindows() string {
-	local := os.Getenv("LOCALAPPDATA")
-	pf := os.Getenv("ProgramFiles")
-	home, _ := os.UserHomeDir()
-	candidates := []string{
-		filepath.Join(local, "inferoute", "venv-freetoken", "Scripts", "ft.exe"),
-		filepath.Join(local, "FreeToken", "ft.exe"),
-		filepath.Join(local, "freetoken", "ft.exe"),
-		filepath.Join(local, "FreeToken Desktop", "ft.exe"),
-		filepath.Join(local, "Programs", "FreeToken", "ft.exe"),
-		filepath.Join(local, "Programs", "FreeToken Desktop", "ft.exe"),
-		filepath.Join(local, "Programs", "freetoken-desktop", "ft.exe"),
-		filepath.Join(pf, "FreeToken", "ft.exe"),
-		filepath.Join(pf, "FreeToken Desktop", "ft.exe"),
-		filepath.Join(home, ".local", "bin", "ft.exe"),
-	}
-	if p := firstExisting(candidates...); p != "" {
+	return lookupFreeToken("")
+}
+
+func lookupFreeToken(home string) string {
+	if p := freeTokenCLIBin(); p != "" && fileExists(p) {
 		return p
 	}
-	roots := []string{
-		filepath.Join(local, "inferoute", "venv-freetoken"),
-		filepath.Join(local, "FreeToken"),
-		filepath.Join(local, "freetoken"),
-		filepath.Join(local, "FreeToken Desktop"),
-		filepath.Join(local, "Programs", "FreeToken"),
-		filepath.Join(local, "Programs", "FreeToken Desktop"),
-		filepath.Join(local, "Programs", "freetoken-desktop"),
-		filepath.Join(os.Getenv("APPDATA"), "FreeToken Desktop"),
-		filepath.Join(os.Getenv("APPDATA"), "freetoken"),
-		filepath.Join(pf, "FreeToken"),
-		filepath.Join(pf, "FreeToken Desktop"),
+	if p := lookPath("ft"); p != "" && !isFreeTokenDesktopBin(p) {
+		return p
 	}
-	for _, root := range roots {
-		if found := walkFor(root, "ft.exe", 6); found != "" {
-			return found
-		}
+	if runtime.GOOS == "windows" || home == "" {
+		return ""
 	}
-	return ""
+	return firstExisting(
+		filepath.Join(home, ".local", "bin", "ft"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "inferoute", "venv-freetoken", "bin", "ft"),
+	)
+}
+
+// ResolveBin picks the engine binary. Configured paths that are missing or
+// FreeToken Desktop's bundled ft.exe are ignored.
+func ResolveBin(kind Kind, configured string) string {
+	if usableEngineBin(kind, configured) {
+		return configured
+	}
+	return Detect(kind).Bin
+}
+
+func usableEngineBin(kind Kind, path string) bool {
+	if path == "" || !fileExists(path) {
+		return false
+	}
+	return kind != KindFreeToken || !isFreeTokenDesktopBin(path)
+}
+
+func isFreeTokenDesktopBin(path string) bool {
+	p := strings.ToLower(filepath.ToSlash(path))
+	return strings.Contains(p, "freetoken desktop") || strings.Contains(p, "freetoken-desktop")
 }

@@ -36,7 +36,7 @@ func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 			continue
 		}
 		_ = resp.Body.Close()
-		if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return true
 		}
 	}

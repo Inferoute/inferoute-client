@@ -7,23 +7,18 @@ import (
 	"testing"
 )
 
-func TestFindFreeTokenWindowsDesktopDir(t *testing.T) {
+func TestFindFreeTokenWindowsIgnoresDesktop(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("LOCALAPPDATA", root)
 	t.Setenv("ProgramFiles", filepath.Join(root, "pf"))
 	t.Setenv("APPDATA", filepath.Join(root, "roaming"))
 
-	bin := filepath.Join(root, "Programs", "FreeToken Desktop", "resources", "ft.exe")
-	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	desktop := filepath.Join(root, "Programs", "FreeToken Desktop", "resources", "ft.exe")
+	writeFile(t, desktop, []byte("x"))
 
 	got := findFreeTokenWindows()
-	if got != bin {
-		t.Fatalf("findFreeTokenWindows() = %q, want %q", got, bin)
+	if got == desktop || isFreeTokenDesktopBin(got) {
+		t.Fatalf("findFreeTokenWindows() = %q, Desktop stub must be ignored", got)
 	}
 }
 
@@ -33,17 +28,48 @@ func TestFindFreeTokenWindowsVenv(t *testing.T) {
 	t.Setenv("ProgramFiles", filepath.Join(root, "pf"))
 	t.Setenv("APPDATA", filepath.Join(root, "roaming"))
 
+	desktop := filepath.Join(root, "Programs", "FreeToken Desktop", "resources", "ft.exe")
+	writeFile(t, desktop, []byte("x"))
 	bin := filepath.Join(root, "inferoute", "venv-freetoken", "Scripts", "ft.exe")
-	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, bin, []byte("x"))
 
 	got := findFreeTokenWindows()
 	if got != bin {
 		t.Fatalf("findFreeTokenWindows() = %q, want %q", got, bin)
+	}
+}
+
+func TestResolveBinIgnoresDesktop(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("LOCALAPPDATA", root)
+	t.Setenv("ProgramFiles", filepath.Join(root, "pf"))
+	t.Setenv("APPDATA", filepath.Join(root, "roaming"))
+
+	desktop := filepath.Join(root, "Programs", "FreeToken Desktop", "resources", "ft.exe")
+	writeFile(t, desktop, []byte("x"))
+	venv := filepath.Join(root, "inferoute", "venv-freetoken", "Scripts", "ft.exe")
+	writeFile(t, venv, []byte("x"))
+
+	if got := ResolveBin(KindFreeToken, desktop); got != venv {
+		t.Fatalf("ResolveBin(desktop) = %q, want %q", got, venv)
+	}
+}
+
+func TestIsFreeTokenDesktopBin(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{`C:\Users\x\AppData\Local\Programs\FreeToken Desktop\resources\ft.exe`, true},
+		{`C:\Users\x\AppData\Local\Programs\freetoken-desktop\ft.exe`, true},
+		{`C:\Users\x\AppData\Local\inferoute\venv-freetoken\Scripts\ft.exe`, false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := isFreeTokenDesktopBin(tt.path); got != tt.want {
+			t.Errorf("isFreeTokenDesktopBin(%q) = %v, want %v", tt.path, got, tt.want)
+		}
 	}
 }
 
@@ -103,5 +129,15 @@ func TestExtractNamedFromZip(t *testing.T) {
 	}
 	if string(got) != "uv-bin" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func writeFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o755); err != nil {
+		t.Fatal(err)
 	}
 }

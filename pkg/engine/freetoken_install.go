@@ -30,55 +30,15 @@ func installFreeToken(ctx context.Context, w io.Writer) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("FreeToken auto-install is only supported on Windows")
 	}
-	fmt.Fprintln(w, "Downloading FreeToken Windows installer...")
-	tmp := filepath.Join(os.TempDir(), "FreeToken-Setup-win-x64.exe")
-	if err := download(ctx, freeTokenWindowsURL, tmp); err != nil {
+	fmt.Fprintln(w, "Installing FreeToken CLI (PyTorch + engine wheels; this can take several minutes)...")
+	if err := installFreeTokenCLI(ctx, w); err != nil {
 		return err
 	}
-	fmt.Fprintln(w, "Starting silent installer (Windows may ask for permission)...")
-	startFreeTokenSetup(tmp)
-
-	if Detect(KindFreeToken).Found {
-		return nil
+	bin := freeTokenCLIBin()
+	if !fileExists(bin) {
+		return fmt.Errorf("installed FreeToken CLI but %s is missing", bin)
 	}
-
-	fmt.Fprintln(w, "Installing FreeToken CLI (PyTorch + engine wheels; this can take several minutes)...")
-	cliErr := installFreeTokenCLI(ctx, w)
-	if Detect(KindFreeToken).Found {
-		return nil
-	}
-	if waitForFreeToken(ctx, 45*time.Second) {
-		return nil
-	}
-	if cliErr != nil {
-		return cliErr
-	}
-	return fmt.Errorf("installed FreeToken Desktop but could not find ft.exe")
-}
-
-func startFreeTokenSetup(installer string) {
-	cmd := exec.Command(installer, "/S")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	go func() { _ = cmd.Wait() }()
-}
-
-func waitForFreeToken(ctx context.Context, d time.Duration) bool {
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if Detect(KindFreeToken).Found {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(2 * time.Second):
-		}
-	}
-	return Detect(KindFreeToken).Found
+	return nil
 }
 
 func installFreeTokenCLI(ctx context.Context, w io.Writer) error {
@@ -206,16 +166,31 @@ func extractNamedFromZip(zipPath, dest, name string) error {
 }
 
 func freeTokenVenvDir() (string, error) {
+	dir := freeTokenVenvDirPath()
+	if dir == "" {
+		return "", fmt.Errorf("cannot resolve FreeToken venv directory")
+	}
+	return dir, os.MkdirAll(filepath.Dir(dir), 0o755)
+}
+
+func freeTokenVenvDirPath() string {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", err
+			return ""
 		}
 		local = filepath.Join(home, "AppData", "Local")
 	}
-	dir := filepath.Join(local, "inferoute", "venv-freetoken")
-	return dir, os.MkdirAll(filepath.Dir(dir), 0o755)
+	return filepath.Join(local, "inferoute", "venv-freetoken")
+}
+
+func freeTokenCLIBin() string {
+	dir := freeTokenVenvDirPath()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "Scripts", "ft.exe")
 }
 
 func venvPython(venv string) string {

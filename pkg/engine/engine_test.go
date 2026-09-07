@@ -130,6 +130,14 @@ func TestHealthy(t *testing.T) {
 	if !Healthy(context.Background(), KindFreeToken, vllm.URL) {
 		t.Fatal("expected freetoken/vllm healthy")
 	}
+
+	notReady := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(notReady.Close)
+	if Healthy(context.Background(), KindFreeToken, notReady.URL) {
+		t.Fatal("4xx must not count as healthy")
+	}
 }
 
 func TestPlatformTypeCatalog(t *testing.T) {

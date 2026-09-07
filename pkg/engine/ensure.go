@@ -31,13 +31,9 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 		return nil
 	}
 
-	bin := cfg.Provider.EngineBin
+	bin := ResolveBin(kind, cfg.Provider.EngineBin)
 	if bin == "" {
-		d := Detect(kind)
-		if !d.Found {
-			return fmt.Errorf("%s is not installed and is not running at %s", kind, url)
-		}
-		bin = d.Bin
+		return fmt.Errorf("%s is not installed and is not running at %s", kind, url)
 	}
 
 	hfRepo := cfg.Provider.Model
