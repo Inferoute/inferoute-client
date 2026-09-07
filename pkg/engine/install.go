@@ -15,7 +15,7 @@ import (
 const (
 	ollamaInstallURL    = "https://ollama.com/install.sh"
 	vllmMetalInstallURL = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
-	freeTokenWindowsURL = "https://github.com/FlashML-org/FreeToken-Web/releases/latest/download/FreeToken-Setup-win-x64.exe"
+	freeTokenWindowsURL = "https://github.com/FlashML-org/FreeToken-Web/releases/download/beta/FreeToken-Setup-win-x64.exe"
 	vllmDocsURL         = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
 )
 

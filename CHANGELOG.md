@@ -20,6 +20,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
 - `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
 - Linux/macOS `install.sh` no longer requires `PROVIDER_API_KEY` in the curl line. The wizard asks. Use `INFEROUTE_SKIP_SETUP=1` for the old env-only path.
+- Windows FreeToken installer download now uses the `beta` GitHub release instead of `latest`.
 
 ### Added
 
