@@ -309,6 +309,19 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		}
 		return nil
 	}
+	if engine.PortOpen(ctx, cfg.Provider.LLMURL) {
+		fmt.Fprintf(io.Out, "\n%s is already starting at %s (port in use).\n", kind, cfg.Provider.LLMURL)
+		waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
+		defer waitCancel()
+		err := spinWhile(io.Out, "Waiting for the engine to become ready (model download and load can take a long time on first run)", func() error {
+			return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second)
+		})
+		if err != nil {
+			return fmt.Errorf("%w (see %s)", err, engine.LogPath(cfg.Logging.LogDir))
+		}
+		fmt.Fprintln(io.Out, "Engine is ready.")
+		return nil
+	}
 
 	startNow := !opts.Yes
 	if !opts.Yes {

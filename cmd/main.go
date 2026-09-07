@@ -174,7 +174,7 @@ func main() {
 	defer cancel()
 
 	if cfg.Provider.AutoStart {
-		startCtx, startCancel := context.WithTimeout(ctx, engine.DefaultStartTimeout)
+		startCtx, startCancel := context.WithTimeout(ctx, engine.DefaultDownloadTimeout)
 		if err := engine.EnsureReady(startCtx, cfg, cfg.Logging.LogDir); err != nil {
 			logger.Warn("Local inference engine is not ready", zap.Error(err))
 			fmt.Fprintf(os.Stderr, "warning: inference engine not ready: %v\n", err)

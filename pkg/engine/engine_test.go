@@ -50,7 +50,7 @@ func TestServeSpec(t *testing.T) {
 	}
 
 	vllm := ServeSpec(KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct")
-	if got := vllm.CommandLine(); got != "vllm serve Qwen/Qwen2.5-7B-Instruct" {
+	if got := vllm.CommandLine(); got != "vllm serve Qwen/Qwen2.5-7B-Instruct --host 127.0.0.1 --port 8000" {
 		t.Errorf("vllm = %q", got)
 	}
 
@@ -108,6 +108,14 @@ func TestHealthy(t *testing.T) {
 	}
 	if Healthy(context.Background(), KindOllama, "http://127.0.0.1:1") {
 		t.Fatal("refused port should be unhealthy")
+	}
+	if PortOpen(context.Background(), srv.URL) {
+		// httptest listens; PortOpen should see it
+	} else {
+		t.Fatal("expected PortOpen on httptest server")
+	}
+	if PortOpen(context.Background(), "http://127.0.0.1:1") {
+		t.Fatal("refused port should not be open")
 	}
 
 	vllm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

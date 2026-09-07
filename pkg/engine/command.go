@@ -48,7 +48,7 @@ func ServeSpec(kind Kind, bin, modelAlias, hfRepo string) Spec {
 		spec.Args = []string{"serve"}
 	case KindVLLM, KindVLLMMetal:
 		repo := firstNonEmpty(hfRepo, modelAlias)
-		spec.Args = []string{"serve", repo}
+		spec.Args = []string{"serve", repo, "--host", "127.0.0.1", "--port", "8000"}
 		if modelAlias != "" && modelAlias != repo {
 			spec.Args = append(spec.Args, "--served-model-name", modelAlias)
 		}

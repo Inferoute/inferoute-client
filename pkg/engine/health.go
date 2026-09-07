@@ -3,7 +3,9 @@ package engine
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -39,6 +41,39 @@ func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 		}
 	}
 	return false
+}
+
+// PortOpen reports whether something is accepting TCP on llmURL's host:port.
+// True during HuggingFace download / model load, before HTTP is up.
+func PortOpen(ctx context.Context, llmURL string) bool {
+	addr := listenAddr(llmURL)
+	d := net.Dialer{Timeout: time.Second}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func listenAddr(llmURL string) string {
+	u, err := url.Parse(strings.TrimSpace(llmURL))
+	if err != nil || u.Host == "" {
+		return "127.0.0.1:8000"
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // WaitHealthy polls until Healthy or ctx is done.

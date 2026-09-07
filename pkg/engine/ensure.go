@@ -23,6 +23,13 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 	if Healthy(ctx, kind, url) {
 		return nil
 	}
+	if PortOpen(ctx, url) {
+		if err := WaitHealthy(ctx, kind, url, 2*time.Second); err != nil {
+			fmt.Fprintf(os.Stderr, "engine already bound at %s but not ready yet; check %s\n", url, LogPath(logDir))
+			return err
+		}
+		return nil
+	}
 
 	bin := cfg.Provider.EngineBin
 	if bin == "" {
@@ -39,17 +46,11 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 		return err
 	}
 
-	wait := DefaultStartTimeout
-	if deadline, ok := ctx.Deadline(); ok {
-		wait = time.Until(deadline)
-	}
-	waitCtx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
 	probeURL := url
 	if probeURL == "" {
 		probeURL = spec.URL
 	}
-	if err := WaitHealthy(waitCtx, kind, probeURL, 2*time.Second); err != nil {
+	if err := WaitHealthy(ctx, kind, probeURL, 2*time.Second); err != nil {
 		fmt.Fprintf(os.Stderr, "engine started but not ready yet; check %s\n", LogPath(logDir))
 		return err
 	}
