@@ -93,20 +93,58 @@ func TestPaintSwallowWraps(t *testing.T) {
 	}
 }
 
-func TestFitQuote(t *testing.T) {
+func TestWrapTextPreservesContent(t *testing.T) {
+	for _, q := range waitQuotes {
+		for _, width := range []int{20, 40, 80, 120} {
+			lines := wrapText(q, width)
+			if len(lines) == 0 {
+				t.Fatalf("wrapText(%q, %d) empty", q, width)
+			}
+			for i, line := range lines {
+				if n := utf8.RuneCountInString(line); n > width {
+					t.Fatalf("width %d line %d is %d runes: %q", width, i, n, line)
+				}
+			}
+			got := strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
+			want := strings.Join(strings.Fields(q), " ")
+			if got != want {
+				t.Fatalf("lost text at width %d\ngot:  %s\nwant: %s", width, got, want)
+			}
+		}
+	}
+}
+
+func TestWrapTextShortUnchanged(t *testing.T) {
 	short := `"x" — Y`
-	if got := fitQuote(short); got != short {
-		t.Fatalf("fitQuote(short) = %q", got)
+	got := wrapText(short, 100)
+	if len(got) != 1 || got[0] != short {
+		t.Fatalf("wrapText(short) = %#v", got)
 	}
-	runes := make([]rune, 120)
-	for i := range runes {
-		runes[i] = 'a'
+}
+
+func TestWrapTextHardBreaksLongWord(t *testing.T) {
+	got := wrapText("abcde", 3)
+	if strings.Join(got, "|") != "abc|de" {
+		t.Fatalf("got %#v", got)
 	}
-	got := fitQuote(string(runes))
-	if utf8.RuneCountInString(got) != 100 {
-		t.Fatalf("len = %d, want 100", utf8.RuneCountInString(got))
+}
+
+func TestFormatSpinnerKeepsFullQuote(t *testing.T) {
+	q := `"The question of whether a computer can think is no more interesting than the question of whether a submarine can swim." — Edsger W. Dijkstra`
+	lines := formatSpinner(0, "Waiting for the engine", q, 80)
+	body := strings.Join(lines, " ")
+	if !strings.Contains(body, "submarine can swim") {
+		t.Fatalf("quote truncated: %q", body)
 	}
-	if !strings.HasSuffix(got, "…") {
-		t.Fatalf("got %q", got)
+	if strings.Contains(body, "…") {
+		t.Fatalf("still using ellipsis truncation: %q", body)
+	}
+	for i, line := range lines {
+		visual := line
+		visual = strings.ReplaceAll(visual, swallowColor, "")
+		visual = strings.ReplaceAll(visual, ansiReset, "")
+		if n := utf8.RuneCountInString(visual); n > 80 {
+			t.Errorf("line %d visual width %d: %q", i, n, visual)
+		}
 	}
 }

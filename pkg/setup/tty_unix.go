@@ -5,6 +5,8 @@ package setup
 import (
 	"io"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
 
 func inputReader() (io.Reader, io.Closer, error) {
@@ -16,4 +18,15 @@ func inputReader() (io.Reader, io.Closer, error) {
 		return os.Stdin, nil, nil
 	}
 	return f, f, nil
+}
+
+func termWidth(f *os.File) int {
+	if f == nil {
+		return 0
+	}
+	ws, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	if err != nil || ws.Col == 0 {
+		return 0
+	}
+	return int(ws.Col)
 }
