@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 
 Re-run the wizard anytime: `inferoute-client setup`.
 
-On macOS, the script installs `cloudflared` via Homebrew when available, otherwise downloads the native binary for your architecture.
+Additional information: see the [macOS install documentation](https://docs.inferoute.com/introduction/setup-mac).
 
 #### Windows (PowerShell)
 
@@ -47,11 +47,12 @@ Requires 64-bit Windows. The wizard offers Ollama or FreeToken.
 irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
 ```
 
-The script installs `cloudflared` and `inferoute-client` to `%LOCALAPPDATA%\inferoute\bin`, runs setup, and adds a **Start Menu → Inferoute → Inferoute Client** shortcut. On Windows the client runs in the notification area by default — closing the terminal does not stop it. See [docs/windows.md](docs/windows.md).
+Additional information: see the [Windows install documentation](https://docs.inferoute.com/introduction/setup-windows).
 
-Or download `scripts/windows-install.bat` and double-click it (no administrator prompt).
 
-#### Skip the wizard
+## 💫 Skip the wizard
+
+If you already have a supported inference client running, you can skip the wizard entirely.
 
 ```bash
 export INFEROUTE_SKIP_SETUP=1
