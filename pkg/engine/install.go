@@ -9,14 +9,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"time"
 )
 
 const (
-	ollamaInstallURL    = "https://ollama.com/install.sh"
-	vllmMetalInstallURL = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
-	freeTokenWindowsURL = "https://github.com/FlashML-org/FreeToken-Web/releases/download/beta/FreeToken-Setup-win-x64.exe"
-	vllmDocsURL         = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
+	ollamaInstallURL           = "https://ollama.com/install.sh"
+	vllmMetalInstallURL        = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
+	freeTokenWindowsURL        = "https://github.com/FlashML-org/FreeToken-Web/releases/download/beta/FreeToken-Setup-win-x64.exe"
+	freeTokenEngineManifestURL = "https://github.com/FlashML-org/FreeToken-Web/releases/download/beta/engine-win_amd64.json"
+	vllmDocsURL                = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
 )
 
 // Install runs the engine's official install path. It prints progress to w.
@@ -98,36 +98,6 @@ func installVLLM(ctx context.Context, w io.Writer) error {
 func installVLLMMetal(ctx context.Context, w io.Writer) error {
 	fmt.Fprintln(w, "Installing vLLM Metal via official install script...")
 	return runScript(ctx, w, vllmMetalInstallURL)
-}
-
-func installFreeToken(ctx context.Context, w io.Writer) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("FreeToken auto-install is only supported on Windows")
-	}
-	fmt.Fprintln(w, "Downloading FreeToken Windows installer...")
-	tmp := filepath.Join(os.TempDir(), "FreeToken-Setup-win-x64.exe")
-	if err := download(ctx, freeTokenWindowsURL, tmp); err != nil {
-		return err
-	}
-	fmt.Fprintln(w, "Running silent installer (Windows may ask for permission)...")
-	if err := run(ctx, w, tmp, "/S"); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(2 * time.Minute)
-	for time.Now().Before(deadline) {
-		if Detect(KindFreeToken).Found {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-	if Detect(KindFreeToken).Found {
-		return nil
-	}
-	return fmt.Errorf("installed FreeToken but could not find ft.exe; re-run setup after adding it to PATH")
 }
 
 func run(ctx context.Context, w io.Writer, name string, args ...string) error {

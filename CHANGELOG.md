@@ -12,6 +12,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Cloudflare tunnel origin now uses `http://127.0.0.1:<port>` instead of `localhost`. On macOS `localhost` is `::1` first, the client listens on IPv4 only, and inference through the tunnel 502s (Linux/Windows were fine).
 - Windows: `nvidia-smi` (and `cloudflared`) no longer flash a console window. The dashboard polls GPU status every few seconds; those child processes now start with `CREATE_NO_WINDOW`.
 - A wrong or missing provider API key now fails startup with a clear message instead of a generic platform **500**.
+- Windows FreeToken setup no longer hangs on the Desktop installer and then fails to find `ft.exe`. The wizard shows a spinner, starts the NSIS installer in the background, and installs the `ft` CLI from the beta engine wheels into `%LOCALAPPDATA%\inferoute\venv-freetoken`.
 
 ### Changed
 

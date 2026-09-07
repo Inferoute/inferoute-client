@@ -63,8 +63,16 @@ func Execute(opts Options, io Streams) error {
 			doInstall = ok
 		}
 		if doInstall {
-			fmt.Fprintf(io.Out, "Installing %s...\n", kind)
-			if err := engine.Install(context.Background(), kind, io.Out); err != nil {
+			var err error
+			if kind == engine.KindFreeToken {
+				err = spinWhile(io.Out, "Installing FreeToken (Windows may ask for permission; engine download can take several minutes)", func() error {
+					return engine.Install(context.Background(), kind, nil)
+				})
+			} else {
+				fmt.Fprintf(io.Out, "Installing %s...\n", kind)
+				err = engine.Install(context.Background(), kind, io.Out)
+			}
+			if err != nil {
 				fmt.Fprintf(io.Err, "install failed: %v\n", err)
 				autoStart = false
 			} else {

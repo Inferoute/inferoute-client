@@ -94,24 +94,35 @@ func findFreeTokenWindows() string {
 	pf := os.Getenv("ProgramFiles")
 	home, _ := os.UserHomeDir()
 	candidates := []string{
+		filepath.Join(local, "inferoute", "venv-freetoken", "Scripts", "ft.exe"),
 		filepath.Join(local, "FreeToken", "ft.exe"),
 		filepath.Join(local, "freetoken", "ft.exe"),
+		filepath.Join(local, "FreeToken Desktop", "ft.exe"),
 		filepath.Join(local, "Programs", "FreeToken", "ft.exe"),
-		filepath.Join(local, "inferoute", "venv-freetoken", "Scripts", "ft.exe"),
+		filepath.Join(local, "Programs", "FreeToken Desktop", "ft.exe"),
+		filepath.Join(local, "Programs", "freetoken-desktop", "ft.exe"),
 		filepath.Join(pf, "FreeToken", "ft.exe"),
+		filepath.Join(pf, "FreeToken Desktop", "ft.exe"),
 		filepath.Join(home, ".local", "bin", "ft.exe"),
 	}
 	if p := firstExisting(candidates...); p != "" {
 		return p
 	}
 	roots := []string{
+		filepath.Join(local, "inferoute", "venv-freetoken"),
 		filepath.Join(local, "FreeToken"),
 		filepath.Join(local, "freetoken"),
+		filepath.Join(local, "FreeToken Desktop"),
 		filepath.Join(local, "Programs", "FreeToken"),
+		filepath.Join(local, "Programs", "FreeToken Desktop"),
+		filepath.Join(local, "Programs", "freetoken-desktop"),
+		filepath.Join(os.Getenv("APPDATA"), "FreeToken Desktop"),
+		filepath.Join(os.Getenv("APPDATA"), "freetoken"),
 		filepath.Join(pf, "FreeToken"),
+		filepath.Join(pf, "FreeToken Desktop"),
 	}
 	for _, root := range roots {
-		if found := walkFor(root, "ft.exe", 4); found != "" {
+		if found := walkFor(root, "ft.exe", 6); found != "" {
 			return found
 		}
 	}
