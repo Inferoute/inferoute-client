@@ -29,16 +29,17 @@ func LogPath(logDir string) string {
 }
 
 // StartDetached launches spec so it survives inferoute-client exit.
-func StartDetached(spec Spec, logPath string) error {
+// The returned channel receives the process exit error (or nil) once.
+func StartDetached(spec Spec, logPath string) (<-chan error, error) {
 	if spec.Bin == "" {
-		return fmt.Errorf("engine binary is empty")
+		return nil, fmt.Errorf("engine binary is empty")
 	}
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-		return fmt.Errorf("create engine log directory: %w", err)
+		return nil, fmt.Errorf("create engine log directory: %w", err)
 	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("open engine log: %w", err)
+		return nil, fmt.Errorf("open engine log: %w", err)
 	}
 	cmd := exec.Command(spec.Bin, spec.Args...)
 	cmd.Stdin = nil
@@ -47,10 +48,12 @@ func StartDetached(spec Spec, logPath string) error {
 	detach(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
-		return fmt.Errorf("start %s: %w", spec.CommandLine(), err)
+		return nil, fmt.Errorf("start %s: %w", spec.CommandLine(), err)
 	}
 	_ = logFile.Close()
-	return nil
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return exited, nil
 }
 
 // Run runs spec in the foreground, streaming output to w.

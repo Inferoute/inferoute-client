@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,35 +14,53 @@ import (
 
 const probeTimeout = 3 * time.Second
 
-// Healthy reports whether the engine at llmURL is answering.
+// Healthy reports whether the engine at llmURL is serving at least one model.
+// An HTTP 200 with an empty list is not ready — FreeToken and vLLM answer
+// /v1/models while weights are still downloading.
 func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 	llmURL = strings.TrimRight(strings.TrimSpace(llmURL), "/")
 	if llmURL == "" {
 		llmURL = DefaultURL(kind)
 	}
-	paths := []string{"/v1/models"}
+	path := "/v1/models"
 	if kind == KindOllama {
-		paths = []string{"/api/tags"}
-	} else {
-		paths = append(paths, "/health")
+		path = "/api/tags"
 	}
 
 	client := &http.Client{Timeout: probeTimeout}
-	for _, p := range paths {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmURL+p, nil)
-		if err != nil {
-			continue
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return true
-		}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmURL+path, nil)
+	if err != nil {
+		return false
 	}
-	return false
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false
+	}
+	return hasLoadedModel(kind, body)
+}
+
+func hasLoadedModel(kind Kind, body []byte) bool {
+	if kind == KindOllama {
+		var tags struct {
+			Models []json.RawMessage `json:"models"`
+		}
+		if json.Unmarshal(body, &tags) != nil {
+			return false
+		}
+		return len(tags.Models) > 0
+	}
+	var listing struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(body, &listing) != nil {
+		return false
+	}
+	return len(listing.Data) > 0
 }
 
 // PortOpen reports whether something is accepting TCP on llmURL's host:port.
@@ -76,8 +96,9 @@ func listenAddr(llmURL string) string {
 	return net.JoinHostPort(host, port)
 }
 
-// WaitHealthy polls until Healthy or ctx is done.
-func WaitHealthy(ctx context.Context, kind Kind, llmURL string, interval time.Duration) error {
+// WaitHealthy polls until Healthy, the engine process exits, or ctx is done.
+// exited may be nil.
+func WaitHealthy(ctx context.Context, kind Kind, llmURL string, interval time.Duration, exited <-chan error) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -88,6 +109,11 @@ func WaitHealthy(ctx context.Context, kind Kind, llmURL string, interval time.Du
 	defer t.Stop()
 	for {
 		select {
+		case err := <-exited:
+			if err != nil {
+				return fmt.Errorf("%s process exited: %w", kind, err)
+			}
+			return fmt.Errorf("%s process exited before it became ready", kind)
 		case <-ctx.Done():
 			return fmt.Errorf("timed out waiting for %s at %s: %w", kind, llmURL, ctx.Err())
 		case <-t.C:

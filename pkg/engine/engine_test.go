@@ -2,10 +2,13 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
@@ -99,7 +102,7 @@ func TestHealthy(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"models":[]}`))
+		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:0.6b"}]}`))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -118,13 +121,25 @@ func TestHealthy(t *testing.T) {
 		t.Fatal("refused port should not be open")
 	}
 
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"models":[],"data":[]}`))
+	}))
+	t.Cleanup(empty.Close)
+	if Healthy(context.Background(), KindOllama, empty.URL) {
+		t.Fatal("empty model list must not count as healthy")
+	}
+	if Healthy(context.Background(), KindFreeToken, empty.URL) {
+		t.Fatal("empty model list must not count as healthy")
+	}
+
 	vllm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3.6-35B-A3B"}]}`))
 	}))
 	t.Cleanup(vllm.Close)
 	if !Healthy(context.Background(), KindFreeToken, vllm.URL) {
@@ -137,6 +152,18 @@ func TestHealthy(t *testing.T) {
 	t.Cleanup(notReady.Close)
 	if Healthy(context.Background(), KindFreeToken, notReady.URL) {
 		t.Fatal("4xx must not count as healthy")
+	}
+}
+
+func TestWaitHealthyProcessExit(t *testing.T) {
+	t.Parallel()
+	exited := make(chan error, 1)
+	exited <- fmt.Errorf("exit 1")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := WaitHealthy(ctx, KindFreeToken, "http://127.0.0.1:1", 50*time.Millisecond, exited)
+	if err == nil || !strings.Contains(err.Error(), "process exited") {
+		t.Fatalf("got %v", err)
 	}
 }
 

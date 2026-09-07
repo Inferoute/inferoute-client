@@ -24,7 +24,7 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 		return nil
 	}
 	if PortOpen(ctx, url) {
-		if err := WaitHealthy(ctx, kind, url, 2*time.Second); err != nil {
+		if err := WaitHealthy(ctx, kind, url, 2*time.Second, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "engine already bound at %s but not ready yet; check %s\n", url, LogPath(logDir))
 			return err
 		}
@@ -38,7 +38,8 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 
 	hfRepo := cfg.Provider.Model
 	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo)
-	if err := StartDetached(spec, LogPath(logDir)); err != nil {
+	exited, err := StartDetached(spec, LogPath(logDir))
+	if err != nil {
 		return err
 	}
 
@@ -46,7 +47,7 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 	if probeURL == "" {
 		probeURL = spec.URL
 	}
-	if err := WaitHealthy(ctx, kind, probeURL, 2*time.Second); err != nil {
+	if err := WaitHealthy(ctx, kind, probeURL, 2*time.Second, exited); err != nil {
 		fmt.Fprintf(os.Stderr, "engine started but not ready yet; check %s\n", LogPath(logDir))
 		return err
 	}

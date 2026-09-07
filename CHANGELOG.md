@@ -13,6 +13,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Windows: `nvidia-smi` (and `cloudflared`) no longer flash a console window. The dashboard polls GPU status every few seconds; those child processes now start with `CREATE_NO_WINDOW`.
 - A wrong or missing provider API key now fails startup with a clear message instead of a generic platform **500**.
 - Windows FreeToken setup installs only the CLI wheels (uv + beta `engine-win_amd64.json`) into `%LOCALAPPDATA%\inferoute\venv-freetoken`. It no longer runs the Desktop NSIS installer. Detect and auto-start ignore Desktop's bundled `resources\ft.exe`, which is not a serving binary.
+- Setup does not print **Engine is ready** until Ollama/vLLM/FreeToken lists at least one model. An empty `/v1/models` 200 (typical while weights download) kept the spinner going. If the engine process dies, the wizard fails instead of hanging.
 
 ### Changed
 

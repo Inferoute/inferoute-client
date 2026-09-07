@@ -108,8 +108,8 @@ func Execute(opts Options, io Streams) error {
 			return saveErr
 		}
 		fmt.Fprintf(io.Out, "\nWrote %s\n", path)
-		fmt.Fprintf(io.Err, "Engine is not ready yet (it may still be downloading — see the log).\n")
-		fmt.Fprintf(io.Err, "Re-run setup or start the client after it is up: inferoute-client\n")
+		fmt.Fprintf(io.Err, "Setup did not finish: %s is not serving yet (see %s).\n", engineLabel(kind), engine.LogPath(cfg.Logging.LogDir))
+		fmt.Fprintf(io.Err, "Leave the engine running, then re-run: inferoute-client setup\n")
 		return err
 	}
 
@@ -319,17 +319,19 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		}
 		return nil
 	}
+	waitMsg := fmt.Sprintf("Waiting for %s to finish downloading and start serving at %s", engineLabel(kind), cfg.Provider.LLMURL)
+
 	if engine.PortOpen(ctx, cfg.Provider.LLMURL) {
 		fmt.Fprintf(io.Out, "\n%s is already starting at %s (port in use).\n", kind, cfg.Provider.LLMURL)
 		waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 		defer waitCancel()
-		err := spinWhile(io.Out, "Waiting for the engine to become ready (model download and load can take a long time on first run)", func() error {
-			return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second)
+		err := spinWhile(io.Out, waitMsg, func() error {
+			return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second, nil)
 		})
 		if err != nil {
 			return fmt.Errorf("%w (see %s)", err, engine.LogPath(cfg.Logging.LogDir))
 		}
-		fmt.Fprintln(io.Out, "Engine is ready.")
+		fmt.Fprintf(io.Out, "Engine is ready at %s.\n", cfg.Provider.LLMURL)
 		return nil
 	}
 
@@ -354,24 +356,24 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		pullCtx, pullCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 		defer pullCancel()
 		if err := engine.Run(pullCtx, pull, io.Out); err != nil {
-			fmt.Fprintf(io.Err, "warning: ollama pull: %v\n", err)
+			return fmt.Errorf("ollama pull: %w", err)
 		}
 	}
 
 	fmt.Fprintf(io.Out, "Starting %s...\n", kind)
 	logPath := engine.LogPath(cfg.Logging.LogDir)
-	if err := engine.StartDetached(spec, logPath); err != nil {
+	exited, err := engine.StartDetached(spec, logPath)
+	if err != nil {
 		return err
 	}
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 	defer waitCancel()
-	err := spinWhile(io.Out, "Waiting for the engine to become ready (model download and load can take a long time on first run)", func() error {
-		return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second)
-	})
-	if err != nil {
+	if err := spinWhile(io.Out, waitMsg, func() error {
+		return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second, exited)
+	}); err != nil {
 		return fmt.Errorf("%w (see %s)", err, logPath)
 	}
-	fmt.Fprintln(io.Out, "Engine is ready.")
+	fmt.Fprintf(io.Out, "Engine is ready at %s.\n", cfg.Provider.LLMURL)
 	return nil
 }
 
