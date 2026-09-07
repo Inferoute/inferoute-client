@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -52,7 +53,7 @@ func installFreeToken(ctx context.Context, w io.Writer) error {
 	if cliErr != nil {
 		return cliErr
 	}
-	return fmt.Errorf("installed FreeToken Desktop but could not find ft.exe; install Python 3.12 and re-run setup")
+	return fmt.Errorf("installed FreeToken Desktop but could not find ft.exe")
 }
 
 func startFreeTokenSetup(installer string) {
@@ -97,29 +98,14 @@ func installFreeTokenCLI(ctx context.Context, w io.Writer) error {
 	pipCtx, cancel := context.WithTimeout(ctx, freeTokenCLITimeout)
 	defer cancel()
 
-	if uv := lookPath("uv"); uv != "" {
-		fmt.Fprintf(w, "Creating venv with uv at %s...\n", venv)
-		if err := runCapture(pipCtx, uv, "venv", "--python", "3.12", venv); err != nil {
-			return fmt.Errorf("uv venv: %w", err)
-		}
-		py := venvPython(venv)
-		args := append([]string{"pip", "install", "--python", py}, wheels...)
-		if err := runCapture(pipCtx, uv, args...); err != nil {
-			return fmt.Errorf("uv pip install freetoken: %w", err)
-		}
-		return nil
+	uv, uvErr := ensureUV(ctx, w)
+	if uvErr == nil {
+		return installFreeTokenWithUV(pipCtx, w, uv, venv, wheels)
 	}
 
-	py, prefix, err := findPython312()
-	if err != nil {
-		fmt.Fprintln(w, "Python 3.12 not found; installing with winget...")
-		if werr := runCapture(pipCtx, "winget", "install", "--id", "Python.Python.3.12", "-e", "--accept-package-agreements", "--accept-source-agreements"); werr != nil {
-			return fmt.Errorf("need Python 3.12 for the FreeToken CLI (Desktop does not ship ft.exe): %w", err)
-		}
-		py, prefix, err = findPython312()
-		if err != nil {
-			return fmt.Errorf("installed Python 3.12 but it is not on PATH yet; open a new terminal and re-run setup: %w", err)
-		}
+	py, prefix, pyErr := findPython312()
+	if pyErr != nil {
+		return fmt.Errorf("need uv or Python 3.12 for the FreeToken CLI: %v; %w", uvErr, pyErr)
 	}
 
 	venvArgs := append(append([]string{}, prefix...), "-m", "venv", venv)
@@ -133,6 +119,90 @@ func installFreeTokenCLI(ctx context.Context, w io.Writer) error {
 		return fmt.Errorf("pip install freetoken: %w", err)
 	}
 	return nil
+}
+
+func installFreeTokenWithUV(ctx context.Context, w io.Writer, uv, venv string, wheels []string) error {
+	fmt.Fprintf(w, "Creating venv with uv at %s...\n", venv)
+	if err := runCapture(ctx, uv, "venv", "--python", "3.12", venv); err != nil {
+		return fmt.Errorf("uv venv: %w", err)
+	}
+	py := venvPython(venv)
+	args := append([]string{"pip", "install", "--python", py}, wheels...)
+	if err := runCapture(ctx, uv, args...); err != nil {
+		return fmt.Errorf("uv pip install freetoken: %w", err)
+	}
+	return nil
+}
+
+func ensureUV(ctx context.Context, w io.Writer) (string, error) {
+	if p := lookPath("uv"); p != "" {
+		return p, nil
+	}
+	binDir, err := inferouteBinDir()
+	if err != nil {
+		return "", err
+	}
+	dest := filepath.Join(binDir, "uv.exe")
+	if fileExists(dest) {
+		return dest, nil
+	}
+	fmt.Fprintln(w, "Downloading uv (provides Python 3.12)...")
+	zipPath := filepath.Join(os.TempDir(), "uv-x86_64-pc-windows-msvc.zip")
+	if err := download(ctx, uvWindowsURL, zipPath); err != nil {
+		return "", fmt.Errorf("download uv: %w", err)
+	}
+	if err := extractNamedFromZip(zipPath, dest, "uv.exe"); err != nil {
+		return "", fmt.Errorf("extract uv: %w", err)
+	}
+	return dest, nil
+}
+
+func inferouteBinDir() (string, error) {
+	local := os.Getenv("LOCALAPPDATA")
+	if local == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		local = filepath.Join(home, "AppData", "Local")
+	}
+	dir := filepath.Join(local, "inferoute", "bin")
+	return dir, os.MkdirAll(dir, 0o755)
+}
+
+func fileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
+}
+
+func extractNamedFromZip(zipPath, dest, name string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() || filepath.Base(f.Name) != name {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+		if err != nil {
+			_ = rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		closeErr := out.Close()
+		_ = rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	}
+	return fmt.Errorf("%s not found in %s", name, zipPath)
 }
 
 func freeTokenVenvDir() (string, error) {
