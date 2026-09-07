@@ -10,7 +10,41 @@ import (
 	"unicode/utf8"
 )
 
-const quoteRotateEvery = 8 * time.Second
+const (
+	quoteRotateEvery = 8 * time.Second
+	swallowColor     = "\033[38;2;215;253;82m" // Inferoute lime
+	ansiReset        = "\033[0m"
+)
+
+// swallowFrames is the Inferoute swallow in flight: forked tail (Y), wingbeat
+// (^ ~ v), beak (>). It flaps while weaving so it reads as flying, not spinning.
+// Every frame is the same display width so the status text stays put.
+var swallowFrames = []string{
+	`Y^>     `,
+	`Y~>     `,
+	` Yv>    `,
+	` Y~>    `,
+	`  Y^>   `,
+	`  Y~>   `,
+	`   Yv>  `,
+	`   Y~>  `,
+	`    Y^> `,
+	`    Y~> `,
+	`     Yv>`,
+	`     Y~>`,
+	`    Y^> `,
+	`    Y~> `,
+	`   Yv>  `,
+	`   Y~>  `,
+	`  Y^>   `,
+	`  Y~>   `,
+	` Yv>    `,
+	` Y~>    `,
+}
+
+func paintSwallow(i int) string {
+	return swallowColor + swallowFrames[i%len(swallowFrames)] + ansiReset
+}
 
 func writerIsTTY(w io.Writer) bool {
 	f, ok := w.(*os.File)
@@ -33,13 +67,12 @@ func spinWhile(out io.Writer, msg string, fn func() error) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		frames := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
 		i := 0
 		qi := pickQuote(-1)
 		quoteAt := time.Now()
 		tick := time.NewTicker(80 * time.Millisecond)
 		defer tick.Stop()
-		fmt.Fprintf(out, "%c %s\n  %s", frames[0], msg, fitQuote(waitQuotes[qi]))
+		fmt.Fprintf(out, "%s %s\n  %s", paintSwallow(0), msg, fitQuote(waitQuotes[qi]))
 		for {
 			select {
 			case <-stop:
@@ -51,7 +84,7 @@ func spinWhile(out io.Writer, msg string, fn func() error) error {
 					qi = pickQuote(qi)
 					quoteAt = time.Now()
 				}
-				fmt.Fprintf(out, "\033[1A\r\033[K%c %s\n\033[K  %s", frames[i%len(frames)], msg, fitQuote(waitQuotes[qi]))
+				fmt.Fprintf(out, "\033[1A\r\033[K%s %s\n\033[K  %s", paintSwallow(i), msg, fitQuote(waitQuotes[qi]))
 			}
 		}
 	}()

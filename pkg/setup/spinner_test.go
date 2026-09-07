@@ -64,6 +64,35 @@ func TestPickQuoteSkipsPrevious(t *testing.T) {
 	}
 }
 
+func TestSwallowFramesSameWidth(t *testing.T) {
+	if len(swallowFrames) == 0 {
+		t.Fatal("swallowFrames is empty")
+	}
+	want := utf8.RuneCountInString(swallowFrames[0])
+	if want == 0 {
+		t.Fatal("swallow frame width is 0")
+	}
+	for i, f := range swallowFrames {
+		if n := utf8.RuneCountInString(f); n != want {
+			t.Errorf("frame %d width %d, want %d (%q)", i, n, want, f)
+		}
+	}
+}
+
+func TestPaintSwallowWraps(t *testing.T) {
+	a := paintSwallow(0)
+	b := paintSwallow(len(swallowFrames))
+	if a != b {
+		t.Fatalf("paintSwallow does not wrap: %q vs %q", a, b)
+	}
+	if !strings.Contains(a, swallowFrames[0]) {
+		t.Fatalf("paintSwallow missing frame: %q", a)
+	}
+	if !strings.HasPrefix(a, swallowColor) || !strings.HasSuffix(a, ansiReset) {
+		t.Fatalf("paintSwallow missing color wrap: %q", a)
+	}
+}
+
 func TestFitQuote(t *testing.T) {
 	short := `"x" — Y`
 	if got := fitQuote(short); got != short {
