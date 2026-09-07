@@ -16,7 +16,8 @@ The Inferoute Provider Client is a lightweight Go service that runs on vllm or O
 
 ## 💻 Hardware Requirements
 
-- NVIDIA GPU with at least **8 GB** of VRAM
+- **Linux / Windows:** NVIDIA GPU with at least **24 GB** of VRAM (for example RTX 3090 or RTX 4090)
+- **macOS:** Apple Silicon with at least **48 GB** of unified memory
 
 
 ## 💾 Installation

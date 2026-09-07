@@ -43,7 +43,7 @@ Allow Ollama through **Windows Firewall** if prompted. The Inferoute Cloudflare 
 
 ## GPU monitoring
 
-Install the [NVIDIA driver](https://www.nvidia.com/drivers) so `nvidia-smi` is on **PATH**. Then the client reports GPU name, VRAM, and busy status (utilization above 20%). Without `nvidia-smi` the client still runs; GPU fields are empty and busy is not detected.
+Install the [NVIDIA driver](https://www.nvidia.com/drivers) so `nvidia-smi` is on **PATH**. You need at least **24 GB** of VRAM for approved BF16 models. Then the client reports GPU name, VRAM, and busy status (utilization above 20%). Without `nvidia-smi` the client still runs; GPU fields are empty and busy is not detected.
 
 `inferoute-client compatibility` uses the same `nvidia-smi` data, or system RAM if no NVIDIA GPU is present.
 

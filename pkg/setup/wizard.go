@@ -94,7 +94,13 @@ func Execute(opts Options, io Streams) error {
 	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo)
 
 	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
-		fmt.Fprintf(io.Err, "warning: %v\n", err)
+		if saveErr := config.Save(path, cfg); saveErr != nil {
+			return saveErr
+		}
+		fmt.Fprintf(io.Out, "\nWrote %s\n", path)
+		fmt.Fprintf(io.Err, "Engine is not ready yet (it may still be downloading — see the log).\n")
+		fmt.Fprintf(io.Err, "Re-run setup or start the client after it is up: inferoute-client\n")
+		return err
 	}
 
 	if err := config.Save(path, cfg); err != nil {
@@ -322,7 +328,7 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	if kind == engine.KindOllama {
 		pull := engine.PullSpec(spec.Bin, cfg.Provider.Model)
 		fmt.Fprintf(io.Out, "Pulling %s...\n", engine.OllamaPullName(cfg.Provider.Model))
-		pullCtx, pullCancel := context.WithTimeout(context.Background(), engine.DefaultStartTimeout)
+		pullCtx, pullCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 		defer pullCancel()
 		if err := engine.Run(pullCtx, pull, io.Out); err != nil {
 			fmt.Fprintf(io.Err, "warning: ollama pull: %v\n", err)
@@ -334,10 +340,12 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	if err := engine.StartDetached(spec, logPath); err != nil {
 		return err
 	}
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultStartTimeout)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 	defer waitCancel()
-	fmt.Fprintln(io.Out, "Waiting for the engine to become ready (model load can take several minutes)...")
-	if err := engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second); err != nil {
+	err := spinWhile(io.Out, "Waiting for the engine to become ready (model download and load can take a long time on first run)", func() error {
+		return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second)
+	})
+	if err != nil {
 		return fmt.Errorf("%w (see %s)", err, logPath)
 	}
 	fmt.Fprintln(io.Out, "Engine is ready.")

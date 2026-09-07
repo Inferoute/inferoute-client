@@ -10,7 +10,12 @@ import (
 	"time"
 )
 
-const DefaultStartTimeout = 10 * time.Minute
+const (
+	// DefaultStartTimeout is how long EnsureReady waits when weights should already be local.
+	DefaultStartTimeout = 10 * time.Minute
+	// DefaultDownloadTimeout is how long setup waits for first-run HuggingFace / Ollama fetch + load.
+	DefaultDownloadTimeout = 2 * time.Hour
+)
 
 // LogPath is where detached engine stdout/stderr go.
 func LogPath(logDir string) string {

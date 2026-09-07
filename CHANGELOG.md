@@ -16,6 +16,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 ### Changed
 
 - Setup/compatibility model table is numbered, usable rows (`runs_well` / `fits` / `tight`) are green, and the reason column is gone.
+- Documented provider floor is **24 GB** NVIDIA VRAM (Linux/Windows) or **48 GB** unified memory (Mac).
 - Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
 - `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
 - Linux/macOS `install.sh` no longer requires `PROVIDER_API_KEY` in the curl line. The wizard asks. Use `INFEROUTE_SKIP_SETUP=1` for the old env-only path.
@@ -23,6 +24,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 ### Added
 
 - Setup shows a spinner while fetching the approved-model catalog, including the API URL it is calling.
+- Setup waits up to 2 hours for first-run model download and load instead of failing at 10 minutes and continuing anyway.
 - `INFEROUTE_URL` / `setup --url` override the Inferoute API base (catalog + `provider.url`). Flag wins over env.
 - `inferoute-client setup` walks through engine, model, and API key. Re-run anytime to update config. Install scripts launch it after placing the binary.
 - Auto-start: if `auto_start` is set, the client starts Ollama / vLLM / vLLM Metal / FreeToken when `llm_url` is down, then leaves that process running.
