@@ -53,6 +53,7 @@ func Execute(opts Options, io Streams) error {
 
 	detected := engine.Detect(kind)
 	autoStart := true
+	installedNow := false
 	if !detected.Found {
 		doInstall := opts.Install
 		if !opts.Yes {
@@ -65,7 +66,7 @@ func Execute(opts Options, io Streams) error {
 		if doInstall {
 			var err error
 			if kind == engine.KindFreeToken {
-				err = spinWhile(io.Out, "Installing FreeToken CLI (engine download can take several minutes)", func() error {
+				err = spinWhile(io.Out, "Installing FreeToken CLI (CUDA PyTorch download can take several minutes)", func() error {
 					return engine.Install(context.Background(), kind, nil)
 				})
 			} else {
@@ -77,10 +78,20 @@ func Execute(opts Options, io Streams) error {
 				autoStart = false
 			} else {
 				detected = engine.Detect(kind)
+				installedNow = true
 			}
 		} else {
 			autoStart = false
 			fmt.Fprintf(io.Out, "Skipping install. You can install %s later and re-run inferoute-client setup.\n", kind)
+		}
+	}
+	if kind == engine.KindFreeToken && detected.Found && !installedNow {
+		err := spinWhile(io.Out, "Installing CUDA PyTorch for FreeToken (PyPI torch on Windows is CPU-only)", func() error {
+			return engine.EnsureFreeTokenCUDATorch(context.Background(), nil)
+		})
+		if err != nil {
+			fmt.Fprintf(io.Err, "CUDA PyTorch install failed: %v\n", err)
+			return err
 		}
 	}
 	if detected.Found {

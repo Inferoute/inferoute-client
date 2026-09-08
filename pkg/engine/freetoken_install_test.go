@@ -88,6 +88,66 @@ func TestParseFreeTokenManifest(t *testing.T) {
 	}
 }
 
+func TestCUDATorchUVArgs(t *testing.T) {
+	t.Parallel()
+	py := `C:\Users\x\AppData\Local\inferoute\venv-freetoken\Scripts\python.exe`
+	got := cudaTorchUVArgs(py, "2.11.0")
+	want := []string{
+		"pip", "install", "--python", py, "--upgrade", "--reinstall",
+		"torch==2.11.0", "--index-url", pytorchCUDAIndexURL,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("cudaTorchUVArgs(%q, 2.11.0) = %v, want %v", py, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("cudaTorchUVArgs[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestCUDATorchPipArgsUnpinned(t *testing.T) {
+	t.Parallel()
+	got := cudaTorchPipArgs("")
+	want := []string{"install", "--upgrade", "--force-reinstall", "torch", "--index-url", pytorchCUDAIndexURL}
+	if len(got) != len(want) {
+		t.Fatalf("cudaTorchPipArgs(\"\") = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("cudaTorchPipArgs[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestTorchBaseVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in, want string
+	}{
+		{"2.11.0+cpu", "2.11.0"},
+		{"2.11.0+cu130", "2.11.0"},
+		{"2.11.0", "2.11.0"},
+		{" 2.11.0+cpu\n", "2.11.0"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := torchBaseVersion(tt.in); got != tt.want {
+			t.Errorf("torchBaseVersion(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestTorchSpec(t *testing.T) {
+	t.Parallel()
+	if got := torchSpec("2.11.0"); got != "torch==2.11.0" {
+		t.Errorf("torchSpec(2.11.0) = %q, want torch==2.11.0", got)
+	}
+	if got := torchSpec(""); got != "torch" {
+		t.Errorf("torchSpec(\"\") = %q, want torch", got)
+	}
+}
+
 func TestParseFreeTokenManifestMissingURL(t *testing.T) {
 	t.Parallel()
 	_, err := parseFreeTokenManifest([]byte(`{"runtime":{"name":"x"}}`))

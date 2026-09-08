@@ -80,6 +80,7 @@ func TestExecuteYesVLLM(t *testing.T) {
 }
 
 func TestExecuteYesFreeToken(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	var out bytes.Buffer

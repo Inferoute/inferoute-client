@@ -7,6 +7,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 ### Fixed
 
+- Windows FreeToken setup installs CUDA PyTorch from `download.pytorch.org/whl/cu130`. PyPI's Windows `torch` wheel is CPU-only, so `ft serve` previously died with `only 0 device(s) visible` after a successful `/v1/models` health check. Re-running setup repairs an existing CPU venv.
 - Cluster Ctrl-C now kills the per-machine runners. Background jobs were ignoring SIGINT, so JarvisLab wait loops kept printing after the prompt.
 - JarvisLab resume treats "No free GPUs" / non-zero `jl resume` as a retry, not success — GPU fallback (H200 etc.) actually runs.
 - Cloudflare tunnel origin now uses `http://127.0.0.1:<port>` instead of `localhost`. On macOS `localhost` is `::1` first, the client listens on IPv4 only, and inference through the tunnel 502s (Linux/Windows were fine).

@@ -14,7 +14,11 @@ import (
 	"time"
 )
 
-const freeTokenCLITimeout = 30 * time.Minute
+const (
+	freeTokenCLITimeout = 90 * time.Minute
+	// pytorchCUDAIndexURL is required on Windows: PyPI's torch wheel is CPU-only.
+	pytorchCUDAIndexURL = "https://download.pytorch.org/whl/cu130"
+)
 
 type freeTokenAsset struct {
 	Name string `json:"name"`
@@ -30,7 +34,7 @@ func installFreeToken(ctx context.Context, w io.Writer) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("FreeToken auto-install is only supported on Windows")
 	}
-	fmt.Fprintln(w, "Installing FreeToken CLI (PyTorch + engine wheels; this can take several minutes)...")
+	fmt.Fprintln(w, "Installing FreeToken CLI (CUDA PyTorch + engine wheels; this can take several minutes)...")
 	if err := installFreeTokenCLI(ctx, w); err != nil {
 		return err
 	}
@@ -39,6 +43,22 @@ func installFreeToken(ctx context.Context, w io.Writer) error {
 		return fmt.Errorf("installed FreeToken CLI but %s is missing", bin)
 	}
 	return nil
+}
+
+// EnsureFreeTokenCUDATorch replaces PyPI's CPU torch with a CUDA wheel in the
+// FreeToken venv. No-op if the venv already has CUDA-built torch, or not on Windows.
+func EnsureFreeTokenCUDATorch(ctx context.Context, w io.Writer) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	if w == nil {
+		w = io.Discard
+	}
+	py := venvPython(freeTokenVenvDirPath())
+	if !fileExists(py) {
+		return nil
+	}
+	return ensureFreeTokenCUDATorch(ctx, w, py)
 }
 
 func installFreeTokenCLI(ctx context.Context, w io.Writer) error {
@@ -60,25 +80,27 @@ func installFreeTokenCLI(ctx context.Context, w io.Writer) error {
 
 	uv, uvErr := ensureUV(ctx, w)
 	if uvErr == nil {
-		return installFreeTokenWithUV(pipCtx, w, uv, venv, wheels)
-	}
+		if err := installFreeTokenWithUV(pipCtx, w, uv, venv, wheels); err != nil {
+			return err
+		}
+	} else {
+		py, prefix, pyErr := findPython312()
+		if pyErr != nil {
+			return fmt.Errorf("need uv or Python 3.12 for the FreeToken CLI: %v; %w", uvErr, pyErr)
+		}
 
-	py, prefix, pyErr := findPython312()
-	if pyErr != nil {
-		return fmt.Errorf("need uv or Python 3.12 for the FreeToken CLI: %v; %w", uvErr, pyErr)
+		venvArgs := append(append([]string{}, prefix...), "-m", "venv", venv)
+		fmt.Fprintf(w, "Creating venv at %s...\n", venv)
+		if err := runCapture(pipCtx, py, venvArgs...); err != nil {
+			return fmt.Errorf("python venv: %w", err)
+		}
+		pip := venvPip(venv)
+		pipArgs := append([]string{"install"}, wheels...)
+		if err := runCapture(pipCtx, pip, pipArgs...); err != nil {
+			return fmt.Errorf("pip install freetoken: %w", err)
+		}
 	}
-
-	venvArgs := append(append([]string{}, prefix...), "-m", "venv", venv)
-	fmt.Fprintf(w, "Creating venv at %s...\n", venv)
-	if err := runCapture(pipCtx, py, venvArgs...); err != nil {
-		return fmt.Errorf("python venv: %w", err)
-	}
-	pip := venvPip(venv)
-	pipArgs := append([]string{"install"}, wheels...)
-	if err := runCapture(pipCtx, pip, pipArgs...); err != nil {
-		return fmt.Errorf("pip install freetoken: %w", err)
-	}
-	return nil
+	return ensureFreeTokenCUDATorch(pipCtx, w, venvPython(venv))
 }
 
 func installFreeTokenWithUV(ctx context.Context, w io.Writer, uv, venv string, wheels []string) error {
@@ -276,15 +298,81 @@ func pythonIs312(bin string, prefix []string) bool {
 	return strings.Contains(string(out), "3.12")
 }
 
-func runCapture(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg == "" {
-			return fmt.Errorf("%s: %w", name, err)
+func ensureFreeTokenCUDATorch(ctx context.Context, w io.Writer, py string) error {
+	if torchWheelHasCUDA(ctx, py) {
+		return nil
+	}
+	ver := queryTorchBaseVersion(ctx, py)
+	fmt.Fprintf(w, "Installing CUDA PyTorch %s from %s (PyPI torch on Windows is CPU-only)...\n",
+		torchSpec(ver), pytorchCUDAIndexURL)
+
+	uv, uvErr := ensureUV(ctx, w)
+	if uvErr == nil {
+		if err := runCapture(ctx, uv, cudaTorchUVArgs(py, ver)...); err != nil {
+			return fmt.Errorf("uv pip install CUDA torch: %w", err)
 		}
-		return fmt.Errorf("%s: %w: %s", name, err, msg)
+	} else {
+		pip := venvPip(filepath.Dir(filepath.Dir(py)))
+		if !fileExists(pip) {
+			return fmt.Errorf("need uv or pip to install CUDA torch: %v", uvErr)
+		}
+		if err := runCapture(ctx, pip, cudaTorchPipArgs(ver)...); err != nil {
+			return fmt.Errorf("pip install CUDA torch: %w", err)
+		}
+	}
+	if !torchWheelHasCUDA(ctx, py) {
+		return fmt.Errorf("torch in %s is still CPU-only after installing from %s", py, pytorchCUDAIndexURL)
 	}
 	return nil
+}
+
+func cudaTorchUVArgs(py, version string) []string {
+	return []string{"pip", "install", "--python", py, "--upgrade", "--reinstall", torchSpec(version), "--index-url", pytorchCUDAIndexURL}
+}
+
+func cudaTorchPipArgs(version string) []string {
+	return []string{"install", "--upgrade", "--force-reinstall", torchSpec(version), "--index-url", pytorchCUDAIndexURL}
+}
+
+func torchSpec(version string) string {
+	if version == "" {
+		return "torch"
+	}
+	return "torch==" + version
+}
+
+func torchBaseVersion(ver string) string {
+	v, _, _ := strings.Cut(strings.TrimSpace(ver), "+")
+	return v
+}
+
+func torchWheelHasCUDA(ctx context.Context, py string) bool {
+	err := runCapture(ctx, py, "-c", "import torch,sys; sys.exit(0 if getattr(torch.version,'cuda',None) else 1)")
+	return err == nil
+}
+
+func queryTorchBaseVersion(ctx context.Context, py string) string {
+	out, err := runOutput(ctx, py, "-c", "import torch; print(torch.__version__)")
+	if err != nil {
+		return ""
+	}
+	return torchBaseVersion(out)
+}
+
+func runCapture(ctx context.Context, name string, args ...string) error {
+	_, err := runOutput(ctx, name, args...)
+	return err
+}
+
+func runOutput(ctx context.Context, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.CombinedOutput()
+	msg := strings.TrimSpace(string(out))
+	if err != nil {
+		if msg == "" {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		return msg, fmt.Errorf("%s: %w: %s", name, err, msg)
+	}
+	return msg, nil
 }
