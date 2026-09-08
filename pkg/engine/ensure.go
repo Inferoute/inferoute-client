@@ -15,6 +15,14 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 	if cfg == nil || !cfg.Provider.AutoStart {
 		return nil
 	}
+	return StartAndWait(ctx, cfg, logDir)
+}
+
+// StartAndWait starts the configured engine if llm_url is down and waits until it is serving.
+func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
 	kind, ok := ParseKind(cfg.Provider.Engine)
 	if !ok {
 		return fmt.Errorf("unknown engine %q", cfg.Provider.Engine)
@@ -33,7 +41,7 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 
 	bin := ResolveBin(kind, cfg.Provider.EngineBin)
 	if bin == "" {
-		return fmt.Errorf("%s is not installed and is not running at %s", kind, url)
+		return fmt.Errorf("%s is not installed and is not running at %s", Label(kind), url)
 	}
 
 	hfRepo := cfg.Provider.Model

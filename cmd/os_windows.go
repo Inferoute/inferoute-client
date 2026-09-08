@@ -13,6 +13,10 @@ import (
 
 const trayChildEnv = "INFEROUTE_TRAY_CHILD"
 
+func isTrayChild() bool {
+	return os.Getenv(trayChildEnv) == "1"
+}
+
 const (
 	createBreakawayFromJob = 0x01000000
 )
@@ -62,7 +66,7 @@ func freeConsole() {
 // closing PowerShell does not stop the client. Returns true if the parent
 // should exit immediately.
 func spawnDetachedIfNeeded() bool {
-	if os.Getenv(trayChildEnv) == "1" {
+	if isTrayChild() {
 		return false
 	}
 	hwnd, err := getConsoleWindow()

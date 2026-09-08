@@ -15,7 +15,6 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
@@ -125,10 +124,26 @@ func main() {
 		fatal("%s", err.Error())
 	}
 
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fatal("Failed to load configuration: %v", err)
+	}
+	config.ApplyEnvOverrides(cfg)
+	if !cfg.HasAPIKey() {
+		fatal("%s\nOr run: inferoute-client setup", usermsg.InvalidAPIKey)
+	}
+
 	useTray := tray.Supported() && !*consoleFlag
 	if *trayFlag && !tray.Supported() {
 		fmt.Fprintln(os.Stderr, "--tray is only supported on Windows; using console")
 	}
+
+	if !isTrayChild() {
+		if err := setup.EnsureOnStart(cfg, setup.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: inference engine not ready: %v\n", err)
+		}
+	}
+
 	if useTray && spawnDetachedIfNeeded() {
 		return
 	}
@@ -140,15 +155,6 @@ func main() {
 			showErrorDialog(msg)
 		}
 		os.Exit(1)
-	}
-
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		fatal("Failed to load configuration: %v", err)
-	}
-	config.ApplyEnvOverrides(cfg)
-	if !cfg.HasAPIKey() {
-		fatal("%s\nOr run: inferoute-client setup", usermsg.InvalidAPIKey)
 	}
 
 	log, err := logger.New(&cfg.Logging)
@@ -172,15 +178,6 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	if cfg.Provider.AutoStart {
-		startCtx, startCancel := context.WithTimeout(ctx, engine.DefaultDownloadTimeout)
-		if err := engine.EnsureReady(startCtx, cfg, cfg.Logging.LogDir); err != nil {
-			logger.Warn("Local inference engine is not ready", zap.Error(err))
-			fmt.Fprintf(os.Stderr, "warning: inference engine not ready: %v\n", err)
-		}
-		startCancel()
-	}
 
 	gpuMonitor, err := gpu.NewMonitor()
 	if err != nil {

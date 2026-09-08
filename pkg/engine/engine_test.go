@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
@@ -164,6 +165,46 @@ func TestWaitHealthyProcessExit(t *testing.T) {
 	err := WaitHealthy(ctx, KindFreeToken, "http://127.0.0.1:1", 50*time.Millisecond, exited)
 	if err == nil || !strings.Contains(err.Error(), "process exited") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLabel(t *testing.T) {
+	t.Parallel()
+	if got := Label(KindOllama); got != "Ollama" {
+		t.Errorf("Label(ollama) = %q, want Ollama", got)
+	}
+	if got := Label(KindFreeToken); got != "FreeToken" {
+		t.Errorf("Label(freetoken) = %q, want FreeToken", got)
+	}
+	if got := Label(KindVLLMMetal); got != "vLLM Metal" {
+		t.Errorf("Label(vllm-metal) = %q, want vLLM Metal", got)
+	}
+}
+
+func TestEnsureReadySkipsWithoutAutoStart(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "ollama"
+	cfg.Provider.LLMURL = "http://127.0.0.1:1"
+	cfg.Provider.AutoStart = false
+	if err := EnsureReady(context.Background(), cfg, t.TempDir()); err != nil {
+		t.Fatalf("EnsureReady: %v", err)
+	}
+}
+
+func TestStartAndWaitAlreadyHealthy(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:0.6b"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "ollama"
+	cfg.Provider.LLMURL = srv.URL
+	cfg.Provider.AutoStart = false
+	if err := StartAndWait(context.Background(), cfg, t.TempDir()); err != nil {
+		t.Fatalf("StartAndWait: %v", err)
 	}
 }
 

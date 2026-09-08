@@ -10,7 +10,7 @@ import (
 
 func TestSpinWhileNonTTY(t *testing.T) {
 	var buf bytes.Buffer
-	err := spinWhile(&buf, "Fetching approved models from https://example", func() error {
+	err := SpinWhile(&buf, "Fetching approved models from https://example", func() error {
 		return nil
 	})
 	if err != nil {
@@ -27,7 +27,7 @@ func TestSpinWhileNonTTY(t *testing.T) {
 
 func TestSpinWhilePropagatesError(t *testing.T) {
 	want := errors.New("boom")
-	err := spinWhile(&bytes.Buffer{}, "x", func() error { return want })
+	err := SpinWhile(&bytes.Buffer{}, "x", func() error { return want })
 	if !errors.Is(err, want) {
 		t.Fatalf("err = %v", err)
 	}

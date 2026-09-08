@@ -57,7 +57,7 @@ func Execute(opts Options, io Streams) error {
 	if !detected.Found {
 		doInstall := opts.Install
 		if !opts.Yes {
-			ok, err := promptYes(io.In, io.Out, fmt.Sprintf("%s is not installed. Install it now?", engineLabel(kind)), true)
+			ok, err := promptYes(io.In, io.Out, fmt.Sprintf("%s is not installed. Install it now?", engine.Label(kind)), true)
 			if err != nil {
 				return err
 			}
@@ -66,7 +66,7 @@ func Execute(opts Options, io Streams) error {
 		if doInstall {
 			var err error
 			if kind == engine.KindFreeToken {
-				err = spinWhile(io.Out, "Installing FreeToken CLI (CUDA PyTorch download can take several minutes)", func() error {
+				err = SpinWhile(io.Out, "Installing FreeToken CLI (CUDA PyTorch download can take several minutes)", func() error {
 					return engine.Install(context.Background(), kind, nil)
 				})
 			} else {
@@ -86,7 +86,7 @@ func Execute(opts Options, io Streams) error {
 		}
 	}
 	if kind == engine.KindFreeToken && detected.Found && !installedNow {
-		err := spinWhile(io.Out, "Installing CUDA PyTorch for FreeToken (PyPI torch on Windows is CPU-only)", func() error {
+		err := SpinWhile(io.Out, "Installing CUDA PyTorch for FreeToken (PyPI torch on Windows is CPU-only)", func() error {
 			return engine.EnsureFreeTokenCUDATorch(context.Background(), nil)
 		})
 		if err != nil {
@@ -119,7 +119,7 @@ func Execute(opts Options, io Streams) error {
 			return saveErr
 		}
 		fmt.Fprintf(io.Out, "\nWrote %s\n", path)
-		fmt.Fprintf(io.Err, "Setup did not finish: %s is not serving yet (see %s).\n", engineLabel(kind), engine.LogPath(cfg.Logging.LogDir))
+		fmt.Fprintf(io.Err, "Setup did not finish: %s is not serving yet (see %s).\n", engine.Label(kind), engine.LogPath(cfg.Logging.LogDir))
 		fmt.Fprintf(io.Err, "Leave the engine running, then re-run: inferoute-client setup\n")
 		return err
 	}
@@ -237,7 +237,7 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		entries, err = compat.LoadOfflineCatalog(opts.OfflineCatalog, engine.CatalogType(kind))
 	} else {
 		msg := fmt.Sprintf("Fetching approved models from %s", platformURL)
-		err = spinWhile(io.Out, msg, func() error {
+		err = SpinWhile(io.Out, msg, func() error {
 			var fetchErr error
 			entries, fetchErr = compat.FetchCatalog(ctx, platformURL, engine.CatalogType(kind))
 			return fetchErr
@@ -330,13 +330,13 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		}
 		return nil
 	}
-	waitMsg := fmt.Sprintf("Waiting for %s to finish downloading and start serving at %s", engineLabel(kind), cfg.Provider.LLMURL)
+	waitMsg := fmt.Sprintf("Waiting for %s to finish downloading and start serving at %s", engine.Label(kind), cfg.Provider.LLMURL)
 
 	if engine.PortOpen(ctx, cfg.Provider.LLMURL) {
 		fmt.Fprintf(io.Out, "\n%s is already starting at %s (port in use).\n", kind, cfg.Provider.LLMURL)
 		waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 		defer waitCancel()
-		err := spinWhile(io.Out, waitMsg, func() error {
+		err := SpinWhile(io.Out, waitMsg, func() error {
 			return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second, nil)
 		})
 		if err != nil {
@@ -379,26 +379,13 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	}
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 	defer waitCancel()
-	if err := spinWhile(io.Out, waitMsg, func() error {
+	if err := SpinWhile(io.Out, waitMsg, func() error {
 		return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second, exited)
 	}); err != nil {
 		return fmt.Errorf("%w (see %s)", err, logPath)
 	}
 	fmt.Fprintf(io.Out, "Engine is ready at %s.\n", cfg.Provider.LLMURL)
 	return nil
-}
-
-func engineLabel(k engine.Kind) string {
-	switch k {
-	case engine.KindVLLMMetal:
-		return "vLLM Metal"
-	case engine.KindFreeToken:
-		return "FreeToken"
-	case engine.KindVLLM:
-		return "vLLM"
-	default:
-		return "Ollama"
-	}
 }
 
 func firstNonEmpty(vals ...string) string {

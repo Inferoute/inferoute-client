@@ -9,3 +9,5 @@ func hideConsole() {}
 func showErrorDialog(string) {}
 
 func spawnDetachedIfNeeded() bool { return false }
+
+func isTrayChild() bool { return false }

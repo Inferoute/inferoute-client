@@ -15,6 +15,20 @@ const (
 	KindFreeToken Kind = "freetoken"
 )
 
+// Label is the human-readable engine name for prompts and spinners.
+func Label(k Kind) string {
+	switch k {
+	case KindVLLMMetal:
+		return "vLLM Metal"
+	case KindFreeToken:
+		return "FreeToken"
+	case KindVLLM:
+		return "vLLM"
+	default:
+		return "Ollama"
+	}
+}
+
 // ParseKind accepts wizard / config values.
 func ParseKind(s string) (Kind, bool) {
 	switch Kind(strings.ToLower(strings.TrimSpace(s))) {

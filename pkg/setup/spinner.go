@@ -17,9 +17,9 @@ func writerIsTTY(w io.Writer) bool {
 	return ok && isTTY(f)
 }
 
-// spinWhile prints msg while fn runs. On a TTY it animates in place and
+// SpinWhile prints msg while fn runs. On a TTY it animates in place and
 // rotates a random AI quote underneath.
-func spinWhile(out io.Writer, msg string, fn func() error) error {
+func SpinWhile(out io.Writer, msg string, fn func() error) error {
 	if out == nil {
 		out = os.Stdout
 	}
