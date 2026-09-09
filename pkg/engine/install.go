@@ -14,6 +14,8 @@ import (
 const (
 	ollamaInstallURL           = "https://ollama.com/install.sh"
 	vllmMetalInstallURL        = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
+	vllmMetalInstallURLGitHub  = "https://github.com/vllm-project/vllm-metal/raw/main/install.sh"
+	vllmMetalInstallURLAPI     = "https://api.github.com/repos/vllm-project/vllm-metal/contents/install.sh?ref=main"
 	freeTokenEngineManifestURL = "https://github.com/FlashML-org/FreeToken-Web/releases/download/beta/engine-win_amd64.json"
 	uvWindowsURL               = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
 	vllmDocsURL                = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
@@ -97,7 +99,26 @@ func installVLLM(ctx context.Context, w io.Writer) error {
 
 func installVLLMMetal(ctx context.Context, w io.Writer) error {
 	fmt.Fprintln(w, "Installing vLLM Metal via official install script...")
-	return runScript(ctx, w, vllmMetalInstallURL)
+	try := []struct {
+		url  string
+		curl string
+	}{
+		{vllmMetalInstallURL, vllmMetalInstallURL},
+		{vllmMetalInstallURLGitHub, vllmMetalInstallURLGitHub},
+		{vllmMetalInstallURLAPI, `-H "Accept: application/vnd.github.raw" -H "User-Agent: inferoute-client" ` + vllmMetalInstallURLAPI},
+	}
+	var last error
+	for i, t := range try {
+		if i > 0 {
+			fmt.Fprintf(w, "Retrying from %s...\n", t.url)
+		}
+		last = runScript(ctx, w, t.curl)
+		if last == nil {
+			return nil
+		}
+		fmt.Fprintf(w, "%s failed: %v\n", t.url, last)
+	}
+	return last
 }
 
 func run(ctx context.Context, w io.Writer, name string, args ...string) error {
@@ -107,8 +128,8 @@ func run(ctx context.Context, w io.Writer, name string, args ...string) error {
 	return cmd.Run()
 }
 
-func runScript(ctx context.Context, w io.Writer, url string) error {
-	cmd := exec.CommandContext(ctx, "bash", "-c", "curl -fsSL "+url+" | bash")
+func runScript(ctx context.Context, w io.Writer, curlArgs string) error {
+	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; curl -fsSL "+curlArgs+" | bash")
 	cmd.Stdout = w
 	cmd.Stderr = w
 	return cmd.Run()
