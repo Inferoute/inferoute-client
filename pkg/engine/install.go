@@ -96,8 +96,27 @@ func installVLLM(ctx context.Context, w io.Writer) error {
 }
 
 func installVLLMMetal(ctx context.Context, w io.Writer) error {
+	if home, err := os.UserHomeDir(); err == nil {
+		if err := replaceVenvDir(w, filepath.Join(home, ".venv-vllm-metal")); err != nil {
+			return err
+		}
+	}
 	fmt.Fprintln(w, "Installing vLLM Metal via official install script...")
 	return runScript(ctx, w, vllmMetalInstallURL)
+}
+
+func replaceVenvDir(w io.Writer, venv string) error {
+	if _, err := os.Stat(venv); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	fmt.Fprintf(w, "Removing existing venv at %s so uv can recreate it...\n", venv)
+	if err := os.RemoveAll(venv); err != nil {
+		return fmt.Errorf("remove %s: %w", venv, err)
+	}
+	return nil
 }
 
 func run(ctx context.Context, w io.Writer, name string, args ...string) error {
