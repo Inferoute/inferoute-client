@@ -41,6 +41,10 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 
 	bin := ResolveBin(kind, cfg.Provider.EngineBin)
 	if bin == "" {
+		d := Detect(kind)
+		if d.Unusable != "" {
+			return fmt.Errorf("%s cannot run (%s); re-run inferoute-client setup", Label(kind), d.Unusable)
+		}
 		return fmt.Errorf("%s is not installed and is not running at %s", Label(kind), url)
 	}
 

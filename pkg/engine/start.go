@@ -48,7 +48,11 @@ func StartDetached(spec Spec, logPath string) (<-chan error, error) {
 	detach(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
-		return nil, fmt.Errorf("start %s: %w", spec.CommandLine(), err)
+		extra := ""
+		if fileExists(spec.Bin) && !runnableBin(spec.Bin) {
+			extra = " (" + brokenBinReason(spec.Bin) + ")"
+		}
+		return nil, fmt.Errorf("start %s: %w%s", spec.CommandLine(), err, extra)
 	}
 	_ = logFile.Close()
 	exited := make(chan error, 1)

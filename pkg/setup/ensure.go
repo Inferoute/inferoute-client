@@ -69,6 +69,12 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 
 	bin := engine.ResolveBin(kind, cfg.Provider.EngineBin)
 	if bin == "" {
+		detected := engine.Detect(kind)
+		if detected.Unusable != "" {
+			fmt.Fprintf(io.Out, "%s at %s cannot run (%s).\n", label, detected.Bin, detected.Unusable)
+			fmt.Fprintln(io.Out, "Fix it with: inferoute-client setup")
+			return nil
+		}
 		fmt.Fprintf(io.Out, "%s is not installed and is not running at %s.\n", label, url)
 		fmt.Fprintln(io.Out, "Install it with: inferoute-client setup")
 		return nil

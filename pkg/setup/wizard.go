@@ -57,7 +57,11 @@ func Execute(opts Options, io Streams) error {
 	if !detected.Found {
 		doInstall := opts.Install
 		if !opts.Yes {
-			ok, err := promptYes(io.In, io.Out, fmt.Sprintf("%s is not installed. Install it now?", engine.Label(kind)), true)
+			q := fmt.Sprintf("%s is not installed. Install it now?", engine.Label(kind))
+			if detected.Unusable != "" {
+				q = fmt.Sprintf("%s at %s cannot run (%s). Reinstall it now?", engine.Label(kind), detected.Bin, detected.Unusable)
+			}
+			ok, err := promptYes(io.In, io.Out, q, true)
 			if err != nil {
 				return err
 			}
