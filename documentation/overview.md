@@ -24,7 +24,7 @@ There is also a **compatibility** command that does not start the service. It lo
 ## What the operator sees
 
 - **Linux / macOS:** a terminal dashboard that refreshes every few seconds (session, tunnel URL, GPU, model approval, recent requests).
-- **Windows:** the client lives in the notification area by default. Closing the terminal does not stop it. “Open dashboard” shows the same status in a browser at `http://127.0.0.1:8080/`. `--console` keeps the old terminal UI.
+- **Windows:** the client lives in the notification area by default. From a terminal, the prompt waits until `http://127.0.0.1:8080/` is up, then returns. Closing the terminal does not stop it. “Open dashboard” shows the same status in a browser. `--console` keeps the old terminal UI.
 
 Logs rotate under `~/.local/state/inferoute/log` (Windows: under the user’s state directory).
 

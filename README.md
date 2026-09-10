@@ -75,7 +75,7 @@ curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scr
 **INFEROUTE Start with specific config:**
 `inferoute-client --config ~/.config/inferoute/config.yaml`
 
-**Windows:** `inferoute-client` runs in the notification area by default. Closing PowerShell does not stop it. Right-click the tray icon → **Open dashboard** for live status in the browser, or **Quit** to stop. Use `inferoute-client --console` for the terminal UI.
+**Windows:** `inferoute-client` runs in the notification area by default. The prompt waits until the local dashboard is up, then returns. Closing PowerShell does not stop it. Right-click the tray icon → **Open dashboard** for live status in the browser, or **Quit** to stop. Use `inferoute-client --console` for the terminal UI.
 
 ## Model compatibility check
 

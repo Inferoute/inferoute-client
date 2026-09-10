@@ -15,6 +15,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - A wrong or missing provider API key now fails startup with a clear message instead of a generic platform **500**.
 - Windows FreeToken setup installs only the CLI wheels (uv + beta `engine-win_amd64.json`) into `%LOCALAPPDATA%\inferoute\venv-freetoken`. It no longer runs the Desktop NSIS installer. Detect and auto-start ignore Desktop's bundled `resources\ft.exe`, which is not a serving binary.
 - Setup does not print **Engine is ready** until Ollama/vLLM/FreeToken lists at least one model. An empty `/v1/models` 200 (typical while weights download) kept the spinner going. If the engine process dies, the wizard fails instead of hanging.
+- Windows tray startup waits until `http://127.0.0.1:<port>/` responds before printing that the client is running. The parent used to return as soon as the detached process spawned.
 
 ### Changed
 

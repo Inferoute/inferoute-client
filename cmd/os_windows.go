@@ -3,11 +3,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/setup"
 	"golang.org/x/sys/windows"
 )
 
@@ -64,8 +66,9 @@ func freeConsole() {
 
 // spawnDetachedIfNeeded restarts this process detached from the console so
 // closing PowerShell does not stop the client. Returns true if the parent
-// should exit immediately.
-func spawnDetachedIfNeeded() bool {
+// should exit (child was spawned). The parent waits until the dashboard URL
+// responds so the prompt does not return while the child is still starting.
+func spawnDetachedIfNeeded(dashboardURL string) bool {
 	if isTrayChild() {
 		return false
 	}
@@ -81,17 +84,46 @@ func spawnDetachedIfNeeded() bool {
 	}
 
 	flags := uint32(windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS | windows.CREATE_NO_WINDOW)
-	if startDetached(exe, flags|createBreakawayFromJob) || startDetached(exe, flags) {
-		fmt.Fprintln(os.Stderr, "Inferoute Client is running in the notification area.")
-		fmt.Fprintln(os.Stderr, "Right-click the Inferoute icon to open the dashboard or quit.")
-		return true
+	cmd := startDetached(exe, flags|createBreakawayFromJob)
+	if cmd == nil {
+		cmd = startDetached(exe, flags)
+	}
+	if cmd == nil {
+		hideAndDetachConsole()
+		return false
 	}
 
-	hideAndDetachConsole()
-	return false
+	dead := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(dead)
+	}()
+	alive := func() bool {
+		select {
+		case <-dead:
+			return false
+		default:
+			return true
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), dashboardWaitTimeout)
+	defer cancel()
+	msg := fmt.Sprintf("Waiting for dashboard at %s", dashboardURL)
+	if err := setup.SpinWhile(os.Stdout, msg, func() error {
+		return waitUntilDashboard(ctx, dashboardURL, dashboardPollInterval, alive)
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Inferoute Client failed to start: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintln(os.Stdout, "Inferoute Client is running in the notification area.")
+	fmt.Fprintf(os.Stdout, "Dashboard: %s\n", dashboardURL)
+	fmt.Fprintln(os.Stdout, "Right-click the Inferoute icon to open the dashboard or quit.")
+	return true
 }
 
-func startDetached(exe string, flags uint32) bool {
+func startDetached(exe string, flags uint32) *exec.Cmd {
 	cmd := exec.Command(exe, os.Args[1:]...)
 	cmd.Env = append(os.Environ(), trayChildEnv+"=1")
 	cmd.Stdin = nil
@@ -101,7 +133,10 @@ func startDetached(exe string, flags uint32) bool {
 		HideWindow:    true,
 		CreationFlags: flags,
 	}
-	return cmd.Start() == nil
+	if err := cmd.Start(); err != nil {
+		return nil
+	}
+	return cmd
 }
 
 func hideAndDetachConsole() {

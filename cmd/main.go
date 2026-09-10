@@ -144,7 +144,7 @@ func main() {
 		}
 	}
 
-	if useTray && spawnDetachedIfNeeded() {
+	if useTray && spawnDetachedIfNeeded(cfg.LocalDashboardURL()) {
 		return
 	}
 
