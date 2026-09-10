@@ -36,7 +36,7 @@ Logs rotate under `~/.local/state/inferoute/log` (Windows: under the user’s st
 | Windows amd64 | Ollama | `nvidia-smi` when the NVIDIA driver is present |
 | macOS | Ollama | Basic GPU identity; busy = “a request is already running” |
 
-Hardware bar for a useful cluster: NVIDIA GPU with **24 GB+** VRAM (Linux/Windows), or Apple Silicon with **48 GB+** unified memory. The compatibility command scores that conservatively.
+Hardware bar for a useful cluster: **32 GB** of system memory and an NVIDIA GPU with **24 GB+** VRAM (Linux/Windows), or Apple Silicon with **48 GB+** unified memory. The compatibility command scores that conservatively.
 
 Docker is supported, but the local LLM must be reachable from the container (`host.docker.internal` is the usual pattern). `cloudflared` must be on the PATH; install scripts put it there.
 

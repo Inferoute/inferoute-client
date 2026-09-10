@@ -19,7 +19,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 ### Changed
 
 - Setup/compatibility model table is numbered, usable rows (`runs_well` / `fits` / `tight`) are green, and the reason column is gone.
-- Documented provider floor is **24 GB** NVIDIA VRAM (Linux/Windows) or **48 GB** unified memory (Mac).
+- Documented provider floor is **32 GB** of system memory and **24 GB** NVIDIA VRAM (Linux/Windows), or **48 GB** unified memory (Mac).
 - Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
 - `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
 - Linux/macOS `install.sh` no longer requires `PROVIDER_API_KEY` in the curl line. The wizard asks. Use `INFEROUTE_SKIP_SETUP=1` for the old env-only path.
