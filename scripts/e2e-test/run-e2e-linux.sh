@@ -75,6 +75,24 @@ CLIENT_GIT_BRANCH="${CLIENT_GIT_BRANCH:-main}"
 RUN_VLLM="${RUN_VLLM:-1}"
 RUN_OLLAMA="${RUN_OLLAMA:-1}"
 
+# vLLM serve flags — mirror the catalog serve flags for Qwen2.5 so the client's
+# context gate (live max_model_len >= catalog max_model_len) passes and tool
+# calling works. YaRN factor = MAX_MODEL_LEN / ROPE_BASE_LEN (Qwen2.5 native 32k).
+# Set VLLM_ROPE_BASE_LEN="" to skip rope overrides (e.g. non-Qwen2.5 models).
+# NOTE: bf16 7B @ 131072 needs a 48GB GPU (RTX6000/A6000); on 24GB cards set
+# VLLM_KV_CACHE_DTYPE=fp8 or lower VLLM_MAX_MODEL_LEN in references/.env.
+VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-131072}"
+VLLM_TOOL_PARSER="${VLLM_TOOL_PARSER:-hermes}"
+VLLM_ROPE_BASE_LEN="${VLLM_ROPE_BASE_LEN:-32768}"
+VLLM_KV_CACHE_DTYPE="${VLLM_KV_CACHE_DTYPE:-}"
+
+VLLM_SERVE_FLAGS="--max-model-len $VLLM_MAX_MODEL_LEN --enable-auto-tool-choice --tool-call-parser $VLLM_TOOL_PARSER"
+if [ -n "$VLLM_ROPE_BASE_LEN" ] && [ "$VLLM_ROPE_BASE_LEN" -lt "$VLLM_MAX_MODEL_LEN" ]; then
+  yarn_factor=$((VLLM_MAX_MODEL_LEN / VLLM_ROPE_BASE_LEN))
+  VLLM_SERVE_FLAGS="$VLLM_SERVE_FLAGS --hf-overrides '{\"rope_scaling\":{\"rope_type\":\"yarn\",\"factor\":$yarn_factor,\"original_max_position_embeddings\":$VLLM_ROPE_BASE_LEN}}'"
+fi
+[ -n "$VLLM_KV_CACHE_DTYPE" ] && VLLM_SERVE_FLAGS="$VLLM_SERVE_FLAGS --kv-cache-dtype $VLLM_KV_CACHE_DTYPE"
+
 KEEP="${KEEP:-0}"
 STARTED_NGROK=0
 OVERALL=0
@@ -167,9 +185,10 @@ wait_provider_green() {
 }
 
 # (re)start the client with a given config, then health + DB gate + inference tests.
-# The backend it points at must already be serving. args: label, config_file, alias.
+# The backend it points at must already be serving.
+# args: label, config_file, alias, tool_tests (1 = run tool-calling suite; vLLM only).
 run_client_phase() {
-  local label="$1" config="$2" alias="$3"
+  local label="$1" config="$2" alias="$3" tool_tests="${4:-0}"
 
   step "[$label] (re)start inferoute-client with $config"
   kill_port 8080
@@ -194,8 +213,8 @@ run_client_phase() {
   if [ "${SKIP_TESTS:-0}" = "1" ]; then
     log "[$label] SKIP_TESTS=1 — leaving client up (no inference suite)"
   else
-    step "[$label] inference tests (alias=$alias)"
-    if SKIP_WAIT=1 MODEL_ALIAS="$alias" bash "$SCRIPT_DIR/references/test-inference.sh"; then
+    step "[$label] inference tests (alias=$alias, tool_tests=$tool_tests)"
+    if SKIP_WAIT=1 MODEL_ALIAS="$alias" TOOL_TESTS="$tool_tests" bash "$SCRIPT_DIR/references/test-inference.sh"; then
       log "[$label] TESTS PASSED"
     else
       OVERALL=1
@@ -356,13 +375,14 @@ if [ "$RUN_VLLM" = "1" ]; then
   # Start vLLM and wait until it serves BEFORE touching the client. The client
   # marks itself red at startup if no models are up, recovering only on its next
   # heartbeat — so the backend must be ready first.
-  step "[vLLM] start vLLM ($VLLM_MODEL)"
+  step "[vLLM] start vLLM ($VLLM_MODEL) flags: $VLLM_SERVE_FLAGS"
   jl exec "$JL_MACHINE_ID" -- sh -lc "
     mkdir -p '$LOG_DIR'
     if curl -sf http://127.0.0.1:8000/v1/models >/dev/null 2>&1; then
       echo 'vllm already serving'
     else
       setsid '$VLLM_BIN' serve '$VLLM_MODEL' --host 0.0.0.0 --port 8000 \
+        $VLLM_SERVE_FLAGS \
         > '$LOG_DIR/vllm.log' 2>&1 </dev/null &
       echo 'vllm launched'
     fi
@@ -370,7 +390,7 @@ if [ "$RUN_VLLM" = "1" ]; then
   wait_gate "[vLLM] vLLM" "$VLLM_WAIT_SEC" vllm_ready \
     || { jl exec "$JL_MACHINE_ID" -- tail -40 "$LOG_DIR/vllm.log"; die "vLLM not ready"; }
 
-  run_client_phase "vLLM" "$CLIENT_CONFIG" "$INFEROUTE_MODEL_ALIAS"
+  run_client_phase "vLLM" "$CLIENT_CONFIG" "$INFEROUTE_MODEL_ALIAS" 1
 else
   warn "RUN_VLLM=0 — skipping vLLM phase"
 fi

@@ -164,6 +164,74 @@ else
   check "routing + stream" 1
 fi
 
+# ── tool calling (vLLM phase only: TOOL_TESTS=1) ──────────────────────────────
+# Multi-turn function-calling loop through the full consumer -> platform ->
+# provider -> vLLM path. Requires vLLM started with --enable-auto-tool-choice
+# --tool-call-parser (run-e2e-linux.sh vLLM phase does this). Ollama phases and
+# the Windows/Mac runners keep TOOL_TESTS unset so this block is skipped.
+#
+# Round 1: user asks for weather -> model emits a tool_call -> we send a fake
+# tool result -> model must answer in plain content. Round 2 asks a follow-up
+# on the same conversation to prove tool state survives several back-and-forths.
+if [ "${TOOL_TESTS:-0}" = "1" ]; then
+  TOOLS='[{"type":"function","function":{"name":"get_current_weather","description":"Get the current weather in a given city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name, e.g. Paris"}},"required":["city"]}}}]'
+  MESSAGES='[{"role":"system","content":"You are a helpful assistant. Use the provided tools to answer weather questions."},{"role":"user","content":"What is the weather in Paris right now?"}]'
+
+  # One tool round: the model must request get_current_weather. On success the
+  # assistant tool_call message + our tool result are appended to MESSAGES.
+  tool_call_turn() {
+    local name="$1" tool_result="$2"
+    local payload resp body code msg fname tcid
+    payload=$(jq -cn --arg model "$INFEROUTE_MODEL_ALIAS" --argjson m "$MESSAGES" --argjson t "$TOOLS" \
+      '{model:$model,messages:$m,tools:$t,tool_choice:"auto",stream:false,max_tokens:256}')
+    resp=$(post_chat "$payload")
+    body=$(echo "$resp" | sed '$d'); code=$(echo "$resp" | tail -1)
+    if [ "$code" != "200" ]; then check "$name" 1; echo "$body"; return 1; fi
+    msg=$(echo "$body" | jq -c '.choices[0].message')
+    fname=$(echo "$msg" | jq -r '.tool_calls[0].function.name // empty')
+    tcid=$(echo "$msg" | jq -r '.tool_calls[0].id // empty')
+    if [ "$fname" != "get_current_weather" ] || [ -z "$tcid" ]; then
+      check "$name" 1; echo "$body"; return 1
+    fi
+    MESSAGES=$(jq -cn --argjson m "$MESSAGES" --argjson a "$msg" --arg id "$tcid" --arg res "$tool_result" \
+      '$m + [$a, {role:"tool",tool_call_id:$id,content:$res}]')
+    check "$name" 0
+  }
+
+  # Closing turn of a round: the model answers in plain content from the tool
+  # result (no further tool call expected). Appends the answer to MESSAGES.
+  tool_answer_turn() {
+    local name="$1"
+    local payload resp body code msg content
+    payload=$(jq -cn --arg model "$INFEROUTE_MODEL_ALIAS" --argjson m "$MESSAGES" --argjson t "$TOOLS" \
+      '{model:$model,messages:$m,tools:$t,tool_choice:"auto",stream:false,max_tokens:256}')
+    resp=$(post_chat "$payload")
+    body=$(echo "$resp" | sed '$d'); code=$(echo "$resp" | tail -1)
+    if [ "$code" != "200" ]; then check "$name" 1; echo "$body"; return 1; fi
+    msg=$(echo "$body" | jq -c '.choices[0].message')
+    content=$(echo "$msg" | jq -r '.content // empty')
+    if [ -z "$content" ]; then check "$name" 1; echo "$body"; return 1; fi
+    echo "  answer: $content"
+    MESSAGES=$(jq -cn --argjson m "$MESSAGES" --argjson a "$msg" '$m + [$a]')
+    check "$name" 0
+  }
+
+  echo "=== POST /v1/chat/completions (tool call round 1) ==="
+  if tool_call_turn "tool call round 1" '{"city":"Paris","temperature_c":21,"condition":"sunny"}'; then
+    echo "=== POST /v1/chat/completions (tool answer round 1) ==="
+    tool_answer_turn "tool answer round 1" || true
+
+    echo "=== POST /v1/chat/completions (tool call round 2, follow-up) ==="
+    MESSAGES=$(jq -cn --argjson m "$MESSAGES" '$m + [{role:"user",content:"Thanks! And what about London?"}]')
+    if tool_call_turn "tool call round 2" '{"city":"London","temperature_c":9,"condition":"rain"}'; then
+      echo "=== POST /v1/chat/completions (tool answer round 2) ==="
+      tool_answer_turn "tool answer round 2" || true
+    fi
+  fi
+else
+  echo "SKIP  tool calling (TOOL_TESTS != 1 — runs in the vLLM phase only)"
+fi
+
 echo ""
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

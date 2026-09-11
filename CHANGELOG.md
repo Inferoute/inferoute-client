@@ -10,6 +10,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Health verification fails vLLM/FreeToken models when live engine context is below catalog `max_model_len` (or unreadable). FreeToken falls back to `/v1/cache/status` geometry when the model card omits `max_model_len`.
 - Compatibility / setup scoring adds a small KV term from catalog `max_model_len` (~3% of weights per 8k). It does not scale the whole 1.50 vLLM overhead, which made 7B @ 128k look like it needed 128 GiB.
 - Catalog `kv_cache_bytes_per_token` gives each vLLM model its exact KV cache cost: `required = weights × 1.2 + kv_per_token × max_model_len`. The percentage heuristic remains the fallback when the field is null.
+- E2E: Linux vLLM phase starts vLLM with the catalog serve flags (`--max-model-len 131072`, YaRN, hermes parser) and runs a multi-turn tool-calling suite (`TOOL_TESTS=1`): two rounds of tool call → tool result → answer through the consumer gateway. Ollama phases (Linux/Windows/Mac) skip it.
 
 ### Fixed
 

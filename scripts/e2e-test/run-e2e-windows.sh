@@ -300,7 +300,9 @@ if [ "${SKIP_TESTS:-0}" = "1" ]; then
   log "SKIP_TESTS=1 — leaving VM + client up (no inference suite)"
 else
   step "inference tests (alias=$OLLAMA_MODEL_ALIAS)"
-  if SKIP_WAIT=1 MODEL_ALIAS="$OLLAMA_MODEL_ALIAS" bash "$SCRIPT_DIR/references/test-inference.sh"; then
+  # TOOL_TESTS=0: native Windows is Ollama-only; the tool-calling suite needs
+  # vLLM (--enable-auto-tool-choice) and runs in the Linux vLLM phase instead.
+  if SKIP_WAIT=1 MODEL_ALIAS="$OLLAMA_MODEL_ALIAS" TOOL_TESTS=0 bash "$SCRIPT_DIR/references/test-inference.sh"; then
     log "TESTS PASSED"
   else
     OVERALL=1
