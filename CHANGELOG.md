@@ -8,7 +8,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 - Catalog serve flags (`tool_call_parser`, `max_model_len`, `rope_type`, `rope_base_context_len`) drive engine start argv: vLLM/Metal get tools + `--max-model-len` + YaRN `--hf-overrides` when set; FreeToken gets `--max-seq-len-override` from the same `max_model_len`. Setup persists the fields in `config.yaml` for auto-start.
 - Health verification fails vLLM/FreeToken models when live engine context is below catalog `max_model_len` (or unreadable). FreeToken falls back to `/v1/cache/status` geometry when the model card omits `max_model_len`.
-- Compatibility / setup scoring scales vLLM required memory with catalog `max_model_len` (KV vs 8k baseline) so long-context builds are not marked as fitting on mid-VRAM cards.
+- Compatibility / setup scoring adds a small KV term from catalog `max_model_len` (~3% of weights per 8k). It does not scale the whole 1.50 vLLM overhead, which made 7B @ 128k look like it needed 128 GiB.
 
 ## [1.1.9] - 2026-10-11
 

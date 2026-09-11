@@ -95,29 +95,43 @@ func TestVLLMUsesHigherOverhead(t *testing.T) {
 }
 
 func TestScoreModelContextKVScale(t *testing.T) {
-	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 24 * 1024 * 1024 * 1024}
-	size := int64(8 * 1024 * 1024 * 1024)
+	const gib = 1024 * 1024 * 1024
+	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 24 * gib}
+	size := int64(14 * gib) // ~Qwen 7B-class weights
+	len8k := int64(8192)
 	len32k := int64(32768)
 	len128k := int64(131072)
 
 	nullCtx := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size})
+	ctx8 := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size, MaxModelLen: &len8k})
 	ctx32 := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size, MaxModelLen: &len32k})
 	ctx128 := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size, MaxModelLen: &len128k})
 
-	if ctx32.RequiredBytes <= nullCtx.RequiredBytes {
-		t.Fatalf("32k required=%d should exceed null=%d", ctx32.RequiredBytes, nullCtx.RequiredBytes)
+	if ctx32.RequiredBytes <= ctx8.RequiredBytes {
+		t.Fatalf("32k required=%d should exceed 8k=%d", ctx32.RequiredBytes, ctx8.RequiredBytes)
 	}
 	if ctx128.RequiredBytes <= ctx32.RequiredBytes {
 		t.Fatalf("128k required=%d should exceed 32k=%d", ctx128.RequiredBytes, ctx32.RequiredBytes)
 	}
+	// Flat 1.50 without catalog context stays conservative vs 8k/32k KV-aware.
+	if ctx8.RequiredBytes >= nullCtx.RequiredBytes {
+		t.Fatalf("8k KV-aware required=%d should be below flat 1.50=%d", ctx8.RequiredBytes, nullCtx.RequiredBytes)
+	}
 	if ctx128.Status != StatusTooLarge {
-		t.Fatalf("128k on 24GiB with 8GiB weights should be too_large, got %s required=%d", ctx128.Status, ctx128.RequiredBytes)
+		t.Fatalf("14GiB @ 128k on 24GiB should be too_large, got %s required=%d", ctx128.Status, ctx128.RequiredBytes)
 	}
 	if !strings.Contains(ctx128.Reason, "context") {
 		t.Fatalf("reason should mention context: %s", ctx128.Reason)
 	}
 
-	// Ollama ignores max_model_len.
+	// 7B @ 128k must still fit a 96GB Mac (65% usable ≈ 62.4 GiB).
+	mac := &Hardware{MemoryKind: MemoryUnified, UnifiedMemory: true, UsableBytes: 62 * gib}
+	qwen7 := int64(14 * gib)
+	mac128 := ScoreModel(mac, verify.CatalogEntry{Alias: "Qwen/Qwen2.5-7B-Instruct", ServiceType: "vllm", MinSizeBytes: qwen7, MaxModelLen: &len128k})
+	if mac128.Status == StatusTooLarge {
+		t.Fatalf("7B @ 128k on 62GiB usable should fit, got %s required=%d", mac128.Status, mac128.RequiredBytes)
+	}
+
 	ollama := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size, MaxModelLen: &len128k})
 	ollamaNull := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size})
 	if ollama.RequiredBytes != ollamaNull.RequiredBytes {

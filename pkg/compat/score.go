@@ -42,8 +42,14 @@ func ScoreModels(hw *Hardware, entries []verify.CatalogEntry) []ModelResult {
 	return out
 }
 
-// baselineContextLen is the context the flat vLLM 1.50 overhead roughly budgets.
-const baselineContextLen int64 = 8192
+// Context-aware vLLM fit: do not scale the flat 1.50 overhead with context.
+// That 50% is runtime (activations, graphs, fragmentation), not KV.
+// Real 7B KV at 128k is a few GiB, not 0.5 * weights * 16.
+const (
+	baselineContextLen        int64   = 8192
+	vllmContextRuntimeFactor          = 1.20 // weights + non-KV runtime
+	vllmKVPerBaseline                 = 0.03 // ~3% of weights per 8k tokens
+)
 
 // ScoreModel scores a single approved catalog entry.
 func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
@@ -121,18 +127,16 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 }
 
 func requiredMemoryBytes(minSizeBytes int64, serviceType string, maxModelLen *int64) int64 {
-	factor := overheadFactor(serviceType)
 	if maxModelLen == nil || *maxModelLen <= 0 || !strings.EqualFold(strings.TrimSpace(serviceType), "vllm") {
-		return int64(float64(minSizeBytes) * factor)
+		return int64(float64(minSizeBytes) * overheadFactor(serviceType))
 	}
-	// weights + KV; KV grows with context vs the flat-overhead baseline.
-	weights := minSizeBytes
-	kvBase := int64(float64(weights) * (factor - 1.0))
 	scale := float64(*maxModelLen) / float64(baselineContextLen)
 	if scale < 1 {
 		scale = 1
 	}
-	return weights + int64(float64(kvBase)*scale)
+	runtime := float64(minSizeBytes) * vllmContextRuntimeFactor
+	kv := float64(minSizeBytes) * vllmKVPerBaseline * scale
+	return int64(runtime + kv)
 }
 
 func overheadFactor(serviceType string) float64 {
