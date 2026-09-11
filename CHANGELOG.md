@@ -2,8 +2,7 @@
 
 All notable changes to the Inferoute Client will be documented in this file.
 
-
-## [Unreleased]
+## [1.1.9] - 2026-10-11
 
 ### Fixed
 
@@ -38,17 +37,4 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Auto-start: if `auto_start` is set, the client starts Ollama / vLLM / vLLM Metal / FreeToken when `llm_url` is down, then leaves that process running.
 - Windows wizard installs the FreeToken CLI into `%LOCALAPPDATA%\inferoute\venv-freetoken` (not FreeToken Desktop).
 - `scripts/e2e-test/run-cluster.sh` brings up Linux, Windows, and Mac Mini as three Ollama providers (same model), holds until Y/Ctrl-C, then pauses Windows + JarvisLab. Mini stays up. Per-machine keys: `PROVIDER_API_KEY_{LINUX,WINDOWS,MAC}`.
-
-## [1.1.8] - 2026-09-30
-
-### Security
-
-- Default listen address is **`127.0.0.1`** (was `0.0.0.0`). The local dashboard and `/api/*` stay off the LAN unless you set `server.host` yourself. Docker examples no longer publish port 8080 — the Cloudflare tunnel does not need it.
-- Platform tunnel ingress forwards only **`POST /v1/chat/completions`** and **`POST /v1/completions`**. Operator routes (`/`, `/api/health`, `/api/busy`, `/api/status`) are loopback-only.
-- Inference authenticates **before** the GPU busy check. Missing, oversized (`>256` bytes), or invalid `X-Request-Id` returns **401** without running `nvidia-smi` or revealing whether the GPU is busy (`503` vs `401`).
-- `nvidia-smi` results are cached for **1s** and queries are serialized, so a request flood cannot stampede the NVIDIA driver.
-
-### Changed
-
-- Docker: to open the host dashboard, set `server.host: 0.0.0.0` and publish `-p 127.0.0.1:8080:8080`.
 
