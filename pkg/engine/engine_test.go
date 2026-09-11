@@ -130,9 +130,6 @@ func TestHealthy(t *testing.T) {
 	if Healthy(context.Background(), KindOllama, empty.URL) {
 		t.Fatal("empty model list must not count as healthy")
 	}
-	if Healthy(context.Background(), KindFreeToken, empty.URL) {
-		t.Fatal("empty model list must not count as healthy")
-	}
 
 	vllm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -143,8 +140,11 @@ func TestHealthy(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3.6-35B-A3B"}]}`))
 	}))
 	t.Cleanup(vllm.Close)
-	if !Healthy(context.Background(), KindFreeToken, vllm.URL) {
-		t.Fatal("expected freetoken/vllm healthy")
+	if !Healthy(context.Background(), KindVLLM, vllm.URL) {
+		t.Fatal("expected vllm healthy")
+	}
+	if Healthy(context.Background(), KindFreeToken, vllm.URL) {
+		t.Fatal("FreeToken must not treat /v1/models as ready")
 	}
 
 	notReady := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +153,39 @@ func TestHealthy(t *testing.T) {
 	t.Cleanup(notReady.Close)
 	if Healthy(context.Background(), KindFreeToken, notReady.URL) {
 		t.Fatal("4xx must not count as healthy")
+	}
+}
+
+func TestHealthyFreeTokenHealth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "ok", body: `{"status":"ok","model":"Qwen/Qwen2.5-Coder-7B-Instruct","uptime_s":12}`, want: true},
+		{name: "loading", body: `{"status":"loading","phase":"weights","progress":{"done_bytes":1,"total_bytes":4},"model":"Qwen/Qwen2.5-Coder-7B-Instruct"}`, want: false},
+		{name: "error", body: `{"status":"error","message":"backend worker is gone"}`, want: false},
+		{name: "empty", body: `{}`, want: false},
+		{name: "not json", body: `ok`, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/health" {
+					http.NotFound(w, r)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(srv.Close)
+			got := Healthy(context.Background(), KindFreeToken, srv.URL)
+			if got != tt.want {
+				t.Fatalf("Healthy(freetoken, %s) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -14,21 +14,21 @@ import (
 
 const probeTimeout = 3 * time.Second
 
-// Healthy reports whether the engine at llmURL is serving at least one model.
-// An HTTP 200 with an empty list is not ready — FreeToken and vLLM answer
-// /v1/models while weights are still downloading.
+// Healthy reports whether the engine at llmURL can serve inference.
+//
+// Ollama: /api/tags with at least one model.
+// vLLM / vLLM Metal: /v1/models with at least one id. An empty 200 is not
+// ready — vLLM lists models while weights are still downloading.
+// FreeToken: GET /health with status "ok". /v1/models 200s while weights
+// load and chat 503s until then. /health stays 200 with status "loading".
 func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 	llmURL = strings.TrimRight(strings.TrimSpace(llmURL), "/")
 	if llmURL == "" {
 		llmURL = DefaultURL(kind)
 	}
-	path := "/v1/models"
-	if kind == KindOllama {
-		path = "/api/tags"
-	}
 
 	client := &http.Client{Timeout: probeTimeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmURL+probePath(kind), nil)
 	if err != nil {
 		return false
 	}
@@ -41,7 +41,35 @@ func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return false
 	}
+	return bodyReady(kind, body)
+}
+
+func probePath(kind Kind) string {
+	switch kind {
+	case KindOllama:
+		return "/api/tags"
+	case KindFreeToken:
+		return "/health"
+	default:
+		return "/v1/models"
+	}
+}
+
+func bodyReady(kind Kind, body []byte) bool {
+	if kind == KindFreeToken {
+		return freeTokenReady(body)
+	}
 	return hasLoadedModel(kind, body)
+}
+
+func freeTokenReady(body []byte) bool {
+	var h struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(body, &h) != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(h.Status), "ok")
 }
 
 func hasLoadedModel(kind Kind, body []byte) bool {
