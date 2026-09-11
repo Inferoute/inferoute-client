@@ -155,6 +155,10 @@ func TestSaveRoundTrip(t *testing.T) {
 	in.Provider.Model = "Qwen/Qwen2.5-7B-Instruct"
 	in.Provider.AutoStart = true
 	in.Provider.EngineBin = `C:\Users\you\AppData\Local\FreeToken\ft.exe`
+	in.Provider.ToolCallParser = "hermes"
+	in.Provider.MaxModelLen = 131072
+	in.Provider.RopeType = "yarn"
+	in.Provider.RopeBaseContextLen = 32768
 
 	if err := Save(path, in); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -171,6 +175,10 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 	if out.Provider.EngineBin != in.Provider.EngineBin {
 		t.Errorf("EngineBin = %q, want %q", out.Provider.EngineBin, in.Provider.EngineBin)
+	}
+	if out.Provider.ToolCallParser != "hermes" || out.Provider.MaxModelLen != 131072 ||
+		out.Provider.RopeType != "yarn" || out.Provider.RopeBaseContextLen != 32768 {
+		t.Errorf("serve flags = %+v", out.Provider)
 	}
 }
 

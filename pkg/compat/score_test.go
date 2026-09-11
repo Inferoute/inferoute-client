@@ -94,6 +94,37 @@ func TestVLLMUsesHigherOverhead(t *testing.T) {
 	}
 }
 
+func TestScoreModelContextKVScale(t *testing.T) {
+	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 24 * 1024 * 1024 * 1024}
+	size := int64(8 * 1024 * 1024 * 1024)
+	len32k := int64(32768)
+	len128k := int64(131072)
+
+	nullCtx := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size})
+	ctx32 := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size, MaxModelLen: &len32k})
+	ctx128 := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size, MaxModelLen: &len128k})
+
+	if ctx32.RequiredBytes <= nullCtx.RequiredBytes {
+		t.Fatalf("32k required=%d should exceed null=%d", ctx32.RequiredBytes, nullCtx.RequiredBytes)
+	}
+	if ctx128.RequiredBytes <= ctx32.RequiredBytes {
+		t.Fatalf("128k required=%d should exceed 32k=%d", ctx128.RequiredBytes, ctx32.RequiredBytes)
+	}
+	if ctx128.Status != StatusTooLarge {
+		t.Fatalf("128k on 24GiB with 8GiB weights should be too_large, got %s required=%d", ctx128.Status, ctx128.RequiredBytes)
+	}
+	if !strings.Contains(ctx128.Reason, "context") {
+		t.Fatalf("reason should mention context: %s", ctx128.Reason)
+	}
+
+	// Ollama ignores max_model_len.
+	ollama := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size, MaxModelLen: &len128k})
+	ollamaNull := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size})
+	if ollama.RequiredBytes != ollamaNull.RequiredBytes {
+		t.Fatalf("ollama must ignore max_model_len: %d vs %d", ollama.RequiredBytes, ollamaNull.RequiredBytes)
+	}
+}
+
 func TestReportJSONStableShape(t *testing.T) {
 	hw := &Hardware{
 		OS: "darwin", Arch: "arm64", ProductName: "Apple M2",

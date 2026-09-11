@@ -30,6 +30,7 @@ type ModelResult struct {
 	Reason           string    `json:"reason"`
 	HFRepo           *string   `json:"hf_repo,omitempty"`
 	HFRef            *string   `json:"hf_ref,omitempty"`
+	MaxModelLen      *int64    `json:"max_model_len,omitempty"`
 }
 
 // ScoreModels scores approved catalog entries against detected hardware.
@@ -41,6 +42,9 @@ func ScoreModels(hw *Hardware, entries []verify.CatalogEntry) []ModelResult {
 	return out
 }
 
+// baselineContextLen is the context the flat vLLM 1.50 overhead roughly budgets.
+const baselineContextLen int64 = 8192
+
 // ScoreModel scores a single approved catalog entry.
 func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 	res := ModelResult{
@@ -51,6 +55,7 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 		UsableBytes:    0,
 		HFRepo:        entry.HFRepo,
 		HFRef:         entry.HFRef,
+		MaxModelLen:   entry.MaxModelLen,
 	}
 	if res.DisplayName == "" {
 		res.DisplayName = entry.Alias
@@ -70,12 +75,17 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 		return res
 	}
 
-	required := requiredMemoryBytes(entry.MinSizeBytes, entry.ServiceType)
+	required := requiredMemoryBytes(entry.MinSizeBytes, entry.ServiceType, entry.MaxModelLen)
 	res.RequiredBytes = required
 
-	ratio := float64(required) / float64(hw.UsableBytes)
 	baseReason := fmt.Sprintf("needs ~%s; usable %s (%s)",
 		formatBytes(required), formatBytes(hw.UsableBytes), hw.MemoryKind)
+	if entry.MaxModelLen != nil && *entry.MaxModelLen > 0 && strings.EqualFold(entry.ServiceType, "vllm") {
+		baseReason = fmt.Sprintf("needs ~%s (incl. %s context); usable %s (%s)",
+			formatBytes(required), formatContextTokens(*entry.MaxModelLen), formatBytes(hw.UsableBytes), hw.MemoryKind)
+	}
+
+	ratio := float64(required) / float64(hw.UsableBytes)
 
 	switch {
 	case ratio < 0.50:
@@ -110,8 +120,19 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 	return res
 }
 
-func requiredMemoryBytes(minSizeBytes int64, serviceType string) int64 {
-	return int64(float64(minSizeBytes) * overheadFactor(serviceType))
+func requiredMemoryBytes(minSizeBytes int64, serviceType string, maxModelLen *int64) int64 {
+	factor := overheadFactor(serviceType)
+	if maxModelLen == nil || *maxModelLen <= 0 || !strings.EqualFold(strings.TrimSpace(serviceType), "vllm") {
+		return int64(float64(minSizeBytes) * factor)
+	}
+	// weights + KV; KV grows with context vs the flat-overhead baseline.
+	weights := minSizeBytes
+	kvBase := int64(float64(weights) * (factor - 1.0))
+	scale := float64(*maxModelLen) / float64(baselineContextLen)
+	if scale < 1 {
+		scale = 1
+	}
+	return weights + int64(float64(kvBase)*scale)
 }
 
 func overheadFactor(serviceType string) float64 {
@@ -124,6 +145,13 @@ func overheadFactor(serviceType string) float64 {
 	default:
 		return 1.35
 	}
+}
+
+func formatContextTokens(n int64) string {
+	if n >= 1024 && n%1024 == 0 {
+		return fmt.Sprintf("%dk", n/1024)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 func formatBytes(b int64) string {

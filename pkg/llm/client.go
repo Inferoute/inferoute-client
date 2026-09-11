@@ -16,6 +16,7 @@ type Model struct {
 	SizeBytes          int64  `json:"size_bytes,omitempty"`
 	WeightFingerprint  string `json:"weight_fingerprint,omitempty"`
 	VerificationStatus string `json:"verification_status,omitempty"`
+	MaxModelLen        int64  `json:"max_model_len,omitempty"`
 }
 
 // ListModelsResponse represents the response from the LLM API for listing models

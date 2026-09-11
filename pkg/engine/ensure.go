@@ -48,8 +48,14 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 		return fmt.Errorf("%s is not installed and is not running at %s", Label(kind), url)
 	}
 
-	hfRepo := cfg.Provider.Model
-	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo)
+	hfRepo := firstNonEmpty(cfg.Provider.HFRepo, cfg.Provider.Model)
+	opts := ServeOpts{
+		ToolCallParser:     cfg.Provider.ToolCallParser,
+		MaxModelLen:        cfg.Provider.MaxModelLen,
+		RopeType:           cfg.Provider.RopeType,
+		RopeBaseContextLen: cfg.Provider.RopeBaseContextLen,
+	}
+	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo, opts)
 	exited, err := StartDetached(spec, LogPath(logDir))
 	if err != nil {
 		return err

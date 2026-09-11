@@ -116,7 +116,8 @@ func Execute(opts Options, io Streams) error {
 	cfg.Provider.AutoStart = autoStart && detected.Found
 
 	hfRepo := engine.HFRepo(entry)
-	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo)
+	applyServeOpts(cfg, entry, hfRepo)
+	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo, engine.ServeOptsFromCatalog(entry))
 
 	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
@@ -313,6 +314,19 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 	}
 	cfg.Provider.Model = entry.Alias
 	return entry, nil
+}
+
+func applyServeOpts(cfg *config.Config, entry verify.CatalogEntry, hfRepo string) {
+	opts := engine.ServeOptsFromCatalog(entry)
+	cfg.Provider.ToolCallParser = opts.ToolCallParser
+	cfg.Provider.MaxModelLen = opts.MaxModelLen
+	cfg.Provider.RopeType = opts.RopeType
+	cfg.Provider.RopeBaseContextLen = opts.RopeBaseContextLen
+	if hfRepo != "" && hfRepo != entry.Alias {
+		cfg.Provider.HFRepo = hfRepo
+	} else {
+		cfg.Provider.HFRepo = ""
+	}
 }
 
 func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Options, haveBin bool, io Streams) error {

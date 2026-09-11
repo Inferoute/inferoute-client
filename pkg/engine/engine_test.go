@@ -44,7 +44,7 @@ func TestOptionsFor(t *testing.T) {
 func TestServeSpec(t *testing.T) {
 	t.Parallel()
 
-	ollama := ServeSpec(KindOllama, "ollama", "gguf/qwen3:0.6b", "")
+	ollama := ServeSpec(KindOllama, "ollama", "gguf/qwen3:0.6b", "", ServeOpts{})
 	if got := ollama.CommandLine(); got != "ollama serve" {
 		t.Errorf("ollama serve = %q", got)
 	}
@@ -53,12 +53,12 @@ func TestServeSpec(t *testing.T) {
 		t.Errorf("ollama pull = %q", got)
 	}
 
-	vllm := ServeSpec(KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct")
+	vllm := ServeSpec(KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{})
 	if got := vllm.CommandLine(); got != "vllm serve Qwen/Qwen2.5-7B-Instruct --host 127.0.0.1 --port 8000" {
 		t.Errorf("vllm = %q", got)
 	}
 
-	ft := ServeSpec(KindFreeToken, "ft", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct")
+	ft := ServeSpec(KindFreeToken, "ft", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{})
 	wantArgs := []string{"serve", "--model", "Qwen/Qwen2.5-7B-Instruct", "--served-model-name", "Qwen/Qwen2.5-7B-Instruct", "--host", "127.0.0.1", "--port", "1919"}
 	if len(ft.Args) != len(wantArgs) {
 		t.Fatalf("freetoken args = %v", ft.Args)
@@ -69,9 +69,63 @@ func TestServeSpec(t *testing.T) {
 		}
 	}
 
-	metal := ServeSpec(KindVLLMMetal, "/Users/me/.venv-vllm-metal/bin/vllm", "Qwen/Qwen3-0.6B", "Qwen/Qwen3-0.6B")
+	metal := ServeSpec(KindVLLMMetal, "/Users/me/.venv-vllm-metal/bin/vllm", "Qwen/Qwen3-0.6B", "Qwen/Qwen3-0.6B", ServeOpts{})
 	if metal.Args[0] != "serve" || metal.Args[1] != "Qwen/Qwen3-0.6B" {
 		t.Fatalf("metal args = %v", metal.Args)
+	}
+}
+
+func TestServeSpecWithOpts(t *testing.T) {
+	t.Parallel()
+
+	yarn := ServeSpec(KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{
+		ToolCallParser:     "hermes",
+		MaxModelLen:        131072,
+		RopeType:           "yarn",
+		RopeBaseContextLen: 32768,
+	})
+	join := strings.Join(yarn.Args, " ")
+	for _, s := range []string{
+		"--max-model-len 131072",
+		"--enable-auto-tool-choice",
+		"--tool-call-parser hermes",
+		`"rope_type":"yarn"`,
+		`"factor":4`,
+		`"original_max_position_embeddings":32768`,
+	} {
+		if !strings.Contains(join, s) {
+			t.Fatalf("missing %q in args %v", s, yarn.Args)
+		}
+	}
+
+	gemma := ServeSpec(KindVLLM, "vllm", "google/gemma-3-4b-it", "google/gemma-3-4b-it", ServeOpts{
+		MaxModelLen: 131072,
+	})
+	join = strings.Join(gemma.Args, " ")
+	if strings.Contains(join, "--hf-overrides") {
+		t.Fatalf("gemma should not set hf-overrides: %v", gemma.Args)
+	}
+	if !strings.Contains(join, "--max-model-len 131072") {
+		t.Fatalf("gemma missing max-model-len: %v", gemma.Args)
+	}
+
+	ft := ServeSpec(KindFreeToken, "ft", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{
+		ToolCallParser:     "hermes",
+		MaxModelLen:        131072,
+		RopeType:           "yarn",
+		RopeBaseContextLen: 32768,
+	})
+	join = strings.Join(ft.Args, " ")
+	if strings.Contains(join, "--tool-call-parser") || strings.Contains(join, "--hf-overrides") {
+		t.Fatalf("freetoken should ignore parser/rope: %v", ft.Args)
+	}
+	if !strings.Contains(join, "--max-seq-len-override 131072") {
+		t.Fatalf("freetoken missing max-seq-len-override: %v", ft.Args)
+	}
+
+	ollama := ServeSpec(KindOllama, "ollama", "gguf/qwen3:0.6b", "", ServeOpts{MaxModelLen: 131072, ToolCallParser: "hermes"})
+	if got := ollama.CommandLine(); got != "ollama serve" {
+		t.Errorf("ollama must ignore serve opts: %q", got)
 	}
 }
 

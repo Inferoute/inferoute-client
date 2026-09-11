@@ -28,6 +28,10 @@ type CatalogEntry struct {
 	TransactionCount      int64   `json:"transaction_count"`
 	TotalProviderEarnings float64 `json:"total_provider_earnings"`
 	SortOrder             *int32  `json:"sort_order,omitempty"`
+	ToolCallParser        *string `json:"tool_call_parser,omitempty"`
+	MaxModelLen           *int64  `json:"max_model_len,omitempty"`
+	RopeType              *string `json:"rope_type,omitempty"`
+	RopeBaseContextLen    *int64  `json:"rope_base_context_len,omitempty"`
 }
 
 // catalogResponse is the public list from GET /api/models/approved-builds.

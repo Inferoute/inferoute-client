@@ -338,6 +338,10 @@ func (v *Verifier) ApplyToModels(ctx context.Context, llmClient llm.Client, mode
 				continue
 			}
 			applyResult(&out[i], res)
+			entry, ok := v.catalog.Get(m.ID)
+			if ok {
+				applyContextGate(ctx, llmClient, &out[i], entry)
+			}
 		default:
 			out[i].VerificationStatus = string(StatusUnverified)
 		}

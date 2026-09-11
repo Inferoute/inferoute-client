@@ -164,3 +164,34 @@ func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byt
 
 	return respBody, nil
 }
+
+// FreeTokenCacheCapacity reads effective KV token capacity from GET /v1/cache/status.
+// Returns 0 when the endpoint is missing or unreadable (not FreeToken / old build).
+func (c *VLLMClient) FreeTokenCacheCapacity(ctx context.Context) (int64, error) {
+	url := fmt.Sprintf("%s/v1/cache/status", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("cache status: %w", wrapHTTPStatusErr(resp.StatusCode))
+	}
+	var body struct {
+		Geometry struct {
+			NumPages int64 `json:"num_pages"`
+			PageSize int64 `json:"page_size"`
+		} `json:"geometry"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return 0, err
+	}
+	if body.Geometry.NumPages <= 0 || body.Geometry.PageSize <= 0 {
+		return 0, nil
+	}
+	return body.Geometry.NumPages * body.Geometry.PageSize, nil
+}

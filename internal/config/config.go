@@ -55,6 +55,14 @@ type Config struct {
 		// local vLLM/Ollama instance. Default 120, aligned with the
 		// orchestrator's sticky inference timeout.
 		LLMTimeoutSeconds int `yaml:"llm_timeout_seconds"`
+		// Catalog serve flags (SNTNL-119). Persisted from approved-builds so
+		// auto-start can rebuild the same argv without a catalog fetch.
+		ToolCallParser     string `yaml:"tool_call_parser,omitempty"`
+		MaxModelLen        int64  `yaml:"max_model_len,omitempty"`
+		RopeType           string `yaml:"rope_type,omitempty"`
+		RopeBaseContextLen int64  `yaml:"rope_base_context_len,omitempty"`
+		// HFRepo is the HuggingFace id when it differs from Model (alias).
+		HFRepo string `yaml:"hf_repo,omitempty"`
 	} `yaml:"provider"`
 
 	// Logging configuration
@@ -112,6 +120,9 @@ func (c *Config) normalize() {
 	c.Provider.Engine = strings.ToLower(strings.TrimSpace(c.Provider.Engine))
 	c.Provider.EngineBin = strings.TrimSpace(c.Provider.EngineBin)
 	c.Provider.Model = strings.TrimSpace(c.Provider.Model)
+	c.Provider.ToolCallParser = strings.TrimSpace(c.Provider.ToolCallParser)
+	c.Provider.RopeType = strings.TrimSpace(c.Provider.RopeType)
+	c.Provider.HFRepo = strings.TrimSpace(c.Provider.HFRepo)
 	if c.Provider.Engine != "" {
 		c.Provider.ProviderType = PlatformType(c.Provider.Engine)
 		return
