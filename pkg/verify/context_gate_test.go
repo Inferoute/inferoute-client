@@ -49,6 +49,43 @@ func TestApplyContextGate(t *testing.T) {
 	})
 }
 
+// Regression: CheckInference passes a bare model (ID only, no MaxModelLen).
+// The gate must read live context from the engine's /v1/models, not fail.
+func TestApplyContextGateBareModelReadsLiveModels(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data": []map[string]any{
+				{"id": "Qwen/Qwen2.5-Coder-7B-Instruct", "object": "model", "max_model_len": 131072},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := llm.NewVLLMClient(srv.URL, 0)
+	required := int64(131072)
+	entry := CatalogEntry{Alias: "Qwen/Qwen2.5-Coder-7B-Instruct", MaxModelLen: &required}
+
+	m := &llm.Model{ID: "Qwen/Qwen2.5-Coder-7B-Instruct", VerificationStatus: string(StatusVerified)}
+	applyContextGate(context.Background(), client, m, entry)
+	if m.VerificationStatus != string(StatusVerified) {
+		t.Fatalf("bare model with live 131072 should stay verified, got %s", m.VerificationStatus)
+	}
+
+	tooHigh := int64(262144)
+	m2 := &llm.Model{ID: "Qwen/Qwen2.5-Coder-7B-Instruct", VerificationStatus: string(StatusVerified)}
+	applyContextGate(context.Background(), client, m2, CatalogEntry{Alias: m2.ID, MaxModelLen: &tooHigh})
+	if m2.VerificationStatus != string(StatusFailed) {
+		t.Fatalf("live 131072 < required 262144 should fail, got %s", m2.VerificationStatus)
+	}
+}
+
 func TestApplyContextGateFreeTokenCache(t *testing.T) {
 	t.Parallel()
 

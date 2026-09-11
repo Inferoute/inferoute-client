@@ -17,6 +17,10 @@ func applyContextGate(ctx context.Context, llmClient llm.Client, model *llm.Mode
 	required := *entry.MaxModelLen
 	live := model.MaxModelLen
 	if live <= 0 {
+		// Per-request verification passes a bare model (ID only); ask the engine.
+		live = readLiveMaxModelLen(ctx, llmClient, model.ID)
+	}
+	if live <= 0 {
 		live = readFreeTokenCacheCapacity(ctx, llmClient)
 	}
 	if live <= 0 {
@@ -36,6 +40,22 @@ func applyContextGate(ctx context.Context, llmClient llm.Client, model *llm.Mode
 		model.VerificationStatus = string(StatusFailed)
 		return
 	}
+}
+
+func readLiveMaxModelLen(ctx context.Context, llmClient llm.Client, modelID string) int64 {
+	if llmClient == nil {
+		return 0
+	}
+	resp, err := llmClient.ListModels(ctx)
+	if err != nil || resp == nil {
+		return 0
+	}
+	for _, m := range resp.Models {
+		if m.ID == modelID {
+			return m.MaxModelLen
+		}
+	}
+	return 0
 }
 
 func readFreeTokenCacheCapacity(ctx context.Context, llmClient llm.Client) int64 {
