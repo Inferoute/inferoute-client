@@ -21,8 +21,8 @@
 #   SKIP_TESTS=1 KEEP=1 ./run-e2e-linux.sh  # bring up, skip inference suite (used by run-cluster.sh)
 #   ./run-e2e-linux.sh teardown        # just pause the instance and exit
 #
-# Windows GCE counterpart (Ollama only, same .env): ./run-e2e-windows.sh
-# Mac Mini counterpart (Ollama only, same .env):    ./run-e2e-mac.sh
+# Windows GCE counterpart (FreeToken + tool calling): ./run-e2e-windows.sh
+# Mac Mini counterpart (Ollama only, 16 GB):          ./run-e2e-mac.sh
 #
 # Config comes from references/.env next to this script (override path with E2E_ENV).
 # references/.env is git-ignored — never commit filled secrets.

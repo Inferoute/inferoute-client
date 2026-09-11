@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# End-to-end inferoute-client test against the Windows GCE GPU box.
+# End-to-end inferoute-client test against the Windows GCE GPU box (L4).
 #
-#   start VM -> wait for boot/SSH -> pull + rebuild client -> Ollama + config
-#   -> inference tests (Mac consumer, same suite as run-e2e.sh) -> stop VM
+#   start VM -> wait for boot/SSH -> pull + rebuild client -> FreeToken + config
+#   -> inference + tool-calling tests (Mac consumer) -> stop VM
 #
-# Native Windows is Ollama-only (no vLLM). Same references/.env as run-e2e-linux.sh.
+# Native Windows runs FreeToken (`ft serve` on :1919), not Ollama and not vLLM.
+# Same Qwen catalog alias as the Linux vLLM phase so TOOL_TESTS=1 can run.
 # Mac Mini counterpart (Ollama only, Mini stays up): ./run-e2e-mac.sh
 #
 # The instance is ALWAYS stopped on exit (success, failure, or Ctrl-C) unless KEEP=1.
@@ -44,9 +45,11 @@ WIN_LOG_DIR="${WIN_LOG_DIR:-${WIN_CLIENT_DIR}/logs}"
 CLIENT_GIT_REPO="${CLIENT_GIT_REPO:-https://github.com/Inferoute/inferoute-client.git}"
 
 CLIENT_CONFIG="${CLIENT_CONFIG:-config.yaml}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
-OLLAMA_MODEL_ALIAS="${OLLAMA_MODEL_ALIAS:-gguf/qwen3:0.6b}"
-OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+VLLM_MODEL="${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
+INFEROUTE_MODEL_ALIAS="${INFEROUTE_MODEL_ALIAS:-$VLLM_MODEL}"
+VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-131072}"
+FREETOKEN_URL="${FREETOKEN_URL:-http://127.0.0.1:1919}"
+FREETOKEN_WAIT_SEC="${FREETOKEN_WAIT_SEC:-900}"
 CLIENT_GIT_PULL="${CLIENT_GIT_PULL:-1}"
 CLIENT_GIT_BRANCH="${CLIENT_GIT_BRANCH:-main}"
 
@@ -242,8 +245,11 @@ cat >"$PARAMS_FILE" <<EOF
   GitPull        = '$(ps_literal "$CLIENT_GIT_PULL")'
   ProviderApiKey = '$(ps_literal "$PROVIDER_API_KEY")'
   PlatformUrl    = '$(ps_literal "$INFEROUTE_PLATFORM_URL")'
-  OllamaModel    = '$(ps_literal "$OLLAMA_MODEL")'
-  OllamaUrl      = '$(ps_literal "$OLLAMA_URL")'
+  Model          = '$(ps_literal "$VLLM_MODEL")'
+  ModelAlias     = '$(ps_literal "$INFEROUTE_MODEL_ALIAS")'
+  MaxModelLen    = '$(ps_literal "$VLLM_MAX_MODEL_LEN")'
+  LlmUrl         = '$(ps_literal "$FREETOKEN_URL")'
+  EngineWaitSec  = '$(ps_literal "$FREETOKEN_WAIT_SEC")'
   ConfigFile     = '$(ps_literal "$CLIENT_CONFIG")'
   GoBinDir       = '$(ps_literal "$WIN_GO_BIN_DIR")'
   LogDir         = '$(ps_literal "$WIN_LOG_DIR")'
@@ -284,7 +290,7 @@ wipe_remote_params
 wait_gate "inferoute-client HTTP" "$CLIENT_WAIT_SEC" client_ready \
   || {
     warn "client HTTP timeout — process + last logs:"
-    win_ps "Get-Process -Name inferoute-client,ollama,cloudflared -ErrorAction SilentlyContinue | Format-Table Id,ProcessName,StartTime -AutoSize; Write-Output '--- err ---'; if (Test-Path '${WIN_LOG_DIR}/inferoute-client.err.log') { Get-Content '${WIN_LOG_DIR}/inferoute-client.err.log' -Tail 50 }; Write-Output '--- log ---'; if (Test-Path '${WIN_LOG_DIR}/inferoute-client.log') { Get-Content '${WIN_LOG_DIR}/inferoute-client.log' -Tail 50 }" || true
+    win_ps "Get-Process -Name inferoute-client,ft,python,cloudflared -ErrorAction SilentlyContinue | Format-Table Id,ProcessName,StartTime -AutoSize; Write-Output '--- ft ---'; if (Test-Path '${WIN_LOG_DIR}/freetoken.err.log') { Get-Content '${WIN_LOG_DIR}/freetoken.err.log' -Tail 40 }; Write-Output '--- err ---'; if (Test-Path '${WIN_LOG_DIR}/inferoute-client.err.log') { Get-Content '${WIN_LOG_DIR}/inferoute-client.err.log' -Tail 50 }; Write-Output '--- log ---'; if (Test-Path '${WIN_LOG_DIR}/inferoute-client.log') { Get-Content '${WIN_LOG_DIR}/inferoute-client.log' -Tail 50 }" || true
     die "client not ready after setup"
   }
 
@@ -299,10 +305,9 @@ wait_provider_green
 if [ "${SKIP_TESTS:-0}" = "1" ]; then
   log "SKIP_TESTS=1 — leaving VM + client up (no inference suite)"
 else
-  step "inference tests (alias=$OLLAMA_MODEL_ALIAS)"
-  # TOOL_TESTS=0: native Windows is Ollama-only; the tool-calling suite needs
-  # vLLM (--enable-auto-tool-choice) and runs in the Linux vLLM phase instead.
-  if SKIP_WAIT=1 MODEL_ALIAS="$OLLAMA_MODEL_ALIAS" TOOL_TESTS=0 bash "$SCRIPT_DIR/references/test-inference.sh"; then
+  step "inference + tool-calling tests (alias=$INFEROUTE_MODEL_ALIAS)"
+  # FreeToken speaks the OpenAI tools API (parser stays auto; no --tool-call-parser).
+  if SKIP_WAIT=1 MODEL_ALIAS="$INFEROUTE_MODEL_ALIAS" TOOL_TESTS=1 bash "$SCRIPT_DIR/references/test-inference.sh"; then
     log "TESTS PASSED"
   else
     OVERALL=1

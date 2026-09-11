@@ -1,6 +1,6 @@
 # Requires -Version 5.1
 # Run ON the Windows GCE instance (copied + invoked by run-e2e-windows.sh).
-# Pulls inferoute-client, rebuilds the exe, writes config, starts Ollama + client.
+# Pulls inferoute-client, rebuilds the exe, writes config, starts FreeToken + client.
 #
 # Usage:
 #   powershell.exe -ExecutionPolicy Bypass -File windows-remote-setup.ps1 -ParamsFile .\inferoute-e2e-params.ps1
@@ -164,12 +164,12 @@ function Start-BreakawayProcess {
 }
 
 # Non-interactive SSH sessions don't load the user PATH. Prepend the usual
-# install locations so git/go/ollama/cloudflared/nvidia-smi resolve.
+# install locations so git/go/ft/cloudflared/nvidia-smi resolve.
 Add-PathIfExists $E2E.GoBinDir
 Add-PathIfExists "C:\Program Files\Go\bin"
 Add-PathIfExists "C:\Program Files\Git\cmd"
 Add-PathIfExists "C:\Program Files\Git\bin"
-Add-PathIfExists (Join-Path $env:LOCALAPPDATA "Programs\Ollama")
+Add-PathIfExists (Join-Path $env:LOCALAPPDATA "inferoute\venv-freetoken\Scripts")
 Add-PathIfExists (Join-Path $env:LOCALAPPDATA "inferoute\bin")
 Add-PathIfExists "C:\Program Files\NVIDIA Corporation\NVSMI"
 Add-PathIfExists "C:\Windows\System32"
@@ -180,8 +180,11 @@ $gitRepo = $E2E.GitRepo
 $gitPull = $E2E.GitPull
 $providerApiKey = $E2E.ProviderApiKey
 $platformUrl = $E2E.PlatformUrl
-$ollamaModel = $E2E.OllamaModel
-$ollamaUrl = $E2E.OllamaUrl
+$model = $E2E.Model
+$modelAlias = $E2E.ModelAlias
+$maxModelLen = $E2E.MaxModelLen
+$llmUrl = $E2E.LlmUrl
+$engineWaitSec = $E2E.EngineWaitSec
 $configFile = $E2E.ConfigFile
 $logDir = $E2E.LogDir
 
@@ -191,23 +194,51 @@ if ([string]::IsNullOrWhiteSpace($platformUrl)) { throw "PlatformUrl is required
 if ([string]::IsNullOrWhiteSpace($gitBranch)) { $gitBranch = "main" }
 if ([string]::IsNullOrWhiteSpace($gitRepo)) { $gitRepo = "https://github.com/Inferoute/inferoute-client.git" }
 if ([string]::IsNullOrWhiteSpace($gitPull)) { $gitPull = "1" }
-if ([string]::IsNullOrWhiteSpace($ollamaModel)) { $ollamaModel = "qwen3:0.6b" }
-if ([string]::IsNullOrWhiteSpace($ollamaUrl)) { $ollamaUrl = "http://localhost:11434" }
+if ([string]::IsNullOrWhiteSpace($model)) { $model = "Qwen/Qwen2.5-7B-Instruct" }
+if ([string]::IsNullOrWhiteSpace($modelAlias)) { $modelAlias = $model }
+if ([string]::IsNullOrWhiteSpace($maxModelLen)) { $maxModelLen = "131072" }
+if ([string]::IsNullOrWhiteSpace($llmUrl)) { $llmUrl = "http://127.0.0.1:1919" }
+if ([string]::IsNullOrWhiteSpace($engineWaitSec)) { $engineWaitSec = "900" }
 if ([string]::IsNullOrWhiteSpace($configFile)) { $configFile = "config.yaml" }
 if ([string]::IsNullOrWhiteSpace($logDir)) { $logDir = Join-Path $clientDir "logs" }
+
+function Resolve-FreeTokenBin {
+    $cmd = Get-Command ft -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source -notmatch '(?i)freetoken[- ]desktop') {
+        return $cmd.Source
+    }
+    foreach ($p in @(
+            (Join-Path $env:LOCALAPPDATA "inferoute\venv-freetoken\Scripts\ft.exe"),
+            (Join-Path $env:LOCALAPPDATA "inferoute\venv-freetoken\bin\ft.exe")
+        )) {
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    throw "ft.exe not found. Run inferoute-client setup --engine freetoken on this VM once (installs the CUDA FreeToken CLI into %LOCALAPPDATA%\inferoute\venv-freetoken)."
+}
+
+function Test-FreeTokenReady([string]$BaseUrl) {
+    try {
+        $raw = & curl.exe -sf --max-time 8 ($BaseUrl.TrimEnd("/") + "/health") 2>$null
+        if (-not $raw) { return $false }
+        return ($raw -match '"status"\s*:\s*"ok"')
+    } catch {
+        return $false
+    }
+}
 
 # Drop the params file immediately - it contains PROVIDER_API_KEY.
 Remove-Item -LiteralPath $ParamsFile -Force -ErrorAction SilentlyContinue
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
-foreach ($tool in @("git", "go", "ollama", "curl.exe")) {
+foreach ($tool in @("git", "go", "curl.exe")) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         throw "$tool not found on PATH. Install it on the Windows VM before running e2e."
     }
 }
 
-Write-Info "git=$(git --version)  go=$(go version)  ollama=$(ollama --version 2>$null | Select-Object -First 1)"
+$ftBin = Resolve-FreeTokenBin
+Write-Info "git=$(git --version)  go=$(go version)  ft=$ftBin"
 
 # --- sync source -------------------------------------------------------------
 $gitDir = Join-Path $clientDir ".git"
@@ -260,7 +291,7 @@ try {
     Pop-Location
 }
 
-# --- config (Ollama only; native Windows does not run vLLM) -----------------
+# --- config (FreeToken; platform type stays vllm) ---------------------------
 $example = Join-Path $clientDir "config.yaml.example"
 $configPath = Join-Path $clientDir $configFile
 if (-not (Test-Path -LiteralPath $example)) {
@@ -269,44 +300,52 @@ if (-not (Test-Path -LiteralPath $example)) {
 Copy-Item -LiteralPath $example -Destination $configPath -Force
 $content = [System.IO.File]::ReadAllText($configPath)
 $logDirYaml = ($logDir -replace '\\', '/')
+$ftBinYaml = ($ftBin -replace '\\', '/')
 $content = [regex]::Replace($content, '(?m)^(\s*port:\s*).*$', '${1}8080')
 $content = [regex]::Replace($content, '(?m)^(\s*api_key:\s*).*$', "`${1}`"$providerApiKey`"")
 $content = [regex]::Replace($content, '(?m)^(\s*url:\s*).*$', "`${1}`"$platformUrl`"")
-$content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', '${1}"ollama"')
-$content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$ollamaUrl`"")
+$content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', '${1}"vllm"')
+$content = [regex]::Replace($content, '(?m)^(\s*#\s*)?engine:\s*.*$', "  engine: `"freetoken`"")
+$content = [regex]::Replace($content, '(?m)^(\s*#\s*)?engine_bin:\s*.*$', "  engine_bin: `"$ftBinYaml`"")
+$content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$llmUrl`"")
+$content = [regex]::Replace($content, '(?m)^(\s*#\s*)?model:\s*.*$', "  model: `"$modelAlias`"")
+$content = [regex]::Replace($content, '(?m)^(\s*#\s*)?auto_start:\s*.*$', "  auto_start: false")
 $content = [regex]::Replace($content, '(?m)^(\s*log_dir:\s*).*$', "`${1}`"$logDirYaml`"")
+if ($content -notmatch '(?m)^\s*max_model_len:') {
+    $content = $content -replace '(?m)^(\s*auto_start:\s*.*)$', "`$1`n  max_model_len: $maxModelLen"
+}
 Write-Utf8File $configPath $content
-Write-Ok "wrote $configPath (provider_type=ollama url=$platformUrl)"
+Write-Ok "wrote $configPath (engine=freetoken provider_type=vllm llm_url=$llmUrl model=$modelAlias max_model_len=$maxModelLen)"
 
-# --- Ollama ------------------------------------------------------------------
-$ollamaTags = ($ollamaUrl.TrimEnd("/") + "/api/tags")
-if (-not (Test-HttpOk $ollamaTags)) {
-    Write-Info "starting ollama serve"
-    $ollamaExe = (Get-Command ollama).Source
-    $ollamaLog = Join-Path $logDir "ollama.log"
-    Start-BreakawayProcess -FilePath $ollamaExe -ArgumentList "serve" -WorkingDirectory $clientDir `
-        -RedirectStandardOutput $ollamaLog -RedirectStandardError (Join-Path $logDir "ollama.err.log")
-    Wait-HttpOk "ollama" $ollamaTags 120
+# --- FreeToken ---------------------------------------------------------------
+# Leftover Ollama from older e2e runs holds the L4; kill it so ft can load.
+Stop-NamedProcess "ollama"
+Stop-NamedProcess "Ollama"
+
+$llmBase = $llmUrl.TrimEnd("/")
+if (Test-FreeTokenReady $llmBase) {
+    Write-Ok "FreeToken already serving ($llmBase/health status=ok)"
 } else {
-    Write-Ok "ollama already serving"
-}
-
-Write-Info "ensuring model $ollamaModel"
-& ollama pull $ollamaModel
-if ($LASTEXITCODE -ne 0) { throw "ollama pull $ollamaModel failed (exit $LASTEXITCODE)" }
-
-$deadline = (Get-Date).AddSeconds(120)
-$haveModel = $false
-while ((Get-Date) -lt $deadline) {
-    $tags = & curl.exe -sf --max-time 8 $ollamaTags 2>$null
-    if ($tags -and ($tags -like "*$ollamaModel*")) {
-        $haveModel = $true
-        break
+    Write-Info "starting ft serve $model --max-seq-len-override $maxModelLen"
+    $ftArgs = "serve --model `"$model`" --served-model-name `"$modelAlias`" --host 127.0.0.1 --port 1919 --max-seq-len-override $maxModelLen"
+    Start-BreakawayProcess -FilePath $ftBin -ArgumentList $ftArgs -WorkingDirectory $clientDir `
+        -RedirectStandardOutput (Join-Path $logDir "freetoken.log") `
+        -RedirectStandardError (Join-Path $logDir "freetoken.err.log")
+    $deadline = (Get-Date).AddSeconds([int]$engineWaitSec)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-FreeTokenReady $llmBase) {
+            Write-Ok "FreeToken ready"
+            break
+        }
+        Write-Info "waiting for FreeToken /health status=ok..."
+        Start-Sleep -Seconds 10
     }
-    Start-Sleep -Seconds 5
+    if (-not (Test-FreeTokenReady $llmBase)) {
+        $errLog = Join-Path $logDir "freetoken.err.log"
+        if (Test-Path -LiteralPath $errLog) { Get-Content $errLog -Tail 40 }
+        throw "FreeToken not ready after ${engineWaitSec}s ($llmBase/health). 7B @ 131k is tight on 24GB L4 — check freetoken.err.log."
+    }
 }
-if (-not $haveModel) { throw "ollama does not list $ollamaModel after pull" }
-Write-Ok "ollama has $ollamaModel"
 
 # --- inferoute-client --------------------------------------------------------
 # --console: skip tray/systray (SSH sessions have no desktop). Must break

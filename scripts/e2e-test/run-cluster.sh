@@ -2,29 +2,29 @@
 # Bring up provider(s) for local inference tests.
 #
 # Cluster (default):
-#   ngrok (once) -> Linux + Windows + Mac Mini, all Ollama, same model
+#   ngrok (once) -> Linux vLLM + Windows FreeToken
 #   -> hold until Y or Ctrl-C -> pause Windows GCE + JarvisLab
 #
 # Linux-only mode (./run-cluster.sh linux):
 #   JarvisLab only — H100/H200 GPU, vLLM + Qwen2.5-Coder-32B by default.
 #   Override with JL_GPU / VLLM_MODEL in .env or on the command line.
 #
-# Mac Mini is NEVER slept/stopped. Its ollama + client stay up after teardown
-# (re-run this script to refresh them; ./run-e2e-mac.sh teardown to kill them).
+# The 16 GB Mac Mini is not in the cluster — not enough unified memory for
+# vLLM Metal 7B @ 131k. Standalone: ./run-e2e-mac.sh (Ollama only).
 #
 # Each machine gets its own provider API key. CONSUMER_API_KEY is shared.
 # Inference is NOT run here — hit the consumer yourself while this holds.
 #
 # Usage:
-#   ./run-cluster.sh              # start all 3, hold, pause Win+Linux on Y/Ctrl-C
+#   ./run-cluster.sh              # start Linux + Windows, hold, pause on Y/Ctrl-C
 #   ./run-cluster.sh linux        # JarvisLab only (H100/H200, vLLM Qwen2.5-Coder-32B)
 #   KEEP=1 ./run-cluster.sh       # hold, but leave Win+Linux running on exit
 #   RUN_WINDOWS=0 ./run-cluster.sh
-#   ./run-cluster.sh teardown     # pause Win+Linux (Mini stays up)
+#   ./run-cluster.sh teardown     # pause Win+Linux
 #   ./run-cluster.sh linux teardown  # pause JarvisLab only
 #
 # Config: references/.env (override with E2E_ENV).
-#   Cluster: PROVIDER_API_KEY_LINUX / _WINDOWS / _MAC must be set and unique.
+#   Cluster: PROVIDER_API_KEY_LINUX / _WINDOWS must be set and distinct.
 #   Linux-only: PROVIDER_API_KEY_LINUX is enough.
 set -euo pipefail
 
@@ -50,18 +50,18 @@ if [ "$MODE" = "linux" ]; then
   JL_GPU="${JL_GPU:-H100}"
   JL_GPU_FALLBACK="${JL_GPU_FALLBACK:-H100,H200}"
 else
-  OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5-coder:7b-instruct}"
-  OLLAMA_MODEL_ALIAS="${OLLAMA_MODEL_ALIAS:-gguf/${OLLAMA_MODEL}}"
+  VLLM_MODEL="${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
+  INFEROUTE_MODEL_ALIAS="${INFEROUTE_MODEL_ALIAS:-$VLLM_MODEL}"
+  VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-131072}"
 fi
 
 RUN_LINUX="${RUN_LINUX:-1}"
 RUN_WINDOWS="${RUN_WINDOWS:-1}"
-RUN_MAC="${RUN_MAC:-1}"
+RUN_MAC="${RUN_MAC:-0}"
 KEEP="${KEEP:-0}"
 STARTED_NGROK=0
 STARTED_LINUX=0
 STARTED_WINDOWS=0
-STARTED_MAC=0
 CLUSTER_ENV_DIR=""
 pids=()
 names=()
@@ -72,9 +72,8 @@ warn() { printf '\033[1;33m[cluster] %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31m[cluster] %s\033[0m\n' "$*" >&2; exit 1; }
 
 require_unique_keys() {
-  local a=$1 b=$2 c=$3
-  [ "$a" != "$b" ] && [ "$a" != "$c" ] && [ "$b" != "$c" ] \
-    || die "PROVIDER_API_KEY_{LINUX,WINDOWS,MAC} must be 3 distinct provider keys"
+  local a=$1 b=$2
+  [ "$a" != "$b" ] || die "PROVIDER_API_KEY_LINUX and PROVIDER_API_KEY_WINDOWS must be distinct"
 }
 
 pause_linux() {
@@ -122,7 +121,6 @@ finish() {
       warn "KEEP=1 — leaving JarvisLab running (pause with: $0 linux teardown)"
     else
       warn "KEEP=1 — leaving Windows + Linux running (pause with: $0 teardown)"
-      warn "Mac Mini ollama + client left running"
     fi
   else
     [ "$RUN_LINUX" = "1" ] && pause_linux
@@ -130,7 +128,7 @@ finish() {
     if [ "$MODE" = "linux" ]; then
       log "JarvisLab paused"
     else
-      log "Mac Mini left running (ollama + client stay up)"
+      log "Windows + Linux paused"
     fi
   fi
   [ "$code" = "0" ] && log "DONE ✓" || warn "EXIT code $code"
@@ -143,7 +141,7 @@ if [ "${1:-}" = "teardown" ]; then
     STARTED_LINUX=1
     pause_linux force
   else
-    log "Teardown: pause Windows + Linux. Mini stays up."
+    log "Teardown: pause Windows + Linux."
     STARTED_LINUX=1
     STARTED_WINDOWS=1
     pause_linux force
@@ -162,12 +160,9 @@ fi
 if [ "$RUN_WINDOWS" = "1" ]; then
   : "${PROVIDER_API_KEY_WINDOWS:?set PROVIDER_API_KEY_WINDOWS in references/.env}"
 fi
-if [ "$RUN_MAC" = "1" ]; then
-  : "${PROVIDER_API_KEY_MAC:?set PROVIDER_API_KEY_MAC in references/.env}"
-fi
 
-if [ "$RUN_LINUX" = "1" ] && [ "$RUN_WINDOWS" = "1" ] && [ "$RUN_MAC" = "1" ]; then
-  require_unique_keys "$PROVIDER_API_KEY_LINUX" "$PROVIDER_API_KEY_WINDOWS" "$PROVIDER_API_KEY_MAC"
+if [ "$RUN_LINUX" = "1" ] && [ "$RUN_WINDOWS" = "1" ]; then
+  require_unique_keys "$PROVIDER_API_KEY_LINUX" "$PROVIDER_API_KEY_WINDOWS"
 fi
 
 # ── ngrok first so the per-machine runners reuse it and do not kill it on exit
@@ -184,7 +179,7 @@ else
   for _ in $(seq 1 30); do tunnel_online && break; sleep 1; done
   tunnel_online || { tail -20 "$NGROK_LOG" >&2; die "ngrok did not come online"; }
 fi
-log "ngrok tunnel: $INFEROUTE_PLATFORM_URL (left running on exit — Mini stays a provider)"
+log "ngrok tunnel: $INFEROUTE_PLATFORM_URL"
 
 trap finish EXIT INT TERM
 
@@ -212,7 +207,7 @@ write_child_env() {
 if [ "$MODE" = "linux" ]; then
   step "start JarvisLab (vLLM, gpu=$JL_GPU fallback=$JL_GPU_FALLBACK, model=$VLLM_MODEL)"
 else
-  step "start providers (all Ollama, model=$OLLAMA_MODEL alias=$OLLAMA_MODEL_ALIAS)"
+  step "start providers (linux vLLM + windows FreeToken, model=$INFEROUTE_MODEL_ALIAS)"
 fi
 launch() {
   local name=$1 envfile=$2 script=$3
@@ -236,10 +231,11 @@ if [ "$RUN_LINUX" = "1" ]; then
   else
     linux_overrides=(
       "PROVIDER_API_KEY=$PROVIDER_API_KEY_LINUX"
-      "RUN_VLLM=0"
-      "RUN_OLLAMA=1"
-      "OLLAMA_MODEL=$OLLAMA_MODEL"
-      "OLLAMA_MODEL_ALIAS=$OLLAMA_MODEL_ALIAS"
+      "RUN_VLLM=1"
+      "RUN_OLLAMA=0"
+      "VLLM_MODEL=$VLLM_MODEL"
+      "INFEROUTE_MODEL_ALIAS=$INFEROUTE_MODEL_ALIAS"
+      "VLLM_MAX_MODEL_LEN=$VLLM_MAX_MODEL_LEN"
     )
   fi
   [ -n "${JL_GPU:-}" ] && linux_overrides+=("JL_GPU=$JL_GPU")
@@ -254,22 +250,16 @@ if [ "$RUN_WINDOWS" = "1" ]; then
   STARTED_WINDOWS=1
   write_child_env "$CLUSTER_ENV_DIR/windows.env" \
     "PROVIDER_API_KEY=$PROVIDER_API_KEY_WINDOWS" \
-    "OLLAMA_MODEL=$OLLAMA_MODEL" \
-    "OLLAMA_MODEL_ALIAS=$OLLAMA_MODEL_ALIAS"
+    "VLLM_MODEL=${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}" \
+    "INFEROUTE_MODEL_ALIAS=${INFEROUTE_MODEL_ALIAS:-${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}}" \
+    "VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-131072}"
   launch windows "$CLUSTER_ENV_DIR/windows.env" "$SCRIPT_DIR/run-e2e-windows.sh"
 else
   warn "RUN_WINDOWS=0 — skip GCE"
 fi
 
 if [ "$RUN_MAC" = "1" ]; then
-  STARTED_MAC=1
-  write_child_env "$CLUSTER_ENV_DIR/mac.env" \
-    "PROVIDER_API_KEY=$PROVIDER_API_KEY_MAC" \
-    "OLLAMA_MODEL=$OLLAMA_MODEL" \
-    "OLLAMA_MODEL_ALIAS=$OLLAMA_MODEL_ALIAS"
-  launch mac "$CLUSTER_ENV_DIR/mac.env" "$SCRIPT_DIR/run-e2e-mac.sh"
-else
-  warn "RUN_MAC=0 — skip Mini"
+  warn "RUN_MAC=1 ignored — Mini is 16 GB, not enough for vLLM Metal 7B @ 131k"
 fi
 
 [ "${#pids[@]}" -gt 0 ] || die "nothing to start (all RUN_*=0)"
@@ -301,8 +291,8 @@ if [ "$MODE" = "linux" ]; then
   log "model     $INFEROUTE_MODEL_ALIAS  (vLLM)"
   log "hold: press Y then Enter to pause JarvisLab (Ctrl-C / Ctrl-D same)."
 else
-  log "model     $OLLAMA_MODEL_ALIAS  (linux/windows/mac all Ollama)"
-  log "hold: press Y then Enter to pause Windows + Linux (Ctrl-C / Ctrl-D same). Mini stays up."
+  log "model     $INFEROUTE_MODEL_ALIAS  (linux vLLM / windows FreeToken)"
+  log "hold: press Y then Enter to pause Windows + Linux (Ctrl-C / Ctrl-D same)."
 fi
 
 if [ -t 0 ]; then

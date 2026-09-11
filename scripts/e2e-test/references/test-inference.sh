@@ -164,11 +164,11 @@ else
   check "routing + stream" 1
 fi
 
-# ── tool calling (vLLM phase only: TOOL_TESTS=1) ──────────────────────────────
+# ── tool calling (TOOL_TESTS=1: Linux vLLM + Windows FreeToken)
 # Multi-turn function-calling loop through the full consumer -> platform ->
-# provider -> vLLM path. Requires vLLM started with --enable-auto-tool-choice
-# --tool-call-parser (run-e2e-linux.sh vLLM phase does this). Ollama phases and
-# the Windows/Mac runners keep TOOL_TESTS unset so this block is skipped.
+# provider -> engine path. Linux vLLM starts with --enable-auto-tool-choice
+# --tool-call-parser hermes. Windows FreeToken keeps parser=auto and only
+# gets --max-seq-len-override. Linux/Mac Ollama phases skip this block.
 #
 # Round 1: user asks for weather -> model emits a tool_call -> we send a fake
 # tool result -> model must answer in plain content. Round 2 asks a follow-up
