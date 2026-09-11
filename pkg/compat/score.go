@@ -42,9 +42,10 @@ func ScoreModels(hw *Hardware, entries []verify.CatalogEntry) []ModelResult {
 	return out
 }
 
-// Context-aware vLLM fit: do not scale the flat 1.50 overhead with context.
-// That 50% is runtime (activations, graphs, fragmentation), not KV.
-// Real 7B KV at 128k is a few GiB, not 0.5 * weights * 16.
+// Context-aware vLLM fit. When the catalog carries the model's exact KV cost
+// (kv_cache_bytes_per_token = 2 * layers * kv_heads * head_dim * 2 for bf16),
+// required = weights * 1.20 + kv_per_token * max_model_len.
+// Without it we fall back to the ~3%-of-weights-per-8k heuristic.
 const (
 	baselineContextLen        int64   = 8192
 	vllmContextRuntimeFactor          = 1.20 // weights + non-KV runtime
@@ -81,7 +82,7 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 		return res
 	}
 
-	required := requiredMemoryBytes(entry.MinSizeBytes, entry.ServiceType, entry.MaxModelLen)
+	required := requiredMemoryBytes(entry.MinSizeBytes, entry.ServiceType, entry.MaxModelLen, entry.KVCacheBytesPerToken)
 	res.RequiredBytes = required
 
 	baseReason := fmt.Sprintf("needs ~%s; usable %s (%s)",
@@ -126,15 +127,19 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 	return res
 }
 
-func requiredMemoryBytes(minSizeBytes int64, serviceType string, maxModelLen *int64) int64 {
+func requiredMemoryBytes(minSizeBytes int64, serviceType string, maxModelLen, kvBytesPerToken *int64) int64 {
 	if maxModelLen == nil || *maxModelLen <= 0 || !strings.EqualFold(strings.TrimSpace(serviceType), "vllm") {
 		return int64(float64(minSizeBytes) * overheadFactor(serviceType))
+	}
+	runtime := float64(minSizeBytes) * vllmContextRuntimeFactor
+	if kvBytesPerToken != nil && *kvBytesPerToken > 0 {
+		// Exact per-model KV cost from the catalog.
+		return int64(runtime) + *kvBytesPerToken**maxModelLen
 	}
 	scale := float64(*maxModelLen) / float64(baselineContextLen)
 	if scale < 1 {
 		scale = 1
 	}
-	runtime := float64(minSizeBytes) * vllmContextRuntimeFactor
 	kv := float64(minSizeBytes) * vllmKVPerBaseline * scale
 	return int64(runtime + kv)
 }

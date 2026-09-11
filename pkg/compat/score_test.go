@@ -139,6 +139,66 @@ func TestScoreModelContextKVScale(t *testing.T) {
 	}
 }
 
+func TestScoreModelCatalogKVPerToken(t *testing.T) {
+	const gib = 1024 * 1024 * 1024
+	len128k := int64(131072)
+	size := int64(14 * gib) // Qwen 7B-class weights
+	kvQwen7 := int64(57344) // 2 * 28 layers * 4 kv_heads * 128 head_dim * 2B
+
+	// Exact: 14 GiB * 1.20 + 57344 * 131072 = 16.8 GiB + 7.0 GiB = 23.8 GiB.
+	entry := verify.CatalogEntry{
+		Alias: "Qwen/Qwen2.5-7B-Instruct", ServiceType: "vllm",
+		MinSizeBytes: size, MaxModelLen: &len128k, KVCacheBytesPerToken: &kvQwen7,
+	}
+	wantRequired := int64(float64(size)*vllmContextRuntimeFactor) + kvQwen7*len128k
+
+	mac := &Hardware{MemoryKind: MemoryUnified, UnifiedMemory: true, UsableBytes: 62 * gib}
+	got := ScoreModel(mac, entry)
+	if got.RequiredBytes != wantRequired {
+		t.Fatalf("required=%d want=%d", got.RequiredBytes, wantRequired)
+	}
+	if got.Status == StatusTooLarge {
+		t.Fatalf("7B with exact KV @128k on 62GiB should fit, got %s", got.Status)
+	}
+
+	// Catalog KV overrides the heuristic; both must scale with context but differ.
+	heuristic := ScoreModel(mac, verify.CatalogEntry{
+		Alias: "m", ServiceType: "vllm", MinSizeBytes: size, MaxModelLen: &len128k,
+	})
+	if heuristic.RequiredBytes == got.RequiredBytes {
+		t.Fatalf("heuristic and exact KV should differ: both %d", got.RequiredBytes)
+	}
+
+	// 32B-class: 61 GiB weights + 32 GiB KV must be too_large on the Mac.
+	kv32 := int64(262144)
+	size32 := int64(61 * gib)
+	got32 := ScoreModel(mac, verify.CatalogEntry{
+		Alias: "Qwen/Qwen2.5-Coder-32B-Instruct", ServiceType: "vllm",
+		MinSizeBytes: size32, MaxModelLen: &len128k, KVCacheBytesPerToken: &kv32,
+	})
+	if got32.Status != StatusTooLarge {
+		t.Fatalf("32B @128k on 62GiB should be too_large, got %s required=%d", got32.Status, got32.RequiredBytes)
+	}
+
+	// Zero/negative KV values fall back to the heuristic.
+	kvZero := int64(0)
+	fallback := ScoreModel(mac, verify.CatalogEntry{
+		Alias: "m", ServiceType: "vllm", MinSizeBytes: size, MaxModelLen: &len128k, KVCacheBytesPerToken: &kvZero,
+	})
+	if fallback.RequiredBytes != heuristic.RequiredBytes {
+		t.Fatalf("kv=0 should fall back to heuristic: %d vs %d", fallback.RequiredBytes, heuristic.RequiredBytes)
+	}
+
+	// Non-vLLM ignores KV per token entirely.
+	ollama := ScoreModel(mac, verify.CatalogEntry{
+		Alias: "m", ServiceType: "ollama", MinSizeBytes: size, MaxModelLen: &len128k, KVCacheBytesPerToken: &kvQwen7,
+	})
+	ollamaNull := ScoreModel(mac, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size})
+	if ollama.RequiredBytes != ollamaNull.RequiredBytes {
+		t.Fatalf("ollama must ignore kv_cache_bytes_per_token: %d vs %d", ollama.RequiredBytes, ollamaNull.RequiredBytes)
+	}
+}
+
 func TestReportJSONStableShape(t *testing.T) {
 	hw := &Hardware{
 		OS: "darwin", Arch: "arm64", ProductName: "Apple M2",

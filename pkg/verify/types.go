@@ -32,6 +32,7 @@ type CatalogEntry struct {
 	MaxModelLen           *int64  `json:"max_model_len,omitempty"`
 	RopeType              *string `json:"rope_type,omitempty"`
 	RopeBaseContextLen    *int64  `json:"rope_base_context_len,omitempty"`
+	KVCacheBytesPerToken  *int64  `json:"kv_cache_bytes_per_token,omitempty"`
 }
 
 // catalogResponse is the public list from GET /api/models/approved-builds.
