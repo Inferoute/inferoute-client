@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -26,7 +27,10 @@ type Config struct {
 	MaxAge     int    `yaml:"max_age"`     // days
 }
 
-var defaultLogger *Logger
+var (
+	defaultMu     sync.RWMutex
+	defaultLogger *Logger
+)
 
 // New creates a new logger
 func New(cfg *Config) (*Logger, error) {
@@ -124,24 +128,33 @@ func New(cfg *Config) (*Logger, error) {
 	}, nil
 }
 
-// GetDefaultLogger returns the default logger
+// GetDefaultLogger returns the default logger, creating it on first use.
 func GetDefaultLogger() *Logger {
-	if defaultLogger == nil {
-		// Create default logger
-		cfg := &Config{
-			Level:      "info",
-			MaxSize:    100,
-			MaxBackups: 5,
-			MaxAge:     30,
-		}
-		var err error
-		defaultLogger, err = New(cfg)
-		if err != nil {
-			// If we can't create a logger, create a no-op logger
-			defaultLogger = &Logger{
-				Logger: zap.NewNop(),
-				level:  zapcore.InfoLevel,
-			}
+	defaultMu.RLock()
+	l := defaultLogger
+	defaultMu.RUnlock()
+	if l != nil {
+		return l
+	}
+
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	if defaultLogger != nil {
+		return defaultLogger
+	}
+
+	cfg := &Config{
+		Level:      "info",
+		MaxSize:    100,
+		MaxBackups: 5,
+		MaxAge:     30,
+	}
+	var err error
+	defaultLogger, err = New(cfg)
+	if err != nil {
+		defaultLogger = &Logger{
+			Logger: zap.NewNop(),
+			level:  zapcore.InfoLevel,
 		}
 	}
 	return defaultLogger
@@ -149,6 +162,8 @@ func GetDefaultLogger() *Logger {
 
 // SetDefaultLogger sets the default logger
 func SetDefaultLogger(logger *Logger) {
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
 	defaultLogger = logger
 }
 
