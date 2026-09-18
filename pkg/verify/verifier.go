@@ -3,7 +3,6 @@ package verify
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -245,25 +244,6 @@ func (v *Verifier) measureWithCache(alias, root string) (files []FileMeasurement
 
 	v.cache[alias] = &fingerprintCache{files: files, stats: currentStats}
 	return files, hadCache, nil
-}
-
-func weightDirStats(root string) (map[string]fileStat, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
-	stats := make(map[string]fileStat)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return nil, err
-		}
-		stats[entry.Name()] = fileStat{size: info.Size(), modTime: info.ModTime().UnixNano()}
-	}
-	return stats, nil
 }
 
 func fileStatsEqual(a, b map[string]fileStat) bool {

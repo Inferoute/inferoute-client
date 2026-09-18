@@ -14,6 +14,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 ### Fixed
 
+- vLLM verification now walks nested manifest files (`1_Pooling/config.json`) and skips vendor trees vLLM does not download (`onnx/`). Matches getModels/bootstrap so embedding models like `baai/bge-m3` can verify.
 - Context gate no longer 403s inference requests: per-request verification passes a bare model without `max_model_len`, so the gate now reads live context from the engine's `/v1/models` before the FreeToken fallback.
 
 ## [1.1.9] - 2026-10-11
