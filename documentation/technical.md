@@ -12,7 +12,7 @@ The client is not an inference engine. It is the Inferoute **cluster agent**:
 - Pushes health (models, GPU, tunnel URL — **never geolocation**)
 - Measures local weights; platform **judges** allowlisted aliases
 - Registers models + default prices
-- Accepts only HMAC’d `/v1/chat/completions` and `/v1/completions`, forwards to localhost LLM
+- Accepts only HMAC’d `/v1/chat/completions`, `/v1/completions`, and `/v1/embeddings`, forwards to localhost LLM
 - Serializes work (default 1 in-flight). Same-conversation follow-ups **queue**; everyone else gets **503** so the orchestrator fails over
 
 Entry: `cmd/main.go`. Standalone `inferoute-client compatibility` exits before any of the above.
@@ -69,7 +69,7 @@ Windows: tray is default; process detaches so closing PowerShell does not kill i
 | `provider` | `api_key`, `url` (platform base), `provider_type` (`ollama` \| `vllm`), `llm_url`, `llm_timeout_seconds` (**120**, matches platform sticky timeout), optional `hf_hub_cache` / `model_path` |
 | `logging` | level, `log_dir`, rotation |
 
-`TunnelServiceURL()` is `http://localhost:<port>` when host is loopback or `0.0.0.0`. No Cloudflare block in YAML — token comes from the platform. Platform tunnel ingress forwards only `/v1/chat/completions` and `/v1/completions`.
+`TunnelServiceURL()` is `http://localhost:<port>` when host is loopback or `0.0.0.0`. No Cloudflare block in YAML — token comes from the platform. Platform tunnel ingress forwards only `/v1/chat/completions`, `/v1/completions`, and `/v1/embeddings`.
 
 ## Inference path (`handleInference`)
 
@@ -156,8 +156,9 @@ Startup: list models → `POST /api/model-pricing/get-prices` → `POST /api/pro
 | GET | `/api/busy` | GPU/slot busy |
 | POST | `/v1/chat/completions` | Proxy |
 | POST | `/v1/completions` | Proxy |
+| POST | `/v1/embeddings` | Proxy |
 
-TUI redraw 3s. Windows tray “Open dashboard” → `http://127.0.0.1:<port>/`. Operator routes (`/`, `/api/*`) are local-only; the tunnel forwards only the two inference POSTs.
+TUI redraw 3s. Windows tray “Open dashboard” → `http://127.0.0.1:<port>/`. Operator routes (`/`, `/api/*`) are local-only; the tunnel forwards only the inference POSTs.
 
 ## Platforms
 

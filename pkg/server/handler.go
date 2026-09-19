@@ -74,6 +74,11 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 	s.handleInference(w, r, "/v1/completions")
 }
 
+// handleEmbeddings handles the /v1/embeddings endpoint
+func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
+	s.handleInference(w, r, "/v1/embeddings")
+}
+
 func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath string) {
 	startTime := time.Now()
 

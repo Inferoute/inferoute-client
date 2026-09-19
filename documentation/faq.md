@@ -84,6 +84,7 @@ When an inference request is received:
 The Provider Client supports OpenAI-compatible endpoints:
 - `POST /v1/chat/completions`: For chat completions
 - `POST /v1/completions`: For standard completions
+- `POST /v1/embeddings`: For embeddings
 
 ### How does the Provider Client validate requests?
 The Provider Client validates requests by checking the HMAC in the request header (`X-Request-Id`). The HMAC is validated by sending a request to `/api/provider/validate_hmac` on the central system.

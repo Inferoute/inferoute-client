@@ -105,6 +105,7 @@ func (s *Server) Start() error {
 	r.HandleFunc("/api/busy", s.handleBusy).Methods(http.MethodGet)
 	r.HandleFunc("/v1/chat/completions", s.handleChatCompletions).Methods(http.MethodPost)
 	r.HandleFunc("/v1/completions", s.handleCompletions).Methods(http.MethodPost)
+	r.HandleFunc("/v1/embeddings", s.handleEmbeddings).Methods(http.MethodPost)
 
 	// Create server. Read/write timeouts must cover the session queue wait
 	// plus inference so the orchestrator's sticky timeout is usable.

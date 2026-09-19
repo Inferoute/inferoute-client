@@ -105,6 +105,22 @@ func TestHandleChatCompletionsGuardChain(t *testing.T) {
 		}
 	})
 
+	t.Run("embeddings forwards to /v1/embeddings", func(t *testing.T) {
+		node := nodeStub(t, true)
+		fake := &fakeLLM{forwardResp: []byte(`{"data":[{"embedding":[0.1,0.2]}]}`)}
+		s := newTestServer(node.URL, fake)
+		req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"baai/bge-m3","input":"hi"}`))
+		req.Header.Set("X-Request-Id", "good-hmac")
+		rec := httptest.NewRecorder()
+		s.handleEmbeddings(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if fake.gotPath != "/v1/embeddings" {
+			t.Fatalf("forwarded path = %q", fake.gotPath)
+		}
+	})
+
 	t.Run("oversized HMAC returns 401 without calling the platform", func(t *testing.T) {
 		var hits atomic.Int32
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
