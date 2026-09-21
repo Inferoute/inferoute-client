@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
+
+// hostGOOS is runtime.GOOS; tests override it to cover Windows/macOS remap.
+var hostGOOS = runtime.GOOS
 
 // Execute runs the setup wizard.
 func Execute(opts Options, io Streams) error {
@@ -192,15 +196,11 @@ func applyAPIKey(cfg *config.Config, opts Options, io Streams) error {
 
 func applyEngine(cfg *config.Config, opts Options, io Streams) (engine.Kind, error) {
 	if opts.Engine != "" {
-		k, ok := engine.ParseKind(opts.Engine)
-		if !ok {
-			return "", fmt.Errorf("unknown engine %q (ollama, vllm, vllm-metal, freetoken)", opts.Engine)
-		}
-		return k, nil
+		return resolveEngine(hostGOOS, opts.Engine)
 	}
 	if opts.Yes {
 		if cfg.Provider.Engine != "" {
-			if k, ok := engine.ParseKind(cfg.Provider.Engine); ok {
+			if k, err := resolveEngine(hostGOOS, cfg.Provider.Engine); err == nil {
 				return k, nil
 			}
 		}
@@ -230,6 +230,14 @@ func applyEngine(cfg *config.Config, opts Options, io Streams) (engine.Kind, err
 		return "", err
 	}
 	return selectable[choice-1].Kind, nil
+}
+
+func resolveEngine(goos, name string) (engine.Kind, error) {
+	k, ok := engine.ParseKind(name)
+	if !ok {
+		return "", fmt.Errorf("unknown engine %q (ollama, vllm, vllm-metal, freetoken)", name)
+	}
+	return engine.RuntimeKind(goos, k), nil
 }
 
 func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL string, io Streams) (verify.CatalogEntry, error) {

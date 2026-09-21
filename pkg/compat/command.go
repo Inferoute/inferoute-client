@@ -129,6 +129,9 @@ func loadEntries(ctx context.Context, opts Options) ([]verify.CatalogEntry, erro
 
 func filterEntriesForHost(entries []verify.CatalogEntry, engineKind, goos string) []verify.CatalogEntry {
 	if engineKind != "" {
+		if k, ok := engine.ParseKind(engineKind); ok {
+			engineKind = string(engine.RuntimeKind(goos, k))
+		}
 		return verify.FilterByEngine(entries, engineKind)
 	}
 	out := make([]verify.CatalogEntry, 0, len(entries))
