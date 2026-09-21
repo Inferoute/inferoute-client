@@ -19,6 +19,16 @@
       "min_size_bytes": 1000000,
       "is_active": true,
       "engines": ["vllm", "vllm-metal", "freetoken"]
+    },
+    {
+      "id": "3",
+      "alias": "baai/bge-m3",
+      "service_type": "vllm",
+      "display_name": "BGE-M3",
+      "hf_repo": "baai/bge-m3",
+      "hf_ref": "main",
+      "min_size_bytes": 1000000,
+      "is_active": true
     }
   ]
 }

@@ -315,5 +315,20 @@ func TestPlatformTypeCatalog(t *testing.T) {
 	if CompatKind("windows", "ollama") != KindOllama {
 		t.Fatal("ollama stays ollama")
 	}
+	if RuntimeKind("windows", KindVLLM) != KindFreeToken {
+		t.Fatal("windows --engine vllm installs FreeToken")
+	}
+	if RuntimeKind("darwin", KindVLLM) != KindVLLMMetal {
+		t.Fatal("darwin --engine vllm installs vLLM Metal")
+	}
+	if RuntimeKind("linux", KindVLLM) != KindVLLM {
+		t.Fatal("linux --engine vllm stays CUDA vLLM")
+	}
+	if RuntimeKind("linux", KindFreeToken) != KindFreeToken {
+		t.Fatal("explicit freetoken is not remapped")
+	}
+	if RuntimeKind("windows", KindVLLMMetal) != KindVLLMMetal {
+		t.Fatal("explicit vllm-metal is not remapped")
+	}
 	_ = runtime.GOOS
 }

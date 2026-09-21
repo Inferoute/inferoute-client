@@ -257,7 +257,8 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 	  "data":[
 	    {"alias":"a","service_type":"ollama","display_name":"A","min_size_bytes":100,"is_active":true},
 	    {"alias":"b","service_type":"vllm","display_name":"B","min_size_bytes":200,"is_active":true},
-	    {"alias":"c","service_type":"ollama","display_name":"C","min_size_bytes":300,"is_active":false}
+	    {"alias":"c","service_type":"ollama","display_name":"C","min_size_bytes":300,"is_active":false},
+	    {"alias":"d","service_type":"vllm","display_name":"D","min_size_bytes":200,"is_active":true,"engines":["vllm","vllm-metal","freetoken"]}
 	  ]
 	}`
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
@@ -276,15 +277,27 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	win := filterEntriesForHost(all, "", "windows")
-	if len(win) != 1 || win[0].Alias != "a" {
-		t.Fatalf("windows host should hide untagged vllm, got %+v", win)
+	if len(win) != 2 {
+		t.Fatalf("windows host should keep ollama + freetoken-tagged vllm, got %+v", win)
 	}
 	linux := filterEntriesForHost(all, "", "linux")
-	if len(linux) != 2 {
+	if len(linux) != 3 {
 		t.Fatalf("linux should keep ollama+vllm, got %+v", linux)
 	}
 	ft := filterEntriesForHost(all, "freetoken", "linux")
-	if len(ft) != 0 {
-		t.Fatalf("no freetoken-tagged rows, got %+v", ft)
+	if len(ft) != 1 || ft[0].Alias != "d" {
+		t.Fatalf("freetoken-tagged rows, got %+v", ft)
+	}
+	winVLLM := filterEntriesForHost(all, "vllm", "windows")
+	if len(winVLLM) != 1 || winVLLM[0].Alias != "d" {
+		t.Fatalf("windows --engine vllm should remap to freetoken and hide untagged, got %+v", winVLLM)
+	}
+	linuxVLLM := filterEntriesForHost(all, "vllm", "linux")
+	if len(linuxVLLM) != 2 {
+		t.Fatalf("linux --engine vllm should keep untagged+tagged, got %+v", linuxVLLM)
+	}
+	darwinVLLM := filterEntriesForHost(all, "vllm", "darwin")
+	if len(darwinVLLM) != 2 {
+		t.Fatalf("darwin --engine vllm should remap to vllm-metal (untagged implied), got %+v", darwinVLLM)
 	}
 }

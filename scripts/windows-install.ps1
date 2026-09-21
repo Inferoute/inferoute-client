@@ -48,6 +48,11 @@ $ProviderType = $env:PROVIDER_TYPE
 if ([string]::IsNullOrWhiteSpace($ProviderType)) {
     $ProviderType = "ollama"
 }
+# Windows has no native vLLM — dashboard copies with PROVIDER_TYPE=vllm install FreeToken.
+$Engine = $ProviderType
+if ($Engine -eq "vllm") {
+    $Engine = "freetoken"
+}
 
 $ServerPort = $env:SERVER_PORT
 if ([string]::IsNullOrWhiteSpace($ServerPort)) {
@@ -56,9 +61,7 @@ if ([string]::IsNullOrWhiteSpace($ServerPort)) {
 
 $LlmUrl = $env:LLM_URL
 if ([string]::IsNullOrWhiteSpace($LlmUrl)) {
-    if ($ProviderType -eq "vllm") {
-        $LlmUrl = "http://127.0.0.1:8000"
-    } elseif ($ProviderType -eq "freetoken") {
+    if ($Engine -eq "freetoken") {
         $LlmUrl = "http://127.0.0.1:1919"
     } else {
         $LlmUrl = "http://127.0.0.1:11434"
@@ -152,7 +155,7 @@ if ($SkipSetup) {
         $setupArgs += @("--api-key", $ProviderApiKey)
     }
     if (-not [string]::IsNullOrWhiteSpace($env:PROVIDER_TYPE)) {
-        $setupArgs += @("--engine", $ProviderType)
+        $setupArgs += @("--engine", $Engine)
     }
     Write-Info "Starting setup wizard..."
     & $exe @setupArgs

@@ -75,6 +75,16 @@ func CompatKind(goos, providerType string) Kind {
 	}
 }
 
+// RuntimeKind maps a requested engine (including the service-type alias "vllm")
+// onto the runtime this OS actually installs and filters.
+// Explicit freetoken / vllm-metal / ollama stay as given.
+func RuntimeKind(goos string, requested Kind) Kind {
+	if requested == KindVLLM {
+		return CompatKind(goos, string(KindVLLM))
+	}
+	return requested
+}
+
 // DefaultURL is the loopback URL the client should probe.
 func DefaultURL(k Kind) string {
 	switch k {

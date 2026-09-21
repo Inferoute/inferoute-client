@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 )
 
 func TestExecuteYesWritesConfig(t *testing.T) {
@@ -71,11 +73,12 @@ func TestExecuteYesVLLM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Provider.Engine != "vllm" || cfg.Provider.ProviderType != "vllm" {
-		t.Errorf("engine/type = %q/%q", cfg.Provider.Engine, cfg.Provider.ProviderType)
+	want := engine.RuntimeKind(runtime.GOOS, engine.KindVLLM)
+	if cfg.Provider.Engine != string(want) || cfg.Provider.ProviderType != "vllm" {
+		t.Errorf("engine/type = %q/%q, want %s/vllm", cfg.Provider.Engine, cfg.Provider.ProviderType, want)
 	}
-	if cfg.Provider.LLMURL != "http://127.0.0.1:8000" {
-		t.Errorf("llm_url = %q", cfg.Provider.LLMURL)
+	if cfg.Provider.LLMURL != engine.DefaultURL(want) {
+		t.Errorf("llm_url = %q, want %s", cfg.Provider.LLMURL, engine.DefaultURL(want))
 	}
 }
 
@@ -105,6 +108,89 @@ func TestExecuteYesFreeToken(t *testing.T) {
 	}
 	if cfg.Provider.LLMURL != "http://127.0.0.1:1919" {
 		t.Errorf("llm_url = %q", cfg.Provider.LLMURL)
+	}
+}
+
+func TestResolveEngineRemapsServiceTypeVLLM(t *testing.T) {
+	tests := []struct {
+		goos, in string
+		want     engine.Kind
+	}{
+		{"windows", "vllm", engine.KindFreeToken},
+		{"darwin", "vllm", engine.KindVLLMMetal},
+		{"linux", "vllm", engine.KindVLLM},
+		{"windows", "freetoken", engine.KindFreeToken},
+		{"windows", "ollama", engine.KindOllama},
+		{"linux", "freetoken", engine.KindFreeToken},
+		{"darwin", "vllm-metal", engine.KindVLLMMetal},
+	}
+	for _, tt := range tests {
+		got, err := resolveEngine(tt.goos, tt.in)
+		if err != nil {
+			t.Fatalf("resolveEngine(%q, %q): %v", tt.goos, tt.in, err)
+		}
+		if got != tt.want {
+			t.Errorf("resolveEngine(%q, %q) = %s, want %s", tt.goos, tt.in, got, tt.want)
+		}
+	}
+	if _, err := resolveEngine("linux", "nope"); err == nil {
+		t.Fatal("expected unknown engine error")
+	}
+}
+
+func TestExecuteYesVLLMWindowsUsesFreeToken(t *testing.T) {
+	orig := hostGOOS
+	hostGOOS = "windows"
+	t.Cleanup(func() { hostGOOS = orig })
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	var out, errBuf bytes.Buffer
+	opts := Options{
+		ConfigPath:     cfgPath,
+		Engine:         "vllm",
+		Model:          "Qwen/Qwen3-0.6B",
+		APIKey:         "k",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		Yes:            true,
+		NoStart:        true,
+	}
+	if err := Execute(opts, Streams{In: strings.NewReader(""), Out: &out, Err: &errBuf}); err != nil {
+		t.Fatalf("Execute: %v\n%s\n%s", err, out.String(), errBuf.String())
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.Engine != "freetoken" || cfg.Provider.ProviderType != "vllm" {
+		t.Errorf("engine/type = %q/%q, want freetoken/vllm", cfg.Provider.Engine, cfg.Provider.ProviderType)
+	}
+	if cfg.Provider.LLMURL != "http://127.0.0.1:1919" {
+		t.Errorf("llm_url = %q, want :1919", cfg.Provider.LLMURL)
+	}
+}
+
+func TestExecuteYesVLLMWindowsRejectsUntagged(t *testing.T) {
+	orig := hostGOOS
+	hostGOOS = "windows"
+	t.Cleanup(func() { hostGOOS = orig })
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+
+	err := Execute(Options{
+		ConfigPath:     filepath.Join(t.TempDir(), "config.yaml"),
+		Engine:         "vllm",
+		Model:          "baai/bge-m3",
+		APIKey:         "k",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		Yes:            true,
+		NoStart:        true,
+	}, Streams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+	if err == nil {
+		t.Fatal("expected untagged encoder to be rejected on Windows vllm→freetoken")
+	}
+	if !strings.Contains(err.Error(), "baai/bge-m3") {
+		t.Errorf("error = %v", err)
 	}
 }
 
@@ -155,8 +241,9 @@ func TestExecuteRerunKeepsServerPort(t *testing.T) {
 	if cfg.Server.Port != 9090 {
 		t.Errorf("port = %d, want 9090", cfg.Server.Port)
 	}
-	if cfg.Provider.APIKey != "second-key" || cfg.Provider.Engine != "vllm" {
-		t.Errorf("key/engine = %q/%q", cfg.Provider.APIKey, cfg.Provider.Engine)
+	wantEngine := string(engine.RuntimeKind(runtime.GOOS, engine.KindVLLM))
+	if cfg.Provider.APIKey != "second-key" || cfg.Provider.Engine != wantEngine {
+		t.Errorf("key/engine = %q/%q, want second-key/%s", cfg.Provider.APIKey, cfg.Provider.Engine, wantEngine)
 	}
 }
 
