@@ -255,6 +255,12 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		return verify.CatalogEntry{}, fmt.Errorf("catalog from %s: %w\nSet %s or --catalog-url to a reachable Inferoute API, or pass --offline-catalog", platformURL, err, config.EnvPlatformURL)
 	}
 
+	before := len(entries)
+	entries = verify.FilterByEngine(entries, string(kind))
+	if before > 0 && len(entries) < before {
+		fmt.Fprintf(io.Out, "Filtered to %d models supported by %s\n", len(entries), engine.Label(kind))
+	}
+
 	hw, hwErr := compat.Detect()
 	if hwErr != nil {
 		fmt.Fprintf(io.Err, "hardware detection warning: %v\n", hwErr)
@@ -269,7 +275,7 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 				return e, nil
 			}
 		}
-		return verify.CatalogEntry{}, fmt.Errorf("model %q is not in the %s catalog", opts.Model, engine.CatalogType(kind))
+		return verify.CatalogEntry{}, fmt.Errorf("model %q is not supported by %s%s", opts.Model, engine.Label(kind), engineHint(kind))
 	}
 	if opts.Yes {
 		if cfg.Provider.Model != "" {
@@ -287,6 +293,9 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		return verify.CatalogEntry{}, err
 	}
 	if len(report.Models) == 0 {
+		if kind == engine.KindFreeToken {
+			return verify.CatalogEntry{}, fmt.Errorf("no fitting models for FreeToken on this machine. FreeToken only serves tagged catalog models — %s", verify.FreeTokenModelsDoc)
+		}
 		return verify.CatalogEntry{}, fmt.Errorf("no fitting models in the catalog")
 	}
 
@@ -411,6 +420,13 @@ func firstNonEmpty(vals ...string) string {
 		if strings.TrimSpace(v) != "" {
 			return strings.TrimSpace(v)
 		}
+	}
+	return ""
+}
+
+func engineHint(kind engine.Kind) string {
+	if kind == engine.KindFreeToken {
+		return ". See " + verify.FreeTokenModelsDoc
 	}
 	return ""
 }

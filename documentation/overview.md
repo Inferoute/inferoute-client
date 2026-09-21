@@ -19,7 +19,7 @@ Providers install it with a one-liner (Linux/macOS) or a PowerShell script (Wind
 5. **Runs inference only for real Inferoute traffic.** Incoming chat/completion requests must carry a one-time request token. The client checks it with the platform, then forwards the body to local Ollama or vLLM. Random internet callers cannot use the GPU.
 6. **Keeps one job on the GPU at a time (by default).** A second *different* conversation is rejected so the platform can try another cluster. A *follow-up turn of the same conversation* waits (up to ~90 seconds) so the chat can reuse memory already on that GPU.
 
-There is also a **compatibility** command that does not start the service. It looks at local RAM/VRAM and the public model catalog and says which approved models will fit (`runs_well` / `fits` / `tight` / `too_large`). Useful before buying or downloading a model. No API key required.
+There is also a **compatibility** command that does not start the service. It looks at local RAM/VRAM and the public model catalog and says which approved models will fit (`runs_well` / `fits` / `tight` / `too_large`). On Windows it also hides vLLM models that are not tagged for FreeToken. Useful before buying or downloading a model. No API key required.
 
 ## What the operator sees
 
@@ -33,7 +33,7 @@ Logs rotate under `~/.local/state/inferoute/log` (Windows: under the user’s st
 | Platform | Typical engine | GPU picture |
 |----------|----------------|-------------|
 | Linux + NVIDIA | Ollama or vLLM | Full `nvidia-smi` (utilization, VRAM) |
-| Windows amd64 | Ollama | `nvidia-smi` when the NVIDIA driver is present |
+| Windows amd64 | Ollama or FreeToken | `nvidia-smi` when the NVIDIA driver is present |
 | macOS | Ollama | Basic GPU identity; busy = “a request is already running” |
 
 Hardware bar for a useful cluster: **32 GB** of system memory and an NVIDIA GPU with **24 GB+** VRAM (Linux/Windows), or Apple Silicon with **48 GB+** unified memory. The compatibility command scores that conservatively.

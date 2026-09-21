@@ -17,7 +17,8 @@
       "hf_repo": "Qwen/Qwen3-0.6B",
       "hf_ref": "main",
       "min_size_bytes": 1000000,
-      "is_active": true
+      "is_active": true,
+      "engines": ["vllm", "vllm-metal", "freetoken"]
     }
   ]
 }

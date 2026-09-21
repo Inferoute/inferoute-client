@@ -123,11 +123,13 @@ Public catalog includes `min_size_bytes` for the compatibility command; it must 
 
 ## Compatibility command (`pkg/compat`)
 
-No daemon, no key. Default catalog `https://core.inferoute.com`. `--provider-type`, `--json`, `--catalog-url`, `--offline-catalog`.
+No daemon, no key. Default catalog `https://core.inferoute.com`. `--provider-type`, `--engine`, `--json`, `--catalog-url`, `--offline-catalog`.
 
 Memory for scoring: largest single NVIDIA GPU VRAM; Apple Silicon 65% of unified RAM; else 70% of system RAM with a CPU-path warning. Multi-GPU does **not** aggregate.
 
-Required = `min_size_bytes` × overhead (Ollama 1.25, vLLM 1.50, unknown 1.35).
+Required = `min_size_bytes` × overhead (Ollama 1.25, vLLM 1.50, unknown 1.35), plus catalog KV when `max_model_len` is set.
+
+Catalog `engines` is a runtime allowlist. NULL vLLM row ⇒ `vllm` + `vllm-metal`. **`freetoken` is never implied.** Windows `compatibility` / setup therefore hide untagged vLLM models. FreeToken families: https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md
 
 | Ratio | Status |
 |-------|--------|

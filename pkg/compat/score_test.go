@@ -16,15 +16,15 @@ func TestScoreModelVRAMBoundaries(t *testing.T) {
 	}
 
 	cases := []struct {
-		name   string
-		size   int64
-		svc    string
-		want   FitStatus
+		name string
+		size int64
+		svc  string
+		want FitStatus
 	}{
 		{"runs_well", 8 * 1024 * 1024 * 1024, "ollama", StatusRunsWell},  // 8GiB * 1.25 = 10 < 12
-		{"fits", 14 * 1024 * 1024 * 1024, "ollama", StatusFits},           // 14*1.25=17.5 < 18
-		{"tight", 17 * 1024 * 1024 * 1024, "ollama", StatusTight},         // 17*1.25=21.25 < 22.8
-		{"too_large", 22 * 1024 * 1024 * 1024, "ollama", StatusTooLarge},  // 22*1.25=27.5 > 24
+		{"fits", 14 * 1024 * 1024 * 1024, "ollama", StatusFits},          // 14*1.25=17.5 < 18
+		{"tight", 17 * 1024 * 1024 * 1024, "ollama", StatusTight},        // 17*1.25=21.25 < 22.8
+		{"too_large", 22 * 1024 * 1024 * 1024, "ollama", StatusTooLarge}, // 22*1.25=27.5 > 24
 		{"unknown_size", 0, "ollama", StatusUnknown},
 	}
 
@@ -48,7 +48,7 @@ func TestScoreModelUnifiedMemoryReason(t *testing.T) {
 	hw := &Hardware{
 		MemoryKind:    MemoryUnified,
 		UnifiedMemory: true,
-		UsableBytes:    16 * 1024 * 1024 * 1024,
+		UsableBytes:   16 * 1024 * 1024 * 1024,
 	}
 	// Force tight: required ~15.6 GiB on 16 GiB usable.
 	got := ScoreModel(hw, verify.CatalogEntry{
@@ -68,7 +68,7 @@ func TestScoreModelUnifiedMemoryReason(t *testing.T) {
 func TestScoreModelSystemRAMSlowWarning(t *testing.T) {
 	hw := &Hardware{
 		MemoryKind:  MemorySystem,
-		UsableBytes:  32 * 1024 * 1024 * 1024,
+		UsableBytes: 32 * 1024 * 1024 * 1024,
 	}
 	got := ScoreModel(hw, verify.CatalogEntry{
 		Alias:        "small/model",
@@ -269,5 +269,22 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Alias != "a" {
 		t.Fatalf("entries=%+v", entries)
+	}
+
+	all, err := LoadOfflineCatalog(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	win := filterEntriesForHost(all, "", "windows")
+	if len(win) != 1 || win[0].Alias != "a" {
+		t.Fatalf("windows host should hide untagged vllm, got %+v", win)
+	}
+	linux := filterEntriesForHost(all, "", "linux")
+	if len(linux) != 2 {
+		t.Fatalf("linux should keep ollama+vllm, got %+v", linux)
+	}
+	ft := filterEntriesForHost(all, "freetoken", "linux")
+	if len(ft) != 0 {
+		t.Fatalf("no freetoken-tagged rows, got %+v", ft)
 	}
 }

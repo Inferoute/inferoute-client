@@ -10,7 +10,7 @@ The Inferoute Provider Client is a lightweight Go service that runs on vllm or O
 | **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | Ollama or vLLM |
 | **macOS** (Apple Silicon) | Basic info via `system_profiler` | Ollama or vLLM Metal |
 | **macOS** (Intel) | Basic info via `system_profiler` | Ollama |
-| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | Ollama or FreeToken |
+| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | Ollama or FreeToken (tagged catalog models only) |
 
 
 
@@ -92,6 +92,8 @@ inferoute-client compatibility --offline-catalog ./approved-models.json
 ```
 
 Statuses: `runs_well`, `fits`, `tight`, `too_large`, `unknown`. Scoring uses catalog `min_size_bytes` plus a conservative runtime overhead (higher for vLLM). Apple Silicon uses a fraction of unified system RAM; Linux scores against the largest single GPU’s VRAM.
+
+Catalog `engines` further filters the list. Untagged vLLM rows are **not** offered to FreeToken. On Windows, `compatibility` hides those rows; they show as unsupported in the dashboard. FreeToken’s supported families: https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md
 
 
 ## 📦 Docker Installation

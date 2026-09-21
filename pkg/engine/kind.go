@@ -58,6 +58,23 @@ func CatalogType(k Kind) string {
 	return PlatformType(k)
 }
 
+// CompatKind is the engine used to filter the catalog on this OS when the
+// operator asked for a service_type (ollama vs vllm) rather than a runtime.
+func CompatKind(goos, providerType string) Kind {
+	pt := strings.ToLower(strings.TrimSpace(providerType))
+	if pt == "ollama" || pt == string(KindOllama) {
+		return KindOllama
+	}
+	switch goos {
+	case "windows":
+		return KindFreeToken
+	case "darwin":
+		return KindVLLMMetal
+	default:
+		return KindVLLM
+	}
+}
+
 // DefaultURL is the loopback URL the client should probe.
 func DefaultURL(k Kind) string {
 	switch k {

@@ -4,6 +4,8 @@ Use this guide when you run the provider client natively on 64-bit Windows. The 
 
 FreeToken here is the **`ft` CLI** (`ft serve` on port **1919**), installed into `%LOCALAPPDATA%\inferoute\venv-freetoken` with **CUDA PyTorch** (PyPI’s Windows `torch` wheel is CPU-only). It is not **FreeToken Desktop**. If that app is already on the machine, close it before setup — it binds the same API port and its bundled `ft.exe` cannot serve models for Inferoute.
 
+FreeToken does **not** run the full vLLM catalog. Setup and `compatibility` only list models whose catalog `engines` include `freetoken`. Encoder/embedding models (for example `baai/bge-m3`) and older decoder families (Phi-3, Qwen2.5) will be hidden or marked unsupported on Windows. See [FreeToken supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md). Ollama on Windows still serves the Ollama catalog.
+
 ## Quick install (recommended)
 
 1. Get your provider API key from the [Inferoute platform](https://core.inferoute.com).

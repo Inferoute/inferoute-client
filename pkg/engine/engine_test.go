@@ -303,5 +303,17 @@ func TestPlatformTypeCatalog(t *testing.T) {
 	if PlatformType(KindOllama) != "ollama" {
 		t.Fatal("ollama")
 	}
+	if CompatKind("windows", "vllm") != KindFreeToken {
+		t.Fatal("windows vllm catalog is FreeToken")
+	}
+	if CompatKind("darwin", "vllm") != KindVLLMMetal {
+		t.Fatal("darwin vllm catalog is vLLM Metal")
+	}
+	if CompatKind("linux", "vllm") != KindVLLM {
+		t.Fatal("linux vllm catalog is vLLM")
+	}
+	if CompatKind("windows", "ollama") != KindOllama {
+		t.Fatal("ollama stays ollama")
+	}
 	_ = runtime.GOOS
 }

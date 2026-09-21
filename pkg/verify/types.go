@@ -13,26 +13,27 @@ const (
 
 // CatalogEntry is a public approved-model row (no verification secrets).
 type CatalogEntry struct {
-	ID               string   `json:"id"`
-	Alias            string   `json:"alias"`
-	ServiceType      string   `json:"service_type"`
-	DisplayName      string   `json:"display_name"`
-	Description      *string  `json:"description,omitempty"`
-	CardImage        string   `json:"card_image"`
-	HFRepo           *string  `json:"hf_repo,omitempty"`
-	HFRef            *string  `json:"hf_ref,omitempty"`
-	MinSizeBytes     int64    `json:"min_size_bytes"`
-	IsActive         bool     `json:"is_active"`
-	InputPricePer1M  *float64 `json:"input_price_per_1m,omitempty"`
-	OutputPricePer1M *float64 `json:"output_price_per_1m,omitempty"`
-	TransactionCount      int64   `json:"transaction_count"`
-	TotalProviderEarnings float64 `json:"total_provider_earnings"`
-	SortOrder             *int32  `json:"sort_order,omitempty"`
-	ToolCallParser        *string `json:"tool_call_parser,omitempty"`
-	MaxModelLen           *int64  `json:"max_model_len,omitempty"`
-	RopeType              *string `json:"rope_type,omitempty"`
-	RopeBaseContextLen    *int64  `json:"rope_base_context_len,omitempty"`
-	KVCacheBytesPerToken  *int64  `json:"kv_cache_bytes_per_token,omitempty"`
+	ID                    string   `json:"id"`
+	Alias                 string   `json:"alias"`
+	ServiceType           string   `json:"service_type"`
+	DisplayName           string   `json:"display_name"`
+	Description           *string  `json:"description,omitempty"`
+	CardImage             string   `json:"card_image"`
+	HFRepo                *string  `json:"hf_repo,omitempty"`
+	HFRef                 *string  `json:"hf_ref,omitempty"`
+	MinSizeBytes          int64    `json:"min_size_bytes"`
+	IsActive              bool     `json:"is_active"`
+	InputPricePer1M       *float64 `json:"input_price_per_1m,omitempty"`
+	OutputPricePer1M      *float64 `json:"output_price_per_1m,omitempty"`
+	TransactionCount      int64    `json:"transaction_count"`
+	TotalProviderEarnings float64  `json:"total_provider_earnings"`
+	SortOrder             *int32   `json:"sort_order,omitempty"`
+	ToolCallParser        *string  `json:"tool_call_parser,omitempty"`
+	MaxModelLen           *int64   `json:"max_model_len,omitempty"`
+	RopeType              *string  `json:"rope_type,omitempty"`
+	RopeBaseContextLen    *int64   `json:"rope_base_context_len,omitempty"`
+	KVCacheBytesPerToken  *int64   `json:"kv_cache_bytes_per_token,omitempty"`
+	Engines               []string `json:"engines,omitempty"`
 }
 
 // catalogResponse is the public list from GET /api/models/approved-builds.
