@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -190,17 +191,26 @@ func applyAPIKey(cfg *config.Config, opts Options, io Streams) error {
 	return nil
 }
 
+// resolveSetupKind maps a --engine / PROVIDER_TYPE value onto the runtime for this OS.
+// "vllm" is a service type, not a binary: Windows → FreeToken, macOS → vLLM Metal.
+func resolveSetupKind(goos, raw string) (engine.Kind, error) {
+	k, ok := engine.ParseKind(raw)
+	if !ok {
+		return "", fmt.Errorf("unknown engine %q (ollama, vllm, vllm-metal, freetoken)", raw)
+	}
+	if k == engine.KindVLLM {
+		return engine.CompatKind(goos, "vllm"), nil
+	}
+	return k, nil
+}
+
 func applyEngine(cfg *config.Config, opts Options, io Streams) (engine.Kind, error) {
 	if opts.Engine != "" {
-		k, ok := engine.ParseKind(opts.Engine)
-		if !ok {
-			return "", fmt.Errorf("unknown engine %q (ollama, vllm, vllm-metal, freetoken)", opts.Engine)
-		}
-		return k, nil
+		return resolveSetupKind(runtime.GOOS, opts.Engine)
 	}
 	if opts.Yes {
 		if cfg.Provider.Engine != "" {
-			if k, ok := engine.ParseKind(cfg.Provider.Engine); ok {
+			if k, err := resolveSetupKind(runtime.GOOS, cfg.Provider.Engine); err == nil {
 				return k, nil
 			}
 		}

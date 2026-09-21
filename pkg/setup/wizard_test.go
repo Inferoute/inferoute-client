@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 )
 
 func TestExecuteYesWritesConfig(t *testing.T) {
@@ -71,11 +73,38 @@ func TestExecuteYesVLLM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Provider.Engine != "vllm" || cfg.Provider.ProviderType != "vllm" {
-		t.Errorf("engine/type = %q/%q", cfg.Provider.Engine, cfg.Provider.ProviderType)
+	wantEngine := string(engine.CompatKind(runtime.GOOS, "vllm"))
+	if cfg.Provider.Engine != wantEngine || cfg.Provider.ProviderType != "vllm" {
+		t.Errorf("engine/type = %q/%q, want engine %q", cfg.Provider.Engine, cfg.Provider.ProviderType, wantEngine)
 	}
-	if cfg.Provider.LLMURL != "http://127.0.0.1:8000" {
-		t.Errorf("llm_url = %q", cfg.Provider.LLMURL)
+	if cfg.Provider.LLMURL != engine.DefaultURL(engine.Kind(wantEngine)) {
+		t.Errorf("llm_url = %q, want %s", cfg.Provider.LLMURL, engine.DefaultURL(engine.Kind(wantEngine)))
+	}
+}
+
+func TestResolveSetupKindMapsVLLMToHostRuntime(t *testing.T) {
+	got, err := resolveSetupKind("windows", "vllm")
+	if err != nil || got != engine.KindFreeToken {
+		t.Fatalf("windows vllm: got %q err %v, want freetoken", got, err)
+	}
+	got, err = resolveSetupKind("darwin", "vllm")
+	if err != nil || got != engine.KindVLLMMetal {
+		t.Fatalf("darwin vllm: got %q err %v, want vllm-metal", got, err)
+	}
+	got, err = resolveSetupKind("linux", "vllm")
+	if err != nil || got != engine.KindVLLM {
+		t.Fatalf("linux vllm: got %q err %v, want vllm", got, err)
+	}
+	got, err = resolveSetupKind("windows", "freetoken")
+	if err != nil || got != engine.KindFreeToken {
+		t.Fatalf("explicit freetoken must stay: got %q err %v", got, err)
+	}
+	got, err = resolveSetupKind("linux", "ollama")
+	if err != nil || got != engine.KindOllama {
+		t.Fatalf("ollama: got %q err %v", got, err)
+	}
+	if _, err := resolveSetupKind("linux", "nope"); err == nil {
+		t.Fatal("unknown engine should error")
 	}
 }
 
