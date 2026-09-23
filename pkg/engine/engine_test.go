@@ -59,7 +59,7 @@ func TestServeSpec(t *testing.T) {
 	}
 
 	ft := ServeSpec(KindFreeToken, "ft", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{})
-	wantArgs := []string{"serve", "--model", "Qwen/Qwen2.5-7B-Instruct", "--served-model-name", "Qwen/Qwen2.5-7B-Instruct", "--host", "127.0.0.1", "--port", "1919"}
+	wantArgs := []string{"serve", "--model", "Qwen/Qwen2.5-7B-Instruct", "--served-model-name", "Qwen/Qwen2.5-7B-Instruct", "--host", "127.0.0.1", "--port", "1919", "--moe-backend", "fused"}
 	if len(ft.Args) != len(wantArgs) {
 		t.Fatalf("freetoken args = %v", ft.Args)
 	}
@@ -121,6 +121,9 @@ func TestServeSpecWithOpts(t *testing.T) {
 	}
 	if !strings.Contains(join, "--max-seq-len-override 131072") {
 		t.Fatalf("freetoken missing max-seq-len-override: %v", ft.Args)
+	}
+	if !strings.Contains(join, "--moe-backend fused") {
+		t.Fatalf("freetoken missing moe-backend fused: %v", ft.Args)
 	}
 
 	ollama := ServeSpec(KindOllama, "ollama", "gguf/qwen3:0.6b", "", ServeOpts{MaxModelLen: 131072, ToolCallParser: "hermes"})

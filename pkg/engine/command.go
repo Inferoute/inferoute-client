@@ -85,6 +85,11 @@ func ServeSpec(kind Kind, bin, modelAlias, hfRepo string, opts ServeOpts) Spec {
 		repo := firstNonEmpty(hfRepo, modelAlias)
 		name := firstNonEmpty(modelAlias, repo)
 		spec.Args = []string{"serve", "--model", repo, "--served-model-name", name, "--host", "127.0.0.1", "--port", "1919"}
+		// auto puts every MoE on offload (expert banks in host RAM). That loader
+		// dies on Windows during startup. Setup only starts models whose weights
+		// fit in VRAM, so keep experts on the GPU. --moe-backend is the old
+		// spelling of --moe-strategy and still works on both.
+		spec.Args = append(spec.Args, "--moe-backend", "fused")
 		if opts.MaxModelLen > 0 {
 			spec.Args = append(spec.Args, "--max-seq-len-override", strconv.FormatInt(opts.MaxModelLen, 10))
 		}

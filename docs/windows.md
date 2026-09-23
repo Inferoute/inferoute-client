@@ -6,6 +6,8 @@ FreeToken here is the **`ft` CLI** (`ft serve` on port **1919**), installed into
 
 FreeToken does **not** run the full vLLM catalog. Setup and `compatibility` only list models whose catalog `engines` include `freetoken`. Encoder/embedding models (for example `baai/bge-m3`) and older decoder families (Phi-3, Qwen2.5) will be hidden or marked unsupported on Windows. See [FreeToken supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md). Ollama on Windows still serves the Ollama catalog.
 
+When setup starts FreeToken it passes `--moe-backend fused`. FreeToken's own default (`auto`) puts MoE experts in system RAM, and that load path exits on Windows. Models the wizard offers already fit in VRAM, so the experts stay on the GPU.
+
 ## Quick install (recommended)
 
 1. Get your provider API key from the [Inferoute platform](https://core.inferoute.com).
