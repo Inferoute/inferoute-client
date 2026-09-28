@@ -8,13 +8,17 @@ import (
 	"strings"
 )
 
-// Vendor/cache trees vLLM does not load. Matching getModels + bootstrap.
+// Vendor/cache trees and alt-format dumps the engine does not load.
+// Matching getModels + bootstrap: onnx* plus original/ metal/ mlx/.
 var skipManifestDirs = map[string]struct{}{
 	".git":     {},
 	".cache":   {},
 	"onnx":     {},
 	"onnx-gpu": {},
 	"openvino": {},
+	"original": {},
+	"metal":    {},
+	"mlx":      {},
 }
 
 type manifestFile struct {

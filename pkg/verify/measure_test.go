@@ -42,6 +42,40 @@ func TestMeasureWeightDirIncludesPoolingSkipsOnnx(t *testing.T) {
 	}
 }
 
+func TestMeasureWeightDirSkipsAltFormatTrees(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "config.json", `{}`)
+	writeFile(t, root, "pytorch_model.bin", "root-weights")
+	for _, dir := range []string{"original", "metal", "mlx"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(root, "original"), "model.safetensors", "dup")
+	writeFile(t, filepath.Join(root, "metal"), "model.bin", "apple")
+	writeFile(t, filepath.Join(root, "mlx"), "model.safetensors", "mlx")
+
+	files, err := measureWeightDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]struct{}{}
+	for _, f := range files {
+		got[f.Name] = struct{}{}
+	}
+	if _, ok := got["config.json"]; !ok {
+		t.Fatal("missing root config.json")
+	}
+	if _, ok := got["pytorch_model.bin"]; !ok {
+		t.Fatal("missing root weights")
+	}
+	for _, name := range []string{"original/model.safetensors", "metal/model.bin", "mlx/model.safetensors"} {
+		if _, ok := got[name]; ok {
+			t.Fatalf("%s should be skipped: %#v", name, got)
+		}
+	}
+}
+
 func TestWeightDirStatsTracksNestedManifestFiles(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "config.json", `{"arch":"x"}`)
