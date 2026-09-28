@@ -13,6 +13,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 - Catalog `kv_cache_bytes_per_token` gives each vLLM model its exact KV cache cost: `required = weights × 1.2 + kv_per_token × max_model_len`. The percentage heuristic remains the fallback when the field is null.
 - Catalog `engines` (`vllm` / `vllm-metal` / `freetoken` / `ollama`) filters setup and `compatibility`. FreeToken is **opt-in**; untagged vLLM rows stay off Windows. See [FreeToken supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md).
 - E2E: Linux vLLM starts with catalog serve flags (`--max-model-len 131072`, YaRN, hermes parser). Windows GCE runs FreeToken (`ft serve` + `--max-seq-len-override`, parser stays `auto`). Both run the multi-turn tool-calling suite (`TOOL_TESTS=1`). Cluster is Linux vLLM + Windows FreeToken — the 16 GB Mac Mini is out (not enough unified memory for 7B @ 131k). Linux/Mac Ollama phases skip tools.
+- Compatibility / setup table: `tight` rows are orange (whole line). `runs_well` / `fits` stay green.
 
 ### Fixed
 

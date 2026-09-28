@@ -145,17 +145,26 @@ func WriteTable(w io.Writer, report Report) error {
 			fmt.Fprintln(w, line)
 			continue
 		}
-		if usableFit(report.Models[i-1].Status) {
-			fmt.Fprintf(w, "\033[1;32m%s\033[0m\n", line)
-			continue
-		}
-		fmt.Fprintln(w, line)
+		fmt.Fprintln(w, colorFitLine(report.Models[i-1].Status, line))
 	}
 	return nil
 }
 
-func usableFit(s FitStatus) bool {
-	return s == StatusRunsWell || s == StatusFits || s == StatusTight
+const (
+	ansiGreen  = "\033[1;32m"
+	ansiOrange = "\033[1;38;5;208m"
+	ansiReset  = "\033[0m"
+)
+
+func colorFitLine(s FitStatus, line string) string {
+	switch s {
+	case StatusRunsWell, StatusFits:
+		return ansiGreen + line + ansiReset
+	case StatusTight:
+		return ansiOrange + line + ansiReset
+	default:
+		return line
+	}
 }
 
 func shortAlias(alias string) string {
