@@ -111,7 +111,7 @@ func Execute(opts Options) error {
 	}
 	catalogEntries = filterEntriesForHost(catalogEntries, opts.Engine, runtime.GOOS)
 
-	results := ScoreModels(hw, catalogEntries)
+	results := scoreEntriesForHost(hw, catalogEntries, opts.Engine, runtime.GOOS)
 	report := BuildReport(hw, results, opts.ShowTooLarge)
 
 	if opts.JSON {
@@ -125,6 +125,19 @@ func loadEntries(ctx context.Context, opts Options) ([]verify.CatalogEntry, erro
 		return LoadOfflineCatalog(opts.OfflineCatalog, opts.ProviderType)
 	}
 	return FetchCatalog(ctx, opts.CatalogURL, opts.ProviderType)
+}
+
+// scoreEntriesForHost scores each row for the engine that would serve it on
+// this OS: the explicit --engine, or the per-service_type default.
+func scoreEntriesForHost(hw *Hardware, entries []verify.CatalogEntry, engineKind, goos string) []ModelResult {
+	if k, ok := engine.ParseKind(engineKind); ok {
+		return ScoreModels(hw, entries, engine.RuntimeKind(goos, k))
+	}
+	out := make([]ModelResult, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, ScoreModelFor(hw, e, engine.CompatKind(goos, e.ServiceType)))
+	}
+	return out
 }
 
 func filterEntriesForHost(entries []verify.CatalogEntry, engineKind, goos string) []verify.CatalogEntry {

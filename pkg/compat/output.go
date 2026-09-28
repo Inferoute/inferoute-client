@@ -123,15 +123,16 @@ func WriteTable(w io.Writer, report Report) error {
 
 	var raw strings.Builder
 	tw := tabwriter.NewWriter(&raw, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tSTATUS\tSERVICE\tMODEL\tSIZE\tREQUIRED")
+	fmt.Fprintln(tw, "#\tSTATUS\tSERVICE\tMODEL\tSIZE\tREQUIRED\tMOE")
 	for i, m := range report.Models {
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			i+1,
 			m.Status,
 			m.ServiceType,
 			shortAlias(m.Alias),
 			formatBytes(m.MinSizeBytes),
 			formatBytes(m.RequiredBytes),
+			emptyDash(m.MoeStrategy),
 		)
 	}
 	if err := tw.Flush(); err != nil {

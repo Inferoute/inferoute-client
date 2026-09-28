@@ -121,7 +121,9 @@ func Execute(opts Options, io Streams) error {
 
 	hfRepo := engine.HFRepo(entry)
 	applyServeOpts(cfg, entry, hfRepo)
-	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo, engine.ServeOptsFromCatalog(entry))
+	serveOpts := engine.ServeOptsFromCatalog(entry)
+	serveOpts.MoeStrategy = cfg.Provider.MoeStrategy
+	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo, serveOpts)
 
 	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
@@ -273,13 +275,14 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 	if hwErr != nil {
 		fmt.Fprintf(io.Err, "hardware detection warning: %v\n", hwErr)
 	}
-	results := compat.ScoreModels(hw, entries)
+	results := compat.ScoreModels(hw, entries, kind)
 	report := compat.BuildReport(hw, results, false)
 
 	if opts.Model != "" {
 		for _, e := range entries {
 			if e.Alias == opts.Model {
 				cfg.Provider.Model = e.Alias
+				cfg.Provider.MoeStrategy = compat.ScoreModelFor(hw, e, kind).MoeStrategy
 				return e, nil
 			}
 		}
@@ -289,6 +292,7 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		if cfg.Provider.Model != "" {
 			for _, e := range entries {
 				if e.Alias == cfg.Provider.Model {
+					cfg.Provider.MoeStrategy = compat.ScoreModelFor(hw, e, kind).MoeStrategy
 					return e, nil
 				}
 			}
@@ -330,6 +334,10 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		entry.HFRepo = picked.HFRepo
 	}
 	cfg.Provider.Model = entry.Alias
+	cfg.Provider.MoeStrategy = picked.MoeStrategy
+	if picked.MoeStrategy == engine.MoeAuto {
+		fmt.Fprintf(io.Out, "%s does not fit in VRAM alone. FreeToken will keep MoE experts in system RAM (offload). On Windows, set a 64 GB page file when you have 32 GB of RAM.\n", entry.Alias)
+	}
 	return entry, nil
 }
 

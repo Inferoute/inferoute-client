@@ -126,6 +126,20 @@ func TestServeSpecWithOpts(t *testing.T) {
 		t.Fatalf("freetoken missing moe-backend fused: %v", ft.Args)
 	}
 
+	offload := ServeSpec(KindFreeToken, "ft", "openai/gpt-oss-20b", "openai/gpt-oss-20b", ServeOpts{MoeStrategy: MoeAuto})
+	join = strings.Join(offload.Args, " ")
+	if !strings.Contains(join, "--moe-backend auto") || strings.Contains(join, "fused") {
+		t.Fatalf("freetoken MoeAuto should emit --moe-backend auto: %v", offload.Args)
+	}
+	garbage := ServeSpec(KindFreeToken, "ft", "m", "m", ServeOpts{MoeStrategy: "cpu"})
+	if !strings.Contains(strings.Join(garbage.Args, " "), "--moe-backend fused") {
+		t.Fatalf("unknown strategy must fall back to fused: %v", garbage.Args)
+	}
+	vllmMoe := ServeSpec(KindVLLM, "vllm", "m", "m", ServeOpts{MoeStrategy: MoeAuto})
+	if strings.Contains(strings.Join(vllmMoe.Args, " "), "moe") {
+		t.Fatalf("vllm must ignore MoeStrategy: %v", vllmMoe.Args)
+	}
+
 	ollama := ServeSpec(KindOllama, "ollama", "gguf/qwen3:0.6b", "", ServeOpts{MaxModelLen: 131072, ToolCallParser: "hermes"})
 	if got := ollama.CommandLine(); got != "ollama serve" {
 		t.Errorf("ollama must ignore serve opts: %q", got)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
@@ -20,26 +21,95 @@ const (
 
 // ModelResult is one approved build scored against local hardware.
 type ModelResult struct {
-	Alias            string    `json:"alias"`
-	DisplayName      string    `json:"display_name"`
-	ServiceType      string    `json:"service_type"`
-	MinSizeBytes     int64     `json:"min_size_bytes"`
-	RequiredBytes    int64     `json:"required_bytes"`
-	UsableBytes      int64     `json:"usable_bytes"`
-	Status           FitStatus `json:"status"`
-	Reason           string    `json:"reason"`
-	HFRepo           *string   `json:"hf_repo,omitempty"`
-	HFRef            *string   `json:"hf_ref,omitempty"`
-	MaxModelLen      *int64    `json:"max_model_len,omitempty"`
+	Alias         string    `json:"alias"`
+	DisplayName   string    `json:"display_name"`
+	ServiceType   string    `json:"service_type"`
+	MinSizeBytes  int64     `json:"min_size_bytes"`
+	RequiredBytes int64     `json:"required_bytes"`
+	UsableBytes   int64     `json:"usable_bytes"`
+	Status        FitStatus `json:"status"`
+	Reason        string    `json:"reason"`
+	HFRepo        *string   `json:"hf_repo,omitempty"`
+	HFRef         *string   `json:"hf_ref,omitempty"`
+	MaxModelLen   *int64    `json:"max_model_len,omitempty"`
+	// MoeStrategy is set for FreeToken only: engine.MoeFused when the model
+	// fits in VRAM, engine.MoeAuto when experts must live in system RAM.
+	MoeStrategy string `json:"moe_strategy,omitempty"`
 }
 
-// ScoreModels scores approved catalog entries against detected hardware.
-func ScoreModels(hw *Hardware, entries []verify.CatalogEntry) []ModelResult {
+// ScoreModels scores approved catalog entries for the engine that will serve them.
+func ScoreModels(hw *Hardware, entries []verify.CatalogEntry, kind engine.Kind) []ModelResult {
 	out := make([]ModelResult, 0, len(entries))
 	for _, entry := range entries {
-		out = append(out, ScoreModel(hw, entry))
+		out = append(out, ScoreModelFor(hw, entry, kind))
 	}
 	return out
+}
+
+// ScoreModelFor scores one entry for a specific engine. FreeToken can fall back
+// to host-RAM expert offload when the GPU alone is too small; other engines use
+// the plain memory-pool fit from ScoreModel.
+func ScoreModelFor(hw *Hardware, entry verify.CatalogEntry, kind engine.Kind) ModelResult {
+	res := ScoreModel(hw, entry)
+	if kind != engine.KindFreeToken {
+		return res
+	}
+	return applyFreeTokenStrategy(hw, entry, res)
+}
+
+// FreeToken's fused loader clones tensors while copying weights to the GPU, so
+// it peaks well above the resident size. A `tight` VRAM fit has OOMed in
+// practice, so only `runs_well` / `fits` are trusted for fused. Anything
+// tighter is re-scored for offload: weights resident in system RAM, attention
+// and KV on the GPU.
+func applyFreeTokenStrategy(hw *Hardware, entry verify.CatalogEntry, res ModelResult) ModelResult {
+	switch res.Status {
+	case StatusRunsWell, StatusFits:
+		res.MoeStrategy = engine.MoeFused
+		return res
+	case StatusUnknown:
+		return res
+	}
+
+	if hw == nil || hw.MemoryKind != MemoryVRAM || hw.SystemRAMBytes <= 0 {
+		res.Status = StatusTooLarge
+		res.Reason += "; FreeToken needs an NVIDIA GPU with room for the whole model, or system RAM for expert offload"
+		return res
+	}
+
+	hostRequired := int64(float64(entry.MinSizeBytes) * vllmContextRuntimeFactor)
+	ratio := float64(hostRequired) / float64(hw.SystemRAMBytes)
+	status := statusForRatio(ratio)
+	if status == StatusTooLarge {
+		res.Status = StatusTooLarge
+		res.Reason = fmt.Sprintf("needs ~%s VRAM or ~%s system RAM for expert offload; usable %s (vram), %s system RAM",
+			formatBytes(res.RequiredBytes), formatBytes(hostRequired), formatBytes(hw.UsableBytes), formatBytes(hw.SystemRAMBytes))
+		return res
+	}
+
+	res.Status = status
+	res.MoeStrategy = engine.MoeAuto
+	res.RequiredBytes = hostRequired
+	res.UsableBytes = hw.SystemRAMBytes
+	res.Reason = fmt.Sprintf("MoE experts in system RAM (offload): needs ~%s host RAM, system RAM %s; attention + KV on the GPU (%s vram)",
+		formatBytes(hostRequired), formatBytes(hw.SystemRAMBytes), formatBytes(hw.UsableBytes))
+	if status == StatusTight {
+		res.Reason += "; little headroom"
+	}
+	return res
+}
+
+func statusForRatio(ratio float64) FitStatus {
+	switch {
+	case ratio < 0.50:
+		return StatusRunsWell
+	case ratio < 0.75:
+		return StatusFits
+	case ratio < 0.95:
+		return StatusTight
+	default:
+		return StatusTooLarge
+	}
 }
 
 // Context-aware vLLM fit. When the catalog carries the model's exact KV cost
@@ -47,22 +117,22 @@ func ScoreModels(hw *Hardware, entries []verify.CatalogEntry) []ModelResult {
 // required = weights * 1.20 + kv_per_token * max_model_len.
 // Without it we fall back to the ~3%-of-weights-per-8k heuristic.
 const (
-	baselineContextLen        int64   = 8192
-	vllmContextRuntimeFactor          = 1.20 // weights + non-KV runtime
-	vllmKVPerBaseline                 = 0.03 // ~3% of weights per 8k tokens
+	baselineContextLen       int64 = 8192
+	vllmContextRuntimeFactor       = 1.20 // weights + non-KV runtime
+	vllmKVPerBaseline              = 0.03 // ~3% of weights per 8k tokens
 )
 
 // ScoreModel scores a single approved catalog entry.
 func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 	res := ModelResult{
-		Alias:         entry.Alias,
-		DisplayName:   entry.DisplayName,
-		ServiceType:   entry.ServiceType,
-		MinSizeBytes:  entry.MinSizeBytes,
-		UsableBytes:    0,
-		HFRepo:        entry.HFRepo,
-		HFRef:         entry.HFRef,
-		MaxModelLen:   entry.MaxModelLen,
+		Alias:        entry.Alias,
+		DisplayName:  entry.DisplayName,
+		ServiceType:  entry.ServiceType,
+		MinSizeBytes: entry.MinSizeBytes,
+		UsableBytes:  0,
+		HFRepo:       entry.HFRepo,
+		HFRef:        entry.HFRef,
+		MaxModelLen:  entry.MaxModelLen,
 	}
 	if res.DisplayName == "" {
 		res.DisplayName = entry.Alias
@@ -92,21 +162,10 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 			formatBytes(required), formatContextTokens(*entry.MaxModelLen), formatBytes(hw.UsableBytes), hw.MemoryKind)
 	}
 
-	ratio := float64(required) / float64(hw.UsableBytes)
-
-	switch {
-	case ratio < 0.50:
-		res.Status = StatusRunsWell
-		res.Reason = baseReason
-	case ratio < 0.75:
-		res.Status = StatusFits
-		res.Reason = baseReason
-	case ratio < 0.95:
-		res.Status = StatusTight
-		res.Reason = baseReason + "; little headroom"
-	default:
-		res.Status = StatusTooLarge
-		res.Reason = baseReason
+	res.Status = statusForRatio(float64(required) / float64(hw.UsableBytes))
+	res.Reason = baseReason
+	if res.Status == StatusTight {
+		res.Reason += "; little headroom"
 	}
 
 	switch hw.MemoryKind {

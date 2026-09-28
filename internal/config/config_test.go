@@ -159,6 +159,7 @@ func TestSaveRoundTrip(t *testing.T) {
 	in.Provider.MaxModelLen = 131072
 	in.Provider.RopeType = "yarn"
 	in.Provider.RopeBaseContextLen = 32768
+	in.Provider.MoeStrategy = "AUTO"
 
 	if err := Save(path, in); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -179,6 +180,9 @@ func TestSaveRoundTrip(t *testing.T) {
 	if out.Provider.ToolCallParser != "hermes" || out.Provider.MaxModelLen != 131072 ||
 		out.Provider.RopeType != "yarn" || out.Provider.RopeBaseContextLen != 32768 {
 		t.Errorf("serve flags = %+v", out.Provider)
+	}
+	if out.Provider.MoeStrategy != "auto" {
+		t.Errorf("MoeStrategy = %q, want normalized %q", out.Provider.MoeStrategy, "auto")
 	}
 }
 

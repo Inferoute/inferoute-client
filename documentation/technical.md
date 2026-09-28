@@ -131,6 +131,14 @@ Required = `min_size_bytes` × overhead (Ollama 1.25, vLLM 1.50, unknown 1.35), 
 
 Catalog `engines` is a runtime allowlist. NULL vLLM row ⇒ `vllm` + `vllm-metal`. **`freetoken` is never implied.** Windows `compatibility` / setup therefore hide untagged vLLM models. FreeToken families: https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md
 
+Scoring is keyed on `engine.Kind`, not GOOS (`ScoreModelFor(hw, entry, kind)`; `compat` resolves per-row via `engine.CompatKind`). Only `KindFreeToken` gets a second pass (`applyFreeTokenStrategy`):
+
+- VRAM status `runs_well`/`fits` ⇒ `MoeStrategy=fused`. `tight` is **not** trusted: the fused loader (`gpt_oss/weight.py iter_weights`, safe_open→cuda + `.clone()`) peaks above resident size and OOMed gpt-oss-20b on a 22.5 GiB L4.
+- Otherwise, if `MemoryKind==vram` and `SystemRAMBytes>0`: `hostRequired = min_size_bytes × 1.2` scored against `SystemRAMBytes` with the same thresholds ⇒ `MoeStrategy=auto`, `RequiredBytes`/`UsableBytes` swapped to the host numbers. Else `too_large`.
+- Setup writes the result to `provider.moe_strategy`; `ServeSpec` emits `--moe-backend <strategy>` (empty ⇒ `fused`; `--moe-backend` is the alias the installed CLI wheel understands, `--moe-strategy` is the new spelling).
+
+Known gap: the catalog has no MoE flag. A dense FreeToken model that is too large for VRAM would be offered `auto`, which FreeToken cannot offload. Add a catalog `moe_strategy` column before tagging dense models `freetoken`.
+
 | Ratio | Status |
 |-------|--------|
 | `< 0.50` | `runs_well` |

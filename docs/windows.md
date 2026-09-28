@@ -6,7 +6,24 @@ FreeToken here is the **`ft` CLI** (`ft serve` on port **1919**), installed into
 
 FreeToken does **not** run the full vLLM catalog. Setup and `compatibility` only list models whose catalog `engines` include `freetoken`. Encoder/embedding models (for example `baai/bge-m3`) and older decoder families (Phi-3, Qwen2.5) will be hidden or marked unsupported on Windows. See [FreeToken supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md). Ollama on Windows still serves the Ollama catalog.
 
-When setup starts FreeToken it passes `--moe-backend fused`. FreeToken's own default (`auto`) puts MoE experts in system RAM, and that load path exits on Windows. Models the wizard offers already fit in VRAM, so the experts stay on the GPU.
+## Memory: where the model lives
+
+FreeToken can hold a MoE model's experts either on the GPU or in system RAM. Setup picks per model:
+
+| Fit on your GPU | Flag setup passes | What it means |
+|---|---|---|
+| `runs_well` / `fits` | `--moe-backend fused` | Whole model in VRAM |
+| `tight` / `too_large`, but `weights × 1.2` fits in system RAM | `--moe-backend auto` | Experts in system RAM, attention + KV cache on the GPU |
+| Neither | model hidden | Not offered |
+
+The choice is saved as `provider.moe_strategy` in `config.yaml` and reused on auto-start. `inferoute-client compatibility` shows it in the `MOE` column.
+
+**Offload needs Windows commit space.** Windows limits a process to RAM + page file. With `auto`, FreeToken commits roughly the full weight size in host memory during load. For `openai/gpt-oss-20b` (12.8 GiB weights) on a 24 GB card:
+
+- 32 GB RAM: set a **fixed 64 GB page file** (System Properties → Advanced → Performance → Virtual memory). Without it the load fails with `OSError 1455: The paging file is too small`.
+- 64 GB RAM: default page file is fine.
+
+`fused` on a 24 GB card fails for this model: FreeToken's loader clones tensors while copying to the GPU and CUDA-OOMs above ~22 GiB. That is why setup only trusts `fused` when the VRAM score is `fits` or better.
 
 ## Quick install (recommended)
 

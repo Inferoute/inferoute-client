@@ -109,6 +109,11 @@ func TestExecuteYesFreeToken(t *testing.T) {
 	if cfg.Provider.LLMURL != "http://127.0.0.1:1919" {
 		t.Errorf("llm_url = %q", cfg.Provider.LLMURL)
 	}
+	// A 1 MB model never needs host offload; strategy is fused (or empty when
+	// this host has no detectable memory pool).
+	if cfg.Provider.MoeStrategy == engine.MoeAuto {
+		t.Errorf("tiny model must not be scored for offload: %+v", cfg.Provider)
+	}
 }
 
 func TestResolveEngineRemapsServiceTypeVLLM(t *testing.T) {

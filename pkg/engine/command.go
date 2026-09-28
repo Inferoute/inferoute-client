@@ -16,12 +16,25 @@ type Spec struct {
 	URL  string
 }
 
+// MoE expert placement for FreeToken. The compatibility scorer picks one per
+// model on this machine; setup persists it so auto-start replays the same argv.
+const (
+	// MoeFused keeps experts resident in VRAM. FreeToken never picks this on
+	// its own for a MoE model, so it must be requested explicitly.
+	MoeFused = "fused"
+	// MoeAuto lets FreeToken place experts in system RAM (offload, or hybrid
+	// when an `ft bench bw` profile exists). Needed when weights exceed VRAM.
+	MoeAuto = "auto"
+)
+
 // ServeOpts are catalog-driven flags appended to vLLM / FreeToken serve commands.
 type ServeOpts struct {
 	ToolCallParser     string
 	MaxModelLen        int64
 	RopeType           string
 	RopeBaseContextLen int64
+	// MoeStrategy is FreeToken-only: MoeFused or MoeAuto. Empty means MoeFused.
+	MoeStrategy string
 }
 
 // ServeOptsFromCatalog maps public catalog fields onto ServeOpts.
@@ -85,16 +98,21 @@ func ServeSpec(kind Kind, bin, modelAlias, hfRepo string, opts ServeOpts) Spec {
 		repo := firstNonEmpty(hfRepo, modelAlias)
 		name := firstNonEmpty(modelAlias, repo)
 		spec.Args = []string{"serve", "--model", repo, "--served-model-name", name, "--host", "127.0.0.1", "--port", "1919"}
-		// auto puts every MoE on offload (expert banks in host RAM). That loader
-		// dies on Windows during startup. Setup only starts models whose weights
-		// fit in VRAM, so keep experts on the GPU. --moe-backend is the old
-		// spelling of --moe-strategy and still works on both.
-		spec.Args = append(spec.Args, "--moe-backend", "fused")
+		// --moe-backend is the old spelling of --moe-strategy. The CLI wheel we
+		// install predates the rename, and newer builds still accept it as an alias.
+		spec.Args = append(spec.Args, "--moe-backend", moeStrategyOrDefault(opts.MoeStrategy))
 		if opts.MaxModelLen > 0 {
 			spec.Args = append(spec.Args, "--max-seq-len-override", strconv.FormatInt(opts.MaxModelLen, 10))
 		}
 	}
 	return spec
+}
+
+func moeStrategyOrDefault(s string) string {
+	if strings.EqualFold(strings.TrimSpace(s), MoeAuto) {
+		return MoeAuto
+	}
+	return MoeFused
 }
 
 func vllmServeFlags(opts ServeOpts) []string {
@@ -106,8 +124,8 @@ func vllmServeFlags(opts ServeOpts) []string {
 		factor := float64(opts.MaxModelLen) / float64(opts.RopeBaseContextLen)
 		payload := map[string]any{
 			"rope_scaling": map[string]any{
-				"rope_type":                         rope,
-				"factor":                             factor,
+				"rope_type":                        rope,
+				"factor":                           factor,
 				"original_max_position_embeddings": opts.RopeBaseContextLen,
 			},
 		}

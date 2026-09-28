@@ -54,6 +54,7 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 		MaxModelLen:        cfg.Provider.MaxModelLen,
 		RopeType:           cfg.Provider.RopeType,
 		RopeBaseContextLen: cfg.Provider.RopeBaseContextLen,
+		MoeStrategy:        cfg.Provider.MoeStrategy,
 	}
 	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo, opts)
 	exited, err := StartDetached(spec, LogPath(logDir))

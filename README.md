@@ -95,6 +95,8 @@ Statuses: `runs_well`, `fits`, `tight`, `too_large`, `unknown`. Scoring uses cat
 
 Catalog `engines` further filters the list. Untagged vLLM rows are **not** offered to FreeToken. On Windows, `compatibility` hides those rows; they show as unsupported in the dashboard. FreeToken’s supported families: https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md
 
+FreeToken rows carry a `MOE` column: `fused` when the model fits in VRAM, `auto` when experts must be offloaded to system RAM (scored as `weights × 1.2` against RAM). See [docs/windows.md](docs/windows.md#memory-where-the-model-lives) for the page-file requirement.
+
 
 ## 📦 Docker Installation
 

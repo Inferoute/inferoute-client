@@ -16,7 +16,7 @@ All notable changes to the Inferoute Client will be documented in this file.
 
 ### Fixed
 
-- FreeToken start (setup "start now" and auto-start) passes `--moe-backend fused`. FreeToken's default `auto` puts every MoE model on host-RAM offload, and that expert-bank loader exits during load on Windows. Models setup offers already fit in VRAM.
+- FreeToken MoE placement is chosen per model per machine instead of hard-coded. Setup and `compatibility` score FreeToken rows in two passes: `runs_well`/`fits` on VRAM ⇒ `--moe-backend fused` (experts on the GPU); `tight`/`too_large` on VRAM ⇒ re-scored against system RAM (`weights × 1.2`) and, when that fits, `--moe-backend auto` (experts offloaded to host RAM, attention + KV on the GPU). The chosen value is saved as `provider.moe_strategy` in `config.yaml` so auto-start replays it. `compatibility` shows it in a new `MOE` column. This is what lets `openai/gpt-oss-20b` (12.8 GiB) start on a 24 GB card with 32 GB of RAM: `fused` CUDA-OOMs there during weight load and plain `auto` was previously never sent. Linux vLLM, Metal and Ollama scoring is unchanged.
 - vLLM verification now walks nested manifest files (`1_Pooling/config.json`) and skips vendor trees vLLM does not download (`onnx/`). Matches getModels/bootstrap so embedding models like `baai/bge-m3` can verify.
 - Context gate no longer 403s inference requests: per-request verification passes a bare model without `max_model_len`, so the gate now reads live context from the engine's `/v1/models` before the FreeToken fallback.
 

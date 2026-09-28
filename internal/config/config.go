@@ -61,6 +61,9 @@ type Config struct {
 		MaxModelLen        int64  `yaml:"max_model_len,omitempty"`
 		RopeType           string `yaml:"rope_type,omitempty"`
 		RopeBaseContextLen int64  `yaml:"rope_base_context_len,omitempty"`
+		// MoeStrategy is FreeToken expert placement chosen by setup for this
+		// machine: fused (VRAM) or auto (system-RAM offload). Empty = fused.
+		MoeStrategy string `yaml:"moe_strategy,omitempty"`
 		// HFRepo is the HuggingFace id when it differs from Model (alias).
 		HFRepo string `yaml:"hf_repo,omitempty"`
 	} `yaml:"provider"`
@@ -122,6 +125,7 @@ func (c *Config) normalize() {
 	c.Provider.Model = strings.TrimSpace(c.Provider.Model)
 	c.Provider.ToolCallParser = strings.TrimSpace(c.Provider.ToolCallParser)
 	c.Provider.RopeType = strings.TrimSpace(c.Provider.RopeType)
+	c.Provider.MoeStrategy = strings.ToLower(strings.TrimSpace(c.Provider.MoeStrategy))
 	c.Provider.HFRepo = strings.TrimSpace(c.Provider.HFRepo)
 	if c.Provider.Engine != "" {
 		c.Provider.ProviderType = PlatformType(c.Provider.Engine)

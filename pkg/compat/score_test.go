@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
@@ -196,6 +197,90 @@ func TestScoreModelCatalogKVPerToken(t *testing.T) {
 	ollamaNull := ScoreModel(mac, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size})
 	if ollama.RequiredBytes != ollamaNull.RequiredBytes {
 		t.Fatalf("ollama must ignore kv_cache_bytes_per_token: %d vs %d", ollama.RequiredBytes, ollamaNull.RequiredBytes)
+	}
+}
+
+func TestScoreModelForFreeTokenStrategy(t *testing.T) {
+	const gib = 1024 * 1024 * 1024
+	len128k := int64(131072)
+	kvGptOss := int64(24576)
+	// openai/gpt-oss-20b: 12.84 GiB MXFP4 root checkpoint.
+	gptOss := verify.CatalogEntry{
+		Alias: "openai/gpt-oss-20b", ServiceType: "vllm", MinSizeBytes: 13789191359,
+		MaxModelLen: &len128k, KVCacheBytesPerToken: &kvGptOss,
+		Engines: []string{"vllm", "vllm-metal", "freetoken"},
+	}
+	l4 := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 23034 * 1024 * 1024, SystemRAMBytes: 32 * gib}
+
+	// 18.4 GiB of 22.5 GiB is `tight` on VRAM. The fused loader OOMed there,
+	// so FreeToken must fall back to host offload on a 32 GB box.
+	got := ScoreModelFor(l4, gptOss, engine.KindFreeToken)
+	if got.MoeStrategy != engine.MoeAuto {
+		t.Fatalf("gpt-oss on L4 + 32 GiB RAM should offload, got strategy=%q status=%s reason=%s", got.MoeStrategy, got.Status, got.Reason)
+	}
+	if got.Status == StatusTooLarge || got.Status == StatusTight {
+		t.Fatalf("offload on 32 GiB RAM should be a comfortable fit, got %s", got.Status)
+	}
+	if !strings.Contains(got.Reason, "offload") {
+		t.Fatalf("reason should explain offload: %s", got.Reason)
+	}
+
+	// Same card, 16 GiB RAM: 15.4 GiB host requirement is 96% — too_large.
+	small := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: l4.UsableBytes, SystemRAMBytes: 16 * gib}
+	if got := ScoreModelFor(small, gptOss, engine.KindFreeToken); got.Status != StatusTooLarge || got.MoeStrategy != "" {
+		t.Fatalf("16 GiB RAM should be too_large, got %s strategy=%q", got.Status, got.MoeStrategy)
+	}
+
+	// 48 GiB card holds it outright — experts stay on the GPU.
+	big := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 48 * gib, SystemRAMBytes: 32 * gib}
+	if got := ScoreModelFor(big, gptOss, engine.KindFreeToken); got.MoeStrategy != engine.MoeFused || got.Status != StatusRunsWell {
+		t.Fatalf("48 GiB VRAM should be fused/runs_well, got %s/%q", got.Status, got.MoeStrategy)
+	}
+
+	// vLLM on the same L4 keeps the plain VRAM verdict and no strategy.
+	if got := ScoreModelFor(l4, gptOss, engine.KindVLLM); got.MoeStrategy != "" || got.Status != StatusTight {
+		t.Fatalf("vllm must not get a MoE strategy, got %s/%q", got.Status, got.MoeStrategy)
+	}
+
+	// A 67 GiB BF16 MoE cannot offload into 32 GiB of RAM either.
+	qwen35 := verify.CatalogEntry{Alias: "qwen/qwen3.6-35b-a3b", ServiceType: "vllm", MinSizeBytes: 71926681382, MaxModelLen: &len128k}
+	if got := ScoreModelFor(l4, qwen35, engine.KindFreeToken); got.Status != StatusTooLarge {
+		t.Fatalf("67 GiB weights should be too_large on 22 GiB VRAM + 32 GiB RAM, got %s", got.Status)
+	}
+
+	// No NVIDIA GPU: FreeToken cannot run at all.
+	cpuOnly := &Hardware{MemoryKind: MemorySystem, UsableBytes: 22 * gib, SystemRAMBytes: 32 * gib}
+	if got := ScoreModelFor(cpuOnly, gptOss, engine.KindFreeToken); got.Status != StatusTooLarge {
+		t.Fatalf("system-RAM host should be too_large for FreeToken, got %s", got.Status)
+	}
+
+	// Unknown size stays unknown and unlabelled.
+	if got := ScoreModelFor(l4, verify.CatalogEntry{Alias: "x", ServiceType: "vllm"}, engine.KindFreeToken); got.Status != StatusUnknown || got.MoeStrategy != "" {
+		t.Fatalf("unknown size should stay unknown, got %s/%q", got.Status, got.MoeStrategy)
+	}
+}
+
+func TestScoreEntriesForHostResolvesEngine(t *testing.T) {
+	const gib = 1024 * 1024 * 1024
+	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 22 * gib, SystemRAMBytes: 32 * gib}
+	entries := []verify.CatalogEntry{
+		{Alias: "gguf/x", ServiceType: "ollama", MinSizeBytes: 4 * gib},
+		{Alias: "big/moe", ServiceType: "vllm", MinSizeBytes: 16 * gib, Engines: []string{"vllm", "freetoken"}},
+	}
+	win := scoreEntriesForHost(hw, entries, "", "windows")
+	if win[0].MoeStrategy != "" {
+		t.Fatalf("ollama row must not carry a MoE strategy: %+v", win[0])
+	}
+	if win[1].MoeStrategy != engine.MoeAuto {
+		t.Fatalf("windows vllm row scores as FreeToken and should offload: %+v", win[1])
+	}
+	linux := scoreEntriesForHost(hw, entries, "", "linux")
+	if linux[1].MoeStrategy != "" || linux[1].Status != StatusTooLarge {
+		t.Fatalf("linux vllm row keeps the VRAM verdict: %+v", linux[1])
+	}
+	explicit := scoreEntriesForHost(hw, entries[1:], "freetoken", "linux")
+	if explicit[0].MoeStrategy != engine.MoeAuto {
+		t.Fatalf("--engine freetoken on linux should still offload: %+v", explicit[0])
 	}
 }
 
