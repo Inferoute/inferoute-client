@@ -17,6 +17,7 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/setup"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
 )
 
@@ -62,7 +63,12 @@ func Apply(ctx context.Context, platformURL string, checkOnly bool) error {
 		fmt.Println("This client is running in Docker. Pull the latest image and restart the container.")
 		return nil
 	}
-	rel, err := FetchRelease(ctx, platformURL)
+	var rel Release
+	err := setup.SpinWhile(os.Stdout, "Checking for updates", func() error {
+		var ferr error
+		rel, ferr = FetchRelease(ctx, platformURL)
+		return ferr
+	})
 	if err != nil {
 		return err
 	}
@@ -89,10 +95,14 @@ func Apply(ctx context.Context, platformURL string, checkOnly bool) error {
 	defer os.RemoveAll(dir)
 
 	zipPath := filepath.Join(dir, asset)
-	if err := download(ctx, zipURL, zipPath); err != nil {
+	if err := setup.SpinWhile(os.Stdout, "Downloading "+asset, func() error {
+		return download(ctx, zipURL, zipPath)
+	}); err != nil {
 		return err
 	}
-	if err := verifyChecksum(ctx, rel, asset, zipPath); err != nil {
+	if err := setup.SpinWhile(os.Stdout, "Verifying checksum", func() error {
+		return verifyChecksum(ctx, rel, asset, zipPath)
+	}); err != nil {
 		return err
 	}
 	binPath, err := unzipBinary(zipPath, dir)
