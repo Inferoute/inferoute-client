@@ -228,6 +228,26 @@ install_binary() {
     # Use a more user-friendly progress display
     if curl -#Lo "${BINARY_NAME}.zip" "$DOWNLOAD_URL"; then
         echo -e "${GREEN}Download complete!${NC}"
+        SUMS_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/checksums.txt"
+        if curl -fsSL -o checksums.txt "$SUMS_URL"; then
+            expected=$(awk -v f="${BINARY_NAME}.zip" '$2 == f { print $1; exit }' checksums.txt)
+            if [ -z "$expected" ]; then
+                echo -e "${RED}checksums.txt has no entry for ${BINARY_NAME}.zip${NC}"
+                exit 1
+            fi
+            if command -v sha256sum >/dev/null 2>&1; then
+                actual=$(sha256sum "${BINARY_NAME}.zip" | awk '{print $1}')
+            else
+                actual=$(shasum -a 256 "${BINARY_NAME}.zip" | awk '{print $1}')
+            fi
+            if [ "$actual" != "$expected" ]; then
+                echo -e "${RED}Checksum mismatch for ${BINARY_NAME}.zip${NC}"
+                exit 1
+            fi
+            echo -e "${GREEN}Checksum verified.${NC}"
+        else
+            echo -e "${YELLOW}No checksums.txt on this release; continuing without verification.${NC}"
+        fi
         # Extract binary
         echo -e "${BLUE}Extracting binary...${NC}"
         unzip -q -o "${BINARY_NAME}.zip"

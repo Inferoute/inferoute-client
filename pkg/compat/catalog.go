@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
@@ -28,7 +29,7 @@ func FetchCatalog(ctx context.Context, catalogURL, providerType string) ([]verif
 		types = []string{"ollama", "vllm"}
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := nodeapi.NewHTTPClient(30 * time.Second)
 	var all []verify.CatalogEntry
 	seen := map[string]struct{}{}
 

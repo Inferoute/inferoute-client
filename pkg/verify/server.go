@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 )
 
 // ServerClient calls provider-authenticated verification APIs.
@@ -22,7 +24,7 @@ func NewServerClient(baseURL, apiKey string) *ServerClient {
 	return &ServerClient{
 		baseURL: stringsTrimRightSlash(baseURL),
 		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  nodeapi.NewHTTPClient(30 * time.Second),
 	}
 }
 

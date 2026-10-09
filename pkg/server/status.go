@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
 )
 
 //go:embed dashboard.html
@@ -43,6 +45,9 @@ type StatusSnapshot struct {
 	GPU              *gpu.GPUInfo  `json:"gpu"`
 	RecentRequests   []RequestLog  `json:"recent_requests"`
 	Errors           []string      `json:"errors"`
+	ClientVersion    string        `json:"client_version"`
+	LatestVersion    string        `json:"latest_version,omitempty"`
+	UpdateStatus     string        `json:"update_status"`
 }
 
 func (s *Server) snapshot() StatusSnapshot {
@@ -99,6 +104,7 @@ func (s *Server) snapshot() StatusSnapshot {
 		llmURL = s.config.Provider.LLMURL
 	}
 
+	upd := nodeapi.State()
 	return StatusSnapshot{
 		LastHealthUpdate: lastUpdateStr,
 		SessionStatus:    "online",
@@ -111,6 +117,9 @@ func (s *Server) snapshot() StatusSnapshot {
 		GPU:              gpuInfo,
 		RecentRequests:   reqs,
 		Errors:           errs,
+		ClientVersion:    version.Version,
+		LatestVersion:    upd.Latest,
+		UpdateStatus:     string(upd.Status),
 	}
 }
 

@@ -43,7 +43,7 @@ $version = GitValue -GitArgs @("describe", "--tags", "--always", "--dirty") -Fal
 $commit = GitValue -GitArgs @("rev-parse", "--short", "HEAD") -Fallback "none"
 $date = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 $out = Join-Path $RepoRoot "inferoute-client.exe"
-$ldflags = "-X main.version=$version -X main.commit=$commit -X main.date=$date"
+$ldflags = "-X github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Version=$version -X github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Commit=$commit -X github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Date=$date"
 
 Write-Info "Building inferoute-client.exe"
 Write-Host "Version: $version"

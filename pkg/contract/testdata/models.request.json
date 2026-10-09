@@ -1,0 +1,6 @@
+{
+  "model_name": "Qwen/Qwen2.5-7B-Instruct",
+  "service_type": "vllm",
+  "input_price_tokens": 0.0000005,
+  "output_price_tokens": 0.000001
+}

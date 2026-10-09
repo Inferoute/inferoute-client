@@ -34,28 +34,35 @@ type notifyIconData struct {
 }
 
 func showStartupNotice() {
-	go func() {
-		hwnd := findSystrayWindow()
-		if hwnd == 0 {
-			return
-		}
+	Notify("Inferoute Client", "Running in the notification area. Right-click the icon to open the dashboard or quit.")
+}
 
-		var nid notifyIconData
-		nid.Size = uint32(unsafe.Sizeof(nid))
-		nid.Wnd = hwnd
-		nid.ID = trayIconID
-		nid.Flags = nifInfo
-		nid.Timeout = 10000
-		nid.InfoFlags = niifInfo
-		copyUTF16(nid.InfoTitle[:], "Inferoute Client")
-		copyUTF16(nid.Info[:], "Running in the notification area. Right-click the icon to open the dashboard or quit.")
+// Notify shows one balloon on the tray icon. No-op until the tray window exists.
+func Notify(title, body string) {
+	go notify(title, body)
+}
 
-		shell32 := windows.NewLazySystemDLL("shell32.dll")
-		_, _, _ = shell32.NewProc("Shell_NotifyIconW").Call(
-			uintptr(nimModify),
-			uintptr(unsafe.Pointer(&nid)),
-		)
-	}()
+func notify(title, body string) {
+	hwnd := findSystrayWindow()
+	if hwnd == 0 {
+		return
+	}
+
+	var nid notifyIconData
+	nid.Size = uint32(unsafe.Sizeof(nid))
+	nid.Wnd = hwnd
+	nid.ID = trayIconID
+	nid.Flags = nifInfo
+	nid.Timeout = 10000
+	nid.InfoFlags = niifInfo
+	copyUTF16(nid.InfoTitle[:], title)
+	copyUTF16(nid.Info[:], body)
+
+	shell32 := windows.NewLazySystemDLL("shell32.dll")
+	_, _, _ = shell32.NewProc("Shell_NotifyIconW").Call(
+		uintptr(nimModify),
+		uintptr(unsafe.Pointer(&nid)),
+	)
 }
 
 func findSystrayWindow() windows.Handle {

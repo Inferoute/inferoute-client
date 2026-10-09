@@ -15,6 +15,7 @@ import (
 	"time"
 
 	appLogger "github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"go.uber.org/zap"
 )
 
@@ -111,9 +112,7 @@ func NewClient(coreURL, bearerToken, serviceURL string) *Client {
 	}
 
 	return &Client{
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		httpClient:    nodeapi.NewHTTPClient(10 * time.Second),
 		coreURL:       coreURL,
 		bearerToken:   bearerToken,
 		serviceURL:    serviceURL,

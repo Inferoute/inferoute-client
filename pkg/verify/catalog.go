@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 )
 
 // Catalog caches the public approved-model catalog (no hashes).
@@ -27,7 +29,7 @@ func NewCatalog(baseURL, serviceType string) *Catalog {
 	return &Catalog{
 		baseURL:     stringsTrimRightSlash(baseURL),
 		serviceType: serviceType,
-		client:      &http.Client{Timeout: 30 * time.Second},
+		client:      nodeapi.NewHTTPClient(30 * time.Second),
 		entries:     make(map[string]CatalogEntry),
 	}
 }

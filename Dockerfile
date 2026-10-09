@@ -66,6 +66,9 @@ RUN mkdir -p /root/.config/inferoute /root/.local/state/inferoute/log
 COPY scripts/install.sh scripts/entrypoint.sh /app/
 RUN chmod +x /app/install.sh /app/entrypoint.sh
 
+# The running client must not try to replace the image binary.
+ENV INFEROUTE_IN_DOCKER=1
+
 # Set working directory
 WORKDIR /app
 

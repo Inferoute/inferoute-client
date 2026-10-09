@@ -15,6 +15,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
@@ -79,7 +80,7 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Clie
 		llmClient:        llmClient,
 		cloudflareClient: cloudflareClient,
 		pricingClient:    pricingClient,
-		client:           &http.Client{Timeout: 10 * time.Second},
+		client:           nodeapi.NewHTTPClient(10 * time.Second),
 		registeredModels: make(map[string]bool),
 		busyChanges:      make(chan struct{}, 1),
 	}
@@ -306,6 +307,9 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		if readErr == nil {
 			logger.Error("Health report error response",
 				zap.String("response", string(respBody)))
+			if up := nodeapi.ParseUpgrade(resp.StatusCode, respBody); up != nil {
+				return up
+			}
 		}
 		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}

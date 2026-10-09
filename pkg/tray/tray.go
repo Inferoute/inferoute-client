@@ -6,7 +6,11 @@ import (
 	_ "embed"
 	"os/exec"
 
+	"time"
+
 	"fyne.io/systray"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
 )
 
 //go:embed icon.ico
@@ -48,6 +52,7 @@ func onReady(opts Options) {
 	mQuit := systray.AddMenuItem("Quit", "Stop Inferoute Client")
 
 	showStartupNotice()
+	go watchForUpdate()
 
 	go func() {
 		for {
@@ -64,6 +69,29 @@ func onReady(opts Options) {
 			}
 		}
 	}()
+}
+
+func watchForUpdate() {
+	var last nodeapi.UpdateStatus
+	for {
+		snap := nodeapi.State()
+		if snap.Status != last && snap.Status != nodeapi.UpdateCurrent {
+			tip := "Inferoute Provider Client"
+			body := ""
+			switch snap.Status {
+			case nodeapi.UpdateRequired:
+				tip = "Inferoute: update required"
+				body = "Update required: " + version.Version + " -> " + snap.Latest + ". Run inferoute-client update, then restart."
+			case nodeapi.UpdateAvailable:
+				tip = "Inferoute: update available"
+				body = "Update available: " + version.Version + " -> " + snap.Latest + ". Run inferoute-client update, then restart."
+			}
+			systray.SetTooltip(tip)
+			Notify(tip, body)
+			last = snap.Status
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
 
 func openURL(u string) {

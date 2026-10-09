@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"go.uber.org/zap"
 )
 
@@ -61,7 +62,7 @@ func NewClient(baseURL, apiKey string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		client:  nodeapi.NewHTTPClient(10 * time.Second),
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
@@ -185,6 +186,12 @@ func (s *Server) redrawConsole() {
 
 	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", snap.LastHealthUpdate))
 	buf.WriteString("\033[1;35mSession Status                \033[0m\033[1;32monline\033[0m\n")
+	switch snap.UpdateStatus {
+	case "required":
+		buf.WriteString(fmt.Sprintf("\033[1;31mUpdate required: %s -> %s. Run 'inferoute-client update' then restart.\033[0m\n", snap.ClientVersion, snap.LatestVersion))
+	case "available":
+		buf.WriteString(fmt.Sprintf("\033[1;33mUpdate available: %s -> %s. Run 'inferoute-client update' then restart.\033[0m\n", snap.ClientVersion, snap.LatestVersion))
+	}
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider Type                 \033[0m%s\n", snap.ProviderType))
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", snap.ProviderAPIKey))
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", snap.ProviderURL))
@@ -349,7 +356,7 @@ func (s *Server) validateHMAC(ctx context.Context, hmac string) error {
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.config.Provider.APIKey))
 
 	// Send request
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := nodeapi.NewHTTPClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)

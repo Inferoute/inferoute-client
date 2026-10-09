@@ -111,7 +111,13 @@ function render(s) {
   const tunnel = s.cloudflare_tunnel_url
     ? row("Cloudflare Tunnel URL", esc(s.cloudflare_tunnel_url))
     : "";
+  let updateHtml = "";
+  if (s.update_status === "required" || s.update_status === "available") {
+    const color = s.update_status === "required" ? "#f66" : "#fc6";
+    updateHtml = `<div style="color:${color};margin:8px 0">Update ${esc(s.update_status)}: ${esc(s.client_version)} -&gt; ${esc(s.latest_version)}. Run inferoute-client update, then restart.</div>`;
+  }
   document.getElementById("app").innerHTML = `
+    ${updateHtml}
     ${row("Last Health Update", esc(s.last_health_update))}
     ${row("Session Status", "online", "ok")}
     ${row("Provider Type", esc(s.provider_type))}

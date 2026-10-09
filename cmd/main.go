@@ -19,20 +19,16 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/setup"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/tray"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/update"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
 	"go.uber.org/zap"
-)
-
-// Version information (will be set by build flags)
-var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
 )
 
 //go:generate go run github.com/akavel/rsrc@v0.10.2 -arch amd64 -ico ../pkg/tray/icon.ico -o rsrc_windows_amd64.syso
@@ -44,11 +40,14 @@ Usage:
   inferoute-client [flags]
   inferoute-client setup [flags]
   inferoute-client compatibility [flags]
+  inferoute-client update [--check]
 
 Commands:
   setup           Interactive engine, model, and API key wizard (safe to re-run)
   compatibility   Detect local hardware and list which approved models can run
                   (does not start the provider daemon)
+  update          Download the newest client, verify it, and replace this binary.
+                  Stop the running client first. --check only prints the result.
 
 Flags:
   --config string   Path to configuration file (default: ~/.config/inferoute/config.yaml)
@@ -67,6 +66,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "compatibility" {
 		if err := compat.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "compatibility: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		if err := runUpdate(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "update: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -100,9 +106,9 @@ func main() {
 	}
 
 	if *showVersion {
-		fmt.Printf("inferoute-client %s\n", version)
-		fmt.Printf("  commit: %s\n", commit)
-		fmt.Printf("  built:  %s\n", date)
+		fmt.Printf("inferoute-client %s\n", version.Version)
+		fmt.Printf("  commit: %s\n", version.Commit)
+		fmt.Printf("  built:  %s\n", version.Date)
 		os.Exit(0)
 	}
 
@@ -129,6 +135,8 @@ func main() {
 		fatal("Failed to load configuration: %v", err)
 	}
 	config.ApplyEnvOverrides(cfg)
+	update.RemoveStaleBackup()
+	checkClientVersion(cfg.Provider.URL)
 	if !cfg.HasAPIKey() {
 		fatal("%s\nOr run: inferoute-client setup", usermsg.InvalidAPIKey)
 	}
@@ -222,8 +230,31 @@ func main() {
 	healthReporter.SetCloudflareClient(srv.GetCloudflareClient())
 
 	go func() {
-		ticker := time.NewTicker(health.ReportInterval)
+		interval := health.ReportInterval
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		upgradeLogged := false
+
+		report := func(msg string) {
+			err := healthReporter.SendHealthReport(ctx)
+			next := nodeapi.HealthInterval(err, health.ReportInterval)
+			if next != interval {
+				interval = next
+				ticker.Reset(interval)
+			}
+			if err == nil {
+				upgradeLogged = false
+				return
+			}
+			if nodeapi.IsUpgradeRequired(err) {
+				if !upgradeLogged {
+					logger.Error(msg, zap.Error(err))
+					upgradeLogged = true
+				}
+				return
+			}
+			logger.Error(msg, zap.Error(err))
+		}
 
 		// StartTunnel holds ~10s after RequestTunnel sets the hostname, so a
 		// URL is not proof the tunnel is up. Wait for the supervised process.
@@ -253,22 +284,18 @@ func main() {
 		cf := srv.GetCloudflareClient()
 		if cf == nil || !cf.IsRunning() {
 			logger.Warn("Skipping initial health report; tunnel is not running")
-		} else if err := healthReporter.SendHealthReport(ctx); err != nil {
-			logger.Error("Failed to send initial health report", zap.Error(err))
+		} else {
+			report("Failed to send initial health report")
 		}
 
 		for {
 			select {
 			case <-ticker.C:
-				if err := healthReporter.SendHealthReport(ctx); err != nil {
-					logger.Error("Failed to send health report", zap.Error(err))
-				}
+				report("Failed to send health report")
 			case <-healthReporter.BusyChanges():
 				// Busy-state transition: push immediately so the central
 				// provider_busy flag is seconds, not minutes, stale.
-				if err := healthReporter.SendHealthReport(ctx); err != nil {
-					logger.Error("Failed to send busy-transition health report", zap.Error(err))
-				}
+				report("Failed to send busy-transition health report")
 				// Cool down so rapid request bursts don't flood the platform.
 				// A transition during the cooldown leaves a pending signal
 				// (buffered channel), which sends a fresh report right after.
@@ -365,6 +392,51 @@ func main() {
 
 func isFatalServerErr(err error) bool {
 	return err != nil && !errors.Is(err, http.ErrServerClosed)
+}
+
+func runUpdate(args []string) error {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	checkOnly := fs.Bool("check", false, "print whether an update is available")
+	configPath := fs.String("config", "", "path to configuration file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	platform := ""
+	path := *configPath
+	if path == "" {
+		path, _ = resolveConfigPath()
+	}
+	if path != "" {
+		if cfg, err := config.Load(path); err == nil {
+			config.ApplyEnvOverrides(cfg)
+			platform = cfg.Provider.URL
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return update.Apply(ctx, platform, *checkOnly)
+}
+
+func checkClientVersion(platformURL string) {
+	if os.Getenv("INFEROUTE_IN_DOCKER") == "1" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rel, err := update.FetchRelease(ctx, platformURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "version check skipped: %v\n", err)
+		return
+	}
+	msg, required := update.Notice(rel)
+	if msg == "" {
+		return
+	}
+	if required {
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(1)
+	}
+	fmt.Println(msg)
 }
 
 func resolveConfigPath() (string, error) {

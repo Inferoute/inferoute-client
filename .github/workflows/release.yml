@@ -33,7 +33,7 @@ jobs:
           DATE=$(date -u +'%Y-%m-%d_%H:%M:%S')
           
           # Build flags for version information
-          VERSION_FLAGS="-X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE"
+          VERSION_FLAGS="-X github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Version=$VERSION -X github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Commit=$COMMIT -X github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Date=$DATE"
           
           # Build for Linux amd64
           GOOS=linux GOARCH=amd64 go build -ldflags "$VERSION_FLAGS" -o build/inferoute-client-linux-amd64 ./cmd
@@ -57,7 +57,9 @@ jobs:
           zip -r inferoute-client-darwin-amd64.zip inferoute-client-darwin-amd64
           zip -r inferoute-client-darwin-arm64.zip inferoute-client-darwin-arm64
           zip -r inferoute-client-windows-amd64.zip inferoute-client-windows-amd64.exe
+          sha256sum *.zip > checksums.txt
           cd ..
+          tar -czf build/contract-${VERSION}.tar.gz -C pkg/contract testdata
       
       
       - name: Create Release
@@ -70,6 +72,8 @@ jobs:
             build/inferoute-client-darwin-amd64.zip
             build/inferoute-client-darwin-arm64.zip
             build/inferoute-client-windows-amd64.zip
+            build/checksums.txt
+            build/contract-*.tar.gz
           draft: false
           prerelease: false
           generate_release_notes: true

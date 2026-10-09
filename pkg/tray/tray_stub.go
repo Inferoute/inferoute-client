@@ -17,6 +17,9 @@ func Supported() bool { return false }
 // Quit is a no-op on non-Windows platforms.
 func Quit() {}
 
+// Notify is a no-op on non-Windows platforms.
+func Notify(title, body string) {}
+
 // Run is a no-op on non-Windows platforms.
 func Run(opts Options) {
 	if opts.Started != nil {

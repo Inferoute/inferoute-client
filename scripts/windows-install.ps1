@@ -106,6 +106,31 @@ try {
     exit 1
 }
 
+$ChecksumUrl = "https://github.com/$GitHubRepo/releases/latest/download/checksums.txt"
+try {
+    $sums = Invoke-WebRequest -Uri $ChecksumUrl -UseBasicParsing
+    $expected = $null
+    foreach ($line in ($sums.Content -split "`n")) {
+        $parts = $line.Trim() -split '\s+'
+        if ($parts.Length -ge 2 -and $parts[1] -eq "inferoute-client-windows-amd64.zip") {
+            $expected = $parts[0].ToLower()
+        }
+    }
+    if (-not $expected) {
+        Write-Err "checksums.txt has no entry for inferoute-client-windows-amd64.zip"
+        exit 1
+    }
+    $actual = (Get-FileHash -Algorithm SHA256 $ClientZip).Hash.ToLower()
+    if ($actual -ne $expected) {
+        Write-Err "Checksum mismatch for inferoute-client-windows-amd64.zip"
+        exit 1
+    }
+    Write-Ok "Checksum verified."
+} catch {
+    if ($_.Exception.Message -match "Checksum|checksums.txt has no entry") { throw }
+    Write-Warn "No checksums.txt on this release; continuing without verification."
+}
+
 $ExtractDir = Join-Path $env:TEMP "inferoute-client-extract"
 if (Test-Path $ExtractDir) {
     Remove-Item $ExtractDir -Recurse -Force
