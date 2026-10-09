@@ -21,27 +21,37 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
 )
 
-const (
-	githubRepo = "inferoute/inferoute-client"
-	githubAPI  = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
-)
+const githubRepo = "inferoute/inferoute-client"
 
-// Release is the newest client the platform (or GitHub) is advertising.
+// Release is the newest client the node is advertising.
 type Release struct {
 	Latest      string
 	Min         string
 	DownloadURL string
 }
 
-// FetchRelease asks the node, then GitHub, which client release is current.
+// FetchRelease reads the client release from the node. The node mirrors GitHub.
 func FetchRelease(ctx context.Context, platformURL string) (Release, error) {
-	if platformURL != "" {
-		rel, err := fetchFromNode(ctx, platformURL)
-		if err == nil && rel.Latest != "" {
-			return rel, nil
-		}
+	if platformURL == "" {
+		return Release{}, fmt.Errorf("platform URL is not set")
 	}
-	return fetchFromGitHub(ctx)
+	rel, err := fetchFromNode(ctx, platformURL)
+	if err != nil {
+		return Release{}, err
+	}
+	if rel.Latest == "" {
+		return Release{}, fmt.Errorf("node has not published a client version yet")
+	}
+	return rel, nil
+}
+
+// Remember stores the node's release so the running console and tray can show it.
+func Remember(rel Release) {
+	if nodeapi.Newer(rel.Min, version.Version) {
+		nodeapi.NoteRequired(rel.Min, rel.Latest, rel.DownloadURL)
+		return
+	}
+	nodeapi.NoteLatest(rel.Latest)
 }
 
 // Notice is the line printed at startup. required means the node will reject this build.
@@ -131,7 +141,7 @@ func fetchFromNode(ctx context.Context, platformURL string) (Release, error) {
 	if err != nil {
 		return Release{}, err
 	}
-	resp, err := nodeapi.NewHTTPClient(10 * time.Second).Do(req)
+	resp, err := nodeapi.NewHTTPClient(0).Do(req)
 	if err != nil {
 		return Release{}, err
 	}
@@ -148,33 +158,6 @@ func fetchFromNode(ctx context.Context, platformURL string) (Release, error) {
 		return Release{}, err
 	}
 	return Release{Latest: body.Latest, Min: body.Min, DownloadURL: body.DownloadURL}, nil
-}
-
-func fetchFromGitHub(ctx context.Context) (Release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPI, nil)
-	if err != nil {
-		return Release{}, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return Release{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return Release{}, fmt.Errorf("github releases returned %d", resp.StatusCode)
-	}
-	var body struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return Release{}, err
-	}
-	latest := strings.TrimPrefix(body.TagName, "v")
-	return Release{
-		Latest:      latest,
-		DownloadURL: "https://github.com/" + githubRepo + "/releases/latest",
-	}, nil
 }
 
 func assetName() string {

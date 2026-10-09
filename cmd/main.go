@@ -186,6 +186,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go watchClientVersion(ctx, cfg.Provider.URL)
 
 	gpuMonitor, err := gpu.NewMonitor()
 	if err != nil {
@@ -417,6 +418,48 @@ func runUpdate(args []string) error {
 	return update.Apply(ctx, platform, *checkOnly)
 }
 
+func watchClientVersion(ctx context.Context, platformURL string) {
+	if os.Getenv("INFEROUTE_IN_DOCKER") == "1" || platformURL == "" {
+		return
+	}
+	const timeout = 30 * time.Second
+	var lastNotice string
+	var warned bool
+	check := func() {
+		reqCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		rel, err := update.FetchRelease(reqCtx, platformURL)
+		if err != nil {
+			if !warned {
+				logger.Warn("version check skipped", zap.Error(err))
+				warned = true
+			}
+			return
+		}
+		warned = false
+		update.Remember(rel)
+		msg, _ := update.Notice(rel)
+		if msg == lastNotice {
+			return
+		}
+		lastNotice = msg
+		if msg != "" {
+			logger.Info(msg)
+		}
+	}
+	check()
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			check()
+		}
+	}
+}
+
 func checkClientVersion(platformURL string) {
 	if os.Getenv("INFEROUTE_IN_DOCKER") == "1" {
 		return
@@ -428,6 +471,7 @@ func checkClientVersion(platformURL string) {
 		fmt.Fprintf(os.Stderr, "version check skipped: %v\n", err)
 		return
 	}
+	update.Remember(rel)
 	msg, required := update.Notice(rel)
 	if msg == "" {
 		return

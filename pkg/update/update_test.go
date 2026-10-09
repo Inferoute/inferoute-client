@@ -1,6 +1,9 @@
 package update
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
@@ -24,6 +27,35 @@ func TestNotice(t *testing.T) {
 	msg, required = Notice(Release{Latest: "1.2.0", Min: "1.0.0"})
 	if required || msg != "" {
 		t.Fatalf("current: required=%v msg=%q", required, msg)
+	}
+}
+
+func TestFetchReleaseReadsNode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/client/version" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"latest":"1.4.0","min_supported":"1.0.0","download_url":"https://example.test/dl"}`))
+	}))
+	defer srv.Close()
+
+	rel, err := FetchRelease(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Latest != "1.4.0" || rel.Min != "1.0.0" || rel.DownloadURL != "https://example.test/dl" {
+		t.Fatalf("release = %+v", rel)
+	}
+}
+
+func TestFetchReleaseEmptyLatest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"latest":"","min_supported":"","download_url":""}`))
+	}))
+	defer srv.Close()
+	if _, err := FetchRelease(context.Background(), srv.URL); err == nil {
+		t.Fatal("empty latest should fail")
 	}
 }
 
