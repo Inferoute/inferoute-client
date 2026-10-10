@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
@@ -68,5 +70,31 @@ func TestAssetURL(t *testing.T) {
 	sums := checksumURL(Release{Latest: "1.4.0", DownloadURL: "https://github.com/inferoute/inferoute-client/releases/latest"})
 	if sums != "https://github.com/inferoute/inferoute-client/releases/download/v1.4.0/checksums.txt" {
 		t.Fatalf("sums %s", sums)
+	}
+}
+
+func TestInstallBinaryReplacesTargetAcrossDirs(t *testing.T) {
+	destDir := t.TempDir()
+	dest := filepath.Join(destDir, "inferoute-client")
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Separate directory, same as a /tmp download vs /usr/local/bin install.
+	src := filepath.Join(t.TempDir(), "inferoute-client.new")
+	if err := os.WriteFile(src, []byte("new-binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installBinary(src, dest); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new-binary" {
+		t.Fatalf("got %q", got)
+	}
+	if _, err := os.Stat(dest + ".new"); !os.IsNotExist(err) {
+		t.Fatalf("staged file should be consumed by rename: %v", err)
 	}
 }

@@ -283,23 +283,64 @@ func replaceExecutable(newPath string) error {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
+	return installBinary(newPath, exe)
+}
+
+// installBinary copies newPath onto exe's filesystem, then renames it into place.
+// A direct rename from the download tempdir fails with EXDEV when /tmp is tmpfs
+// and the binary lives on another mount (the install.sh path: /usr/local/bin).
+func installBinary(newPath, exe string) error {
 	if err := os.Chmod(newPath, 0o755); err != nil {
+		return err
+	}
+	staged := exe + ".new"
+	if err := copyFile(newPath, staged); err != nil {
+		return fmt.Errorf("install new binary: %w (is inferoute-client not writable?)", err)
+	}
+	if err := os.Chmod(staged, 0o755); err != nil {
+		os.Remove(staged)
 		return err
 	}
 	if runtime.GOOS == "windows" {
 		old := exe + ".old"
 		_ = os.Remove(old)
 		if err := os.Rename(exe, old); err != nil {
+			os.Remove(staged)
 			return fmt.Errorf("rename current binary: %w", err)
 		}
-		if err := os.Rename(newPath, exe); err != nil {
+		if err := os.Rename(staged, exe); err != nil {
 			_ = os.Rename(old, exe)
+			os.Remove(staged)
 			return fmt.Errorf("install new binary: %w", err)
 		}
 		return nil
 	}
-	if err := os.Rename(newPath, exe); err != nil {
-		return fmt.Errorf("install new binary: %w (is inferoute-client on a different filesystem, or not writable?)", err)
+	if err := os.Rename(staged, exe); err != nil {
+		os.Remove(staged)
+		return fmt.Errorf("install new binary: %w (is inferoute-client not writable?)", err)
+	}
+	return nil
+}
+
+func copyFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		os.Remove(dest)
+		return copyErr
+	}
+	if closeErr != nil {
+		os.Remove(dest)
+		return closeErr
 	}
 	return nil
 }
