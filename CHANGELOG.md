@@ -1,60 +1,30 @@
 # Changelog
 
-All notable changes to the Inferoute Client will be documented in this file.
-
-## [1.1.10]
+## [1.1.10] - 2026-10-10
 
 ### Added
 
-- HMAC proxy accepts `POST /v1/embeddings` (same guard chain as chat/completions) so embedding models like `baai/bge-m3` can be served through the tunnel.
-- Catalog serve flags (`tool_call_parser`, `max_model_len`, `rope_type`, `rope_base_context_len`) drive engine start argv: vLLM/Metal get tools + `--max-model-len` + YaRN `--hf-overrides` when set; FreeToken gets `--max-seq-len-override` from the same `max_model_len`. Setup persists the fields in `config.yaml` for auto-start.
-- Health verification fails vLLM/FreeToken models when live engine context is below catalog `max_model_len` (or unreadable). FreeToken falls back to `/v1/cache/status` geometry when the model card omits `max_model_len`.
-- Compatibility / setup scoring adds a small KV term from catalog `max_model_len` (~3% of weights per 8k). It does not scale the whole 1.50 vLLM overhead, which made 7B @ 128k look like it needed 128 GiB.
-- Catalog `kv_cache_bytes_per_token` gives each vLLM model its exact KV cache cost: `required = weights × 1.2 + kv_per_token × max_model_len`. The percentage heuristic remains the fallback when the field is null.
-- Catalog `engines` (`vllm` / `vllm-metal` / `freetoken` / `ollama`) filters setup and `compatibility`. FreeToken is **opt-in**; untagged vLLM rows stay off Windows. See [FreeToken supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md).
-- E2E: Linux vLLM starts with catalog serve flags (`--max-model-len 131072`, YaRN, hermes parser). Windows GCE runs FreeToken (`ft serve` + `--max-seq-len-override`, parser stays `auto`). Both run the multi-turn tool-calling suite (`TOOL_TESTS=1`). Cluster is Linux vLLM + Windows FreeToken — the 16 GB Mac Mini is out (not enough unified memory for 7B @ 131k). Linux/Mac Ollama phases skip tools.
-- Compatibility / setup table: `tight` rows are orange (whole line). `runs_well` / `fits` stay green.
-- Windows hardware floor: **32 GB** RAM + a **fixed 64 GB page file**, or **64 GB** RAM, plus **24 GB** NVIDIA VRAM.
+- `inferoute-client update` downloads the build the node advertises. You restart. Docker does not self-update.
+- Startup and the running console say when an update is available or required.
+- `POST /v1/embeddings` goes through the same HMAC proxy as chat.
+- Catalog serve flags set engine start args. `engines` and `kv_cache_bytes_per_token` drive setup scoring. FreeToken is opt-in.
+- Windows floor: 32 GB RAM plus a 64 GB page file, or 64 GB RAM, and 24 GB NVIDIA VRAM.
 
 ### Fixed
 
-- FreeToken MoE placement is chosen per model per machine instead of hard-coded. Setup and `compatibility` score FreeToken rows in two passes: `runs_well`/`fits` on VRAM ⇒ `--moe-backend fused` (experts on the GPU); `tight`/`too_large` on VRAM ⇒ re-scored against system RAM (`weights × 1.2`) and, when that fits, `--moe-backend auto` (experts offloaded to host RAM, attention + KV on the GPU). The chosen value is saved as `provider.moe_strategy` in `config.yaml` so auto-start replays it. `compatibility` shows it in a new `MOE` column. This is what lets `openai/gpt-oss-20b` (12.8 GiB) start on a 24 GB card with 32 GB of RAM: `fused` CUDA-OOMs there during weight load and plain `auto` was previously never sent. Linux vLLM, Metal and Ollama scoring is unchanged.
-- vLLM verification now walks nested manifest files (`1_Pooling/config.json`) and skips vendor trees (`onnx/`) plus alt-format dumps (`original/`, `metal/`, `mlx/`). Matches getModels/bootstrap so embedding models like `baai/bge-m3` can verify, and FreeToken gpt-oss-20b verifies without Apple/duplicate copies.
-- Context gate no longer 403s inference requests: per-request verification passes a bare model without `max_model_len`, so the gate now reads live context from the engine's `/v1/models` before the FreeToken fallback.
+- FreeToken picks MoE placement per model: `fused` on the GPU, or `auto` when VRAM is tight.
+- vLLM verification hashes nested files and skips `onnx/`, `original/`, `metal/`, and `mlx/`.
+- The context gate reads live engine context instead of rejecting a bare model.
 
 ## [1.1.9] - 2026-10-11
 
 ### Fixed
 
-- Windows FreeToken setup installs CUDA PyTorch from `download.pytorch.org/whl/cu130`. PyPI's Windows `torch` wheel is CPU-only, so `ft serve` previously died with `only 0 device(s) visible` after a successful `/v1/models` health check. Re-running setup repairs an existing CPU venv.
-- Cluster Ctrl-C now kills the per-machine runners. Background jobs were ignoring SIGINT, so JarvisLab wait loops kept printing after the prompt.
-- JarvisLab resume treats "No free GPUs" / non-zero `jl resume` as a retry, not success — GPU fallback (H200 etc.) actually runs.
-- Cloudflare tunnel origin now uses `http://127.0.0.1:<port>` instead of `localhost`. On macOS `localhost` is `::1` first, the client listens on IPv4 only, and inference through the tunnel 502s (Linux/Windows were fine).
-- Windows: `nvidia-smi` (and `cloudflared`) no longer flash a console window. The dashboard polls GPU status every few seconds; those child processes now start with `CREATE_NO_WINDOW`.
-- A wrong or missing provider API key now fails startup with a clear message instead of a generic platform **500**.
-- Windows FreeToken setup installs only the CLI wheels (uv + beta `engine-win_amd64.json`) into `%LOCALAPPDATA%\inferoute\venv-freetoken`. It no longer runs the Desktop NSIS installer. Detect and auto-start ignore Desktop's bundled `resources\ft.exe`, which is not a serving binary.
-- Setup does not print **Engine is ready** until Ollama/vLLM/FreeToken lists at least one model. An empty `/v1/models` 200 (typical while weights download) kept the spinner going. If the engine process dies, the wizard fails instead of hanging.
-- FreeToken readiness uses `GET /health` with `status: "ok"`. `/v1/models` 200s while weights load and chat 503s until then.
-- Windows tray startup waits until `http://127.0.0.1:<port>/` responds before printing that the client is running. The parent used to return as soon as the detached process spawned.
-
-### Changed
-
-- Setup/compatibility model table is numbered, usable rows (`runs_well` / `fits` / `tight`) are green, and the reason column is gone.
-- Documented provider floor is **32 GB** of system memory and **24 GB** NVIDIA VRAM (Linux/Windows), or **48 GB** unified memory (Mac).
-- Empty/`your_api_key_here` `api_key` is rejected locally before contacting the platform.
-- `scripts/build.ps1` / `scripts/build.bat` build `inferoute-client.exe` on Windows (same ldflags as `scripts/build.sh`).
-- Linux/macOS `install.sh` no longer requires `PROVIDER_API_KEY` in the curl line. The wizard asks. Use `INFEROUTE_SKIP_SETUP=1` for the old env-only path.
-- Windows FreeToken engine wheels are resolved from the `beta` GitHub release (`engine-win_amd64.json`), not `latest`.
+- Windows FreeToken setup installs CUDA PyTorch, not the CPU wheel, and only the CLI (not Desktop).
+- Tunnel origin is `127.0.0.1`. macOS `localhost` was IPv6 and inference 502'd.
+- A bad API key fails at startup. Setup waits until the engine actually lists a model.
 
 ### Added
 
-- Setup shows a spinner while fetching the approved-model catalog, including the API URL it is calling.
-- Setup wait spinners rotate random AI quotes underneath the status line.
-- Setup waits up to 2 hours for first-run model download and load instead of failing at 10 minutes and continuing anyway.
-- Setup/auto-start do not spawn a second engine if the LLM port is already bound (avoids `Address already in use` during HuggingFace download).
-- `INFEROUTE_URL` / `setup --url` override the Inferoute API base (catalog + `provider.url`). Flag wins over env.
-- `inferoute-client setup` walks through engine, model, and API key. Re-run anytime to update config. Install scripts launch it after placing the binary.
-- Auto-start: if `auto_start` is set, the client starts Ollama / vLLM / vLLM Metal / FreeToken when `llm_url` is down, then leaves that process running.
-- Windows wizard installs the FreeToken CLI into `%LOCALAPPDATA%\inferoute\venv-freetoken` (not FreeToken Desktop).
-- `scripts/e2e-test/run-cluster.sh` brings up Linux, Windows, and Mac Mini as three Ollama providers (same model), holds until Y/Ctrl-C, then pauses Windows + JarvisLab. Mini stays up. Per-machine keys: `PROVIDER_API_KEY_{LINUX,WINDOWS,MAC}`.
-
+- `inferoute-client setup` asks for engine, model, and API key. Install scripts launch it.
+- Auto-start brings the engine up when `llm_url` is down.
