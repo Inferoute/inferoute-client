@@ -3,7 +3,6 @@ package verify
 import "strings"
 
 const (
-	EngineOllama       = "ollama"
 	EngineVLLM         = "vllm"
 	EngineVLLMMetal    = "vllm-metal"
 	EngineFreeToken    = "freetoken"
@@ -12,15 +11,14 @@ const (
 
 // DefaultEngines is used when the catalog row omits engines.
 // FreeToken is never implied — it must be opted in on the build.
+// Empty and unknown service types use the vLLM-family defaults.
 func DefaultEngines(serviceType string) []string {
-	if strings.EqualFold(strings.TrimSpace(serviceType), EngineOllama) {
-		return []string{EngineOllama}
-	}
+	_ = serviceType
 	return []string{EngineVLLM, EngineVLLMMetal}
 }
 
 // SupportsEngine reports whether this catalog row can be served by engineKind
-// (ollama, vllm, vllm-metal, freetoken).
+// (vllm, vllm-metal, freetoken).
 func SupportsEngine(entry CatalogEntry, engineKind string) bool {
 	want := strings.ToLower(strings.TrimSpace(engineKind))
 	if want == "" {

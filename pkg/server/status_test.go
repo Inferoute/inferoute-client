@@ -32,8 +32,8 @@ func TestHandleDashboard(t *testing.T) {
 func TestHandleStatusMasksAPIKey(t *testing.T) {
 	s := newTestServer("http://unused", &fakeLLM{})
 	s.config.Provider.APIKey = "sk-abcdefghijklmnop"
-	s.config.Provider.ProviderType = "ollama"
-	s.config.Provider.LLMURL = "http://localhost:11434"
+	s.config.Provider.ProviderType = "vllm"
+	s.config.Provider.LLMURL = "http://127.0.0.1:8000"
 	s.healthReporter = health.NewReporter(s.config, nil, &fakeLLM{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
@@ -50,7 +50,7 @@ func TestHandleStatusMasksAPIKey(t *testing.T) {
 	if snap.SessionStatus != "online" {
 		t.Fatalf("session = %q", snap.SessionStatus)
 	}
-	if snap.ProviderType != "ollama" {
+	if snap.ProviderType != "vllm" {
 		t.Fatalf("provider_type = %q", snap.ProviderType)
 	}
 	if strings.Contains(snap.ProviderAPIKey, "efgh") || snap.ProviderAPIKey == s.config.Provider.APIKey {

@@ -208,8 +208,6 @@ func overheadFactor(serviceType string) float64 {
 	case "vllm":
 		// KV cache + batching + CUDA graphs — conservative.
 		return 1.50
-	case "ollama":
-		return 1.25
 	default:
 		return 1.35
 	}

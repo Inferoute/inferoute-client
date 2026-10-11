@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.0] - 2026-10-11
+
+### Removed
+
+- Ollama. Setup, install scripts, and the client only run vLLM, vLLM Metal, or FreeToken.
+
 ## [1.1.10] - 2026-10-10
 
 ### Added
@@ -16,15 +22,3 @@
 - vLLM verification hashes nested files and skips `onnx/`, `original/`, `metal/`, and `mlx/`.
 - The context gate reads live engine context instead of rejecting a bare model.
 
-## [1.1.9] - 2026-10-11
-
-### Fixed
-
-- Windows FreeToken setup installs CUDA PyTorch, not the CPU wheel, and only the CLI (not Desktop).
-- Tunnel origin is `127.0.0.1`. macOS `localhost` was IPv6 and inference 502'd.
-- A bad API key fails at startup. Setup waits until the engine actually lists a model.
-
-### Added
-
-- `inferoute-client setup` asks for engine, model, and API key. Install scripts launch it.
-- Auto-start brings the engine up when `llm_url` is down.

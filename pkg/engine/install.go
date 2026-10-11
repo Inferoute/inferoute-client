@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	ollamaInstallURL           = "https://ollama.com/install.sh"
 	vllmMetalInstallURL        = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
 	freeTokenEngineManifestURL = "https://github.com/FlashML-org/FreeToken-Web/releases/download/beta/engine-win_amd64.json"
 	uvWindowsURL               = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
@@ -25,8 +24,6 @@ func Install(ctx context.Context, kind Kind, w io.Writer) error {
 		w = io.Discard
 	}
 	switch kind {
-	case KindOllama:
-		return installOllama(ctx, w)
 	case KindVLLM:
 		return installVLLM(ctx, w)
 	case KindVLLMMetal:
@@ -35,24 +32,6 @@ func Install(ctx context.Context, kind Kind, w io.Writer) error {
 		return installFreeToken(ctx, w)
 	default:
 		return fmt.Errorf("unknown engine %s", kind)
-	}
-}
-
-func installOllama(ctx context.Context, w io.Writer) error {
-	switch runtime.GOOS {
-	case "windows":
-		fmt.Fprintln(w, "Installing Ollama via winget...")
-		return run(ctx, w, "winget", "install", "--id", "Ollama.Ollama", "-e", "--accept-package-agreements", "--accept-source-agreements")
-	case "darwin":
-		if lookPath("brew") != "" {
-			fmt.Fprintln(w, "Installing Ollama via Homebrew...")
-			return run(ctx, w, "brew", "install", "ollama")
-		}
-		fmt.Fprintln(w, "Installing Ollama via official install script...")
-		return runScript(ctx, w, ollamaInstallURL)
-	default:
-		fmt.Fprintln(w, "Installing Ollama via official install script...")
-		return runScript(ctx, w, ollamaInstallURL)
 	}
 }
 

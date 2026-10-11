@@ -12,13 +12,6 @@ import (
 	"strings"
 )
 
-// NormalizeDigest strips an optional sha256: prefix and lowercases hex.
-func NormalizeDigest(digest string) string {
-	d := strings.TrimSpace(digest)
-	d = strings.TrimPrefix(d, "sha256:")
-	return strings.ToLower(d)
-}
-
 // FileHash computes the per-file hash using the manifest hash_method.
 // Must match inferoute-node/scripts/bootstrap_approved_model.sh.
 func FileHash(path, method string) (string, error) {

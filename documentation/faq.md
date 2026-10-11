@@ -3,24 +3,24 @@
 ## General Questions
 
 ### What is the Inferoute Provider Client?
-The Inferoute Provider Client is a lightweight Go service that runs on Ollama provider machines. It monitors GPU resources, reports health metrics to the central system, and handles inference requests by forwarding them to the local Ollama instance.
+The Inferoute Provider Client is a lightweight Go service that runs next to vLLM (Linux + NVIDIA), vLLM Metal (Apple Silicon), or FreeToken (Windows + NVIDIA). It monitors GPU resources, reports health metrics to the central system, and handles inference requests by forwarding them to the local engine.
 
 ### What platforms does the Provider Client support?
-The Provider Client supports both Linux systems with NVIDIA GPUs and macOS systems with Apple GPUs. It has different capabilities on each platform:
-- **Linux with NVIDIA GPUs**: Full GPU monitoring with detailed information and accurate busy status based on GPU utilization
-- **macOS with Apple GPUs**: Basic GPU information (model name, core count) with limited memory and utilization information
+- **Linux + NVIDIA**: vLLM. Full GPU monitoring and busy status from GPU utilization.
+- **macOS Apple Silicon**: vLLM Metal. Basic GPU information. Intel Macs are not supported.
+- **Windows amd64 + NVIDIA**: FreeToken. `nvidia-smi` when the NVIDIA driver is installed. Only catalog models tagged `freetoken`.
 
 ### How do I configure the Provider Client?
 The Provider Client reads from a YAML configuration file with sections for server settings, provider details, NGROK configuration, and logging options. A default configuration is provided if the file is not found.
 
 ## Model Management
 
-### When I add new models to Ollama, will the Inferoute Client automatically pick this up?
-Yes, the Inferoute Client will automatically pick up new models at every health check, which happens every 5 minutes. It will also automatically set pricing for the new model based on average pricing via the Inferoute-node API.
+### When I load a new model, will the Inferoute Client automatically pick this up?
+Yes. The client picks up models from the local engine at every health check (every 3 minutes) and sets pricing from the market average via the Inferoute API.
 
 ### How does model pricing work?
 The Provider Client performs a one-time initialization of model pricing at startup:
-1. It discovers all available models from the local Ollama instance
+1. It discovers loaded models from the local engine
 2. Fetches pricing information from the central system
 3. Registers each model with either model-specific pricing or default pricing
 4. New models added after startup are automatically detected and registered during health checks
@@ -30,16 +30,8 @@ Yes. Use `PUT /api/provider/models/{model_id}` with your provider API key (price
 
 In the dashboard, open your cluster → **Models** tab to edit per-model prices (per 1M tokens). You can apply market averages per row or for all models.
 
-### What are GGUF models and how do they compare to FP16?
-GGUF (GPT-Generated Unified Format) is a model format optimized for CPU and GPU inference:
-
-- **Efficiency**: GGUF models are typically more memory-efficient than FP16 models, using quantization to reduce model size while maintaining quality
-- **Performance**: They often provide faster inference on consumer hardware compared to standard FP16 models
-- **Compatibility**: GGUF is the native format for Ollama, replacing the older GGML format
-- **Quantization Levels**: Available in various quantization levels (Q4_K_M, Q5_K_M, Q6_K, Q8_0) offering different trade-offs between model size and accuracy
-- **Memory Usage**: A GGUF model might use 4-8 bits per parameter instead of 16 bits in FP16, resulting in 2-4x smaller memory footprint
-
-When using models through the Inferoute client, GGUF models are identified with the `gguf/` prefix in requests.
+### Which engine runs on my machine?
+Linux with an NVIDIA GPU runs vLLM. Apple Silicon runs vLLM Metal. 64-bit Windows with an NVIDIA GPU runs FreeToken, and only models whose catalog `engines` include `freetoken`. All three use the platform provider type `vllm` and verify weights with a fingerprint of the local files.
 
 ## NGROK Integration
 
@@ -64,7 +56,7 @@ The Provider Client sends health reports to the central system every 5 minutes a
 ### What information is included in health reports?
 Health reports include:
 - GPU information (type, driver version, CUDA version, memory usage, utilization)
-- Available models from the local Ollama instance
+- Available models from the local engine
 - The current NGROK URL
 
 ### How does the Provider Client determine if the GPU is busy?
@@ -78,7 +70,7 @@ Health reports include:
 When an inference request is received:
 1. It requires a valid HMAC in `X-Request-Id` (missing, oversized, or invalid → 401)
 2. If the GPU is busy, it responds with a 503 Service Unavailable status
-3. If validation succeeds and the GPU is free, it forwards the request to the local Ollama instance
+3. If validation succeeds and the GPU is free, it forwards the request to the local engine
 
 ### What API endpoints does the Provider Client support?
 The Provider Client supports OpenAI-compatible endpoints:

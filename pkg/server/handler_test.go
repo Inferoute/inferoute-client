@@ -58,7 +58,7 @@ func newTestServer(nodeURL string, llmClient llm.Client) *Server {
 	cfg := &config.Config{}
 	cfg.Provider.URL = nodeURL
 	cfg.Provider.APIKey = "test-key"
-	cfg.Provider.ProviderType = "ollama"
+	cfg.Provider.ProviderType = "vllm"
 	return &Server{config: cfg, llmClient: llmClient, maxInflight: 1}
 }
 

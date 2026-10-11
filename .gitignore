@@ -12,7 +12,6 @@ go.work
 inferoute-client
 run/
 config.yaml
-config-ollama.yaml
 debug.log
 
 # Output directories

@@ -50,9 +50,3 @@ func safetensorsFixture() string {
 	b = append(b, header...)
 	return string(b)
 }
-
-func TestNormalizeDigest(t *testing.T) {
-	if got := NormalizeDigest("sha256:AbC"); got != "abc" {
-		t.Fatalf("got %q", got)
-	}
-}

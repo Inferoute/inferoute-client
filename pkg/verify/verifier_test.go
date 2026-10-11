@@ -29,31 +29,16 @@ func TestApplyServerResponseEmptyStatus(t *testing.T) {
 	}
 }
 
-func TestVerifyResultCacheOllamaHitAndInvalidate(t *testing.T) {
-	v := &Verifier{resultCache: make(map[string]*verifyResultEntry)}
-	want := Result{Alias: "gguf/foo", Status: StatusVerified, Digest: "abc", SizeBytes: 42}
-	v.storeOllamaResult("gguf/foo", "abc", 42, want)
-
-	got, ok := v.cachedOllamaResult("gguf/foo", "abc", 42)
-	if !ok || got.Status != StatusVerified {
-		t.Fatalf("expected cache hit, got ok=%v status=%q", ok, got.Status)
-	}
-
-	if _, ok := v.cachedOllamaResult("gguf/foo", "changed", 42); ok {
-		t.Fatal("expected cache miss after digest change")
-	}
-}
-
 func TestVerifyResultCacheTTLExpiry(t *testing.T) {
 	v := &Verifier{resultCache: make(map[string]*verifyResultEntry)}
-	v.resultCache["gguf/foo"] = &verifyResultEntry{
-		result:   Result{Alias: "gguf/foo", Status: StatusVerified},
+	stats := map[string]fileStat{"model.safetensors": {size: 100, modTime: 1}}
+	v.resultCache["org/model"] = &verifyResultEntry{
+		result:   Result{Alias: "org/model", Status: StatusVerified},
 		cachedAt: time.Now().Add(-verifyResultTTL - time.Second),
-		digest:   "abc",
-		size:     1,
+		stats:    stats,
 	}
 
-	if _, ok := v.cachedOllamaResult("gguf/foo", "abc", 1); ok {
+	if _, ok := v.cachedVLLMResult("org/model", stats); ok {
 		t.Fatal("expected cache miss after TTL expiry")
 	}
 }

@@ -97,10 +97,16 @@ func TestLoadEngineDefaultsFromProviderType(t *testing.T) {
 		wantAuto   bool
 	}{
 		{
-			name:       "ollama implied",
-			yaml:       "provider:\n  provider_type: ollama\n",
-			wantEngine: "ollama",
-			wantType:   "ollama",
+			name:       "empty provider type defaults to vllm",
+			yaml:       "provider:\n  provider_type: \"\"\n",
+			wantEngine: "vllm",
+			wantType:   "vllm",
+		},
+		{
+			name:       "unknown provider type defaults to vllm",
+			yaml:       "provider:\n  provider_type: custom\n",
+			wantEngine: "vllm",
+			wantType:   "vllm",
 		},
 		{
 			name:       "vllm implied",
@@ -204,8 +210,11 @@ func TestHasAPIKey(t *testing.T) {
 
 func TestPlatformTypeAndDefaultURL(t *testing.T) {
 	t.Parallel()
-	if got := PlatformType("ollama"); got != "ollama" {
-		t.Errorf("PlatformType(ollama) = %q", got)
+	if got := PlatformType("custom"); got != "vllm" {
+		t.Errorf("PlatformType(custom) = %q", got)
+	}
+	if got := DefaultLLMURL("vllm"); got != "http://127.0.0.1:8000" {
+		t.Errorf("DefaultLLMURL(vllm) = %q", got)
 	}
 	if got := PlatformType("freetoken"); got != "vllm" {
 		t.Errorf("PlatformType(freetoken) = %q", got)

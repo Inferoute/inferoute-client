@@ -10,7 +10,7 @@ import (
 
 func TestVerifyRequestShape(t *testing.T) {
 	got, err := json.Marshal(verifyModelRequest{
-		Alias: "qwen2.5-7b-instruct", ServiceType: "vllm", Digest: "sha256:abc", SizeBytes: 100,
+		Alias: "qwen2.5-7b-instruct", ServiceType: "vllm", SizeBytes: 100,
 		Files: []FileMeasurement{{Name: "model.safetensors", Hash: "abc", HashMethod: "sha256", Size: 100}},
 	})
 	if err != nil {

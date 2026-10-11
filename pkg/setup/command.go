@@ -16,7 +16,7 @@ Safe to re-run; existing values are used as defaults.
 
 Flags:
   --config string        Config path (default: ~/.config/inferoute/config.yaml)
-  --engine string        ollama, vllm, vllm-metal, or freetoken
+  --engine string        vllm, vllm-metal, or freetoken
   --model string         Catalog alias to serve
   --api-key string       Provider API key (or PROVIDER_API_KEY)
   --url string           Inferoute API base (alias: --catalog-url)
@@ -52,7 +52,7 @@ func Run(args []string) error {
 
 	opts := Options{}
 	fs.StringVar(&opts.ConfigPath, "config", "", "Path to configuration file")
-	fs.StringVar(&opts.Engine, "engine", "", "Engine: ollama, vllm, vllm-metal, freetoken")
+	fs.StringVar(&opts.Engine, "engine", "", "Engine: vllm, vllm-metal, freetoken")
 	fs.StringVar(&opts.Model, "model", "", "Catalog alias")
 	fs.StringVar(&opts.APIKey, "api-key", "", "Provider API key")
 	fs.StringVar(&opts.CatalogURL, "url", "", "Inferoute API base URL")

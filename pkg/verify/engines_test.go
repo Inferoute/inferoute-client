@@ -11,12 +11,12 @@ func TestSupportsEngineDefaults(t *testing.T) {
 		t.Fatal("untagged vllm row must not imply freetoken")
 	}
 
-	ollama := CatalogEntry{Alias: "llama3.2", ServiceType: "ollama"}
-	if !SupportsEngine(ollama, EngineOllama) {
-		t.Fatal("untagged ollama row must support ollama")
+	unknown := CatalogEntry{Alias: "Qwen/Qwen2.5-7B-Instruct", ServiceType: "custom"}
+	if !SupportsEngine(unknown, EngineVLLM) || !SupportsEngine(unknown, EngineVLLMMetal) {
+		t.Fatal("untagged unknown service type must use vLLM-family defaults")
 	}
-	if SupportsEngine(ollama, EngineVLLM) {
-		t.Fatal("untagged ollama row must not support vllm")
+	if SupportsEngine(unknown, EngineFreeToken) {
+		t.Fatal("untagged unknown service type must not imply freetoken")
 	}
 }
 
@@ -24,7 +24,7 @@ func TestFilterByEngineOptIn(t *testing.T) {
 	entries := []CatalogEntry{
 		{Alias: "baai/bge-m3", ServiceType: "vllm"},
 		{Alias: "google/gemma-4-26B-A4B-it", ServiceType: "vllm", Engines: []string{"vllm", "vllm-metal", "freetoken"}},
-		{Alias: "llama3.2", ServiceType: "ollama"},
+		{Alias: "Qwen/Qwen2.5-7B-Instruct", ServiceType: "vllm"},
 	}
 	got := FilterByEngine(entries, EngineFreeToken)
 	if len(got) != 1 || got[0].Alias != "google/gemma-4-26B-A4B-it" {

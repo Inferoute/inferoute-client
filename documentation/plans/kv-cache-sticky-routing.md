@@ -38,8 +38,8 @@ requests.
 - Only `X-Request-Id` (HMAC) is read from headers; `X-Model-Name` is sent by
   provider-comm but unread — model comes from the JSON body.
 - Client-side timeouts cap everything at 30s: HTTP server `ReadTimeout`/`WriteTimeout`
-  (`pkg/server/server.go` L104–105) and the vLLM/Ollama forward clients
-  (`pkg/llm/vllm.go` L27, `pkg/llm/ollama.go` L43). Responses are fully buffered — no
+  (`pkg/server/server.go` L104–105) and the vLLM forward client
+  (`pkg/llm/vllm.go` L27). Responses are fully buffered — no
   streaming proxy.
 - Health `is_busy` is GPU-util-only (the inflight counter is not included) and is
   pushed every **3 minutes** (`ReportInterval`, `pkg/health/reporter.go` L43), so the
@@ -104,7 +104,7 @@ New `pkg/api/orchestrator/affinity.go`:
 - Native TTL replaces any cleanup job and TTL-check-on-read entirely — no migration,
   no cron.
 - Pin is a `MULTI`: `SET session:… EX 900` + `SET provider_last_session:… EX 900`.
-- Eviction heuristic (KV-overwrite on vLLM/Ollama): on lookup,
+- Eviction heuristic (KV-overwrite on vLLM): on lookup,
   `GET provider_last_session:{pinned_provider}` — if it holds a *different* affinity
   key, another conversation hit that GPU since our last turn and our KV cache is
   likely evicted → skip the pin, route normally. Pessimistic for large-VRAM providers
@@ -206,8 +206,7 @@ provider is idle), but the full design needs three client changes:
 
 - HTTP server `ReadTimeout`/`WriteTimeout` 30s → align with the central sticky
   timeout + queue wait (`pkg/server/server.go` L104–105).
-- vLLM/Ollama forward clients 30s → configurable, same alignment (`pkg/llm/vllm.go`
-  L27, `pkg/llm/ollama.go` L43).
+- vLLM forward client 30s → configurable, same alignment (`pkg/llm/vllm.go` L27).
 
 ### C3. Fresher busy reporting (recommended, not blocking)
 

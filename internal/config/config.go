@@ -39,7 +39,7 @@ type Config struct {
 		APIKey       string `yaml:"api_key"`
 		URL          string `yaml:"url"`
 		ProviderType string `yaml:"provider_type"`
-		// Engine is the local inference binary: ollama, vllm, vllm-metal, freetoken.
+		// Engine is the local inference binary: vllm, vllm-metal, freetoken.
 		// Empty defaults from ProviderType so existing configs keep working.
 		Engine string `yaml:"engine,omitempty"`
 		// EngineBin is an absolute path when the binary is not on PATH (Windows FreeToken).
@@ -52,7 +52,7 @@ type Config struct {
 		HFHubCache string `yaml:"hf_hub_cache,omitempty"` // optional; default ~/.cache/huggingface/hub
 		ModelPath  string `yaml:"model_path,omitempty"`   // optional flat dir override (hf download --local-dir)
 		// LLMTimeoutSeconds is the timeout for requests forwarded to the
-		// local vLLM/Ollama instance. Default 120, aligned with the
+		// local vLLM, vLLM Metal, or FreeToken instance. Default 120, aligned with the
 		// orchestrator's sticky inference timeout.
 		LLMTimeoutSeconds int `yaml:"llm_timeout_seconds"`
 		// Catalog serve flags (SNTNL-119). Persisted from approved-builds so
@@ -84,8 +84,8 @@ func Load(path string) (*Config, error) {
 	cfg.Server.SessionQueueWaitSeconds = 90
 	cfg.Server.RequestTimeoutSeconds = 240
 	cfg.Provider.URL = DefaultPlatformURL
-	cfg.Provider.ProviderType = "ollama"
-	cfg.Provider.LLMURL = "http://localhost:11434"
+	cfg.Provider.ProviderType = "vllm"
+	cfg.Provider.LLMURL = "http://127.0.0.1:8000"
 	cfg.Provider.LLMTimeoutSeconds = 120
 
 	// Set default logging configuration
@@ -127,34 +127,20 @@ func (c *Config) normalize() {
 	c.Provider.RopeType = strings.TrimSpace(c.Provider.RopeType)
 	c.Provider.MoeStrategy = strings.ToLower(strings.TrimSpace(c.Provider.MoeStrategy))
 	c.Provider.HFRepo = strings.TrimSpace(c.Provider.HFRepo)
-	if c.Provider.Engine != "" {
-		c.Provider.ProviderType = PlatformType(c.Provider.Engine)
-		return
-	}
-	switch c.Provider.ProviderType {
-	case "vllm":
+	if c.Provider.Engine == "" {
 		c.Provider.Engine = "vllm"
-	default:
-		c.Provider.Engine = "ollama"
-		if c.Provider.ProviderType == "" {
-			c.Provider.ProviderType = "ollama"
-		}
 	}
+	c.Provider.ProviderType = PlatformType(c.Provider.Engine)
 }
 
 // PlatformType is the Inferoute provider_type for a local engine.
 func PlatformType(engine string) string {
-	if strings.EqualFold(strings.TrimSpace(engine), "ollama") {
-		return "ollama"
-	}
 	return "vllm"
 }
 
 // DefaultLLMURL is the loopback URL for an engine.
 func DefaultLLMURL(engine string) string {
 	switch strings.ToLower(strings.TrimSpace(engine)) {
-	case "ollama":
-		return "http://127.0.0.1:11434"
 	case "freetoken":
 		return "http://127.0.0.1:1919"
 	default:

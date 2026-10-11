@@ -26,7 +26,7 @@ func TestRequestShapes(t *testing.T) {
 			Object: "list",
 			Data: []llm.Model{{
 				ID: "Qwen/Qwen2.5-7B-Instruct", Object: "model", Created: 1710000000, OwnedBy: "inferoute",
-				Digest: "sha256:abc", SizeBytes: 100, WeightFingerprint: "fp", VerificationStatus: "verified",
+				SizeBytes: 100, WeightFingerprint: "fp", VerificationStatus: "verified",
 				MaxModelLen: 8192,
 			}},
 			GPU: &gpu.GPUInfo{

@@ -16,7 +16,7 @@ import (
 
 func dummyEngineBin(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "ollama")
+	bin := filepath.Join(t.TempDir(), "vllm")
 	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -25,16 +25,16 @@ func dummyEngineBin(t *testing.T) string {
 
 func TestEnsureOnStartAlreadyHealthy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/tags" {
+		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:0.6b"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3-0.6B"}]}`))
 	}))
 	t.Cleanup(srv.Close)
 
 	cfg := &config.Config{}
-	cfg.Provider.Engine = "ollama"
+	cfg.Provider.Engine = "vllm"
 	cfg.Provider.LLMURL = srv.URL
 
 	var out bytes.Buffer
@@ -50,7 +50,7 @@ func TestEnsureOnStartAlreadyHealthy(t *testing.T) {
 
 func TestEnsureOnStartDecline(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Provider.Engine = "ollama"
+	cfg.Provider.Engine = "vllm"
 	cfg.Provider.LLMURL = "http://127.0.0.1:1"
 	cfg.Provider.EngineBin = dummyEngineBin(t)
 	cfg.Provider.AutoStart = true
@@ -69,7 +69,7 @@ func TestEnsureOnStartDecline(t *testing.T) {
 
 func TestEnsureOnStartNonInteractiveNoAutoStart(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Provider.Engine = "ollama"
+	cfg.Provider.Engine = "vllm"
 	cfg.Provider.LLMURL = "http://127.0.0.1:1"
 	cfg.Provider.EngineBin = dummyEngineBin(t)
 	cfg.Provider.AutoStart = false
@@ -105,12 +105,12 @@ func TestEnsureOnStartNilConfig(t *testing.T) {
 
 func TestEnsureOnStartWaitsWhenPortOpen(t *testing.T) {
 	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"models":[],"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	t.Cleanup(empty.Close)
 
 	cfg := &config.Config{}
-	cfg.Provider.Engine = "ollama"
+	cfg.Provider.Engine = "vllm"
 	cfg.Provider.LLMURL = empty.URL
 
 	var out bytes.Buffer

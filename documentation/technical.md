@@ -1,6 +1,6 @@
 # Inferoute Provider Client — technical overview
 
-Audience: **technical managers**. This is the GPU-side daemon (`inferoute-client`): tunnel, health, model verification, and the HMAC-gated OpenAI proxy in front of local Ollama or vLLM.
+Audience: **technical managers**. This is the GPU-side daemon (`inferoute-client`): tunnel, health, model verification, and the HMAC-gated OpenAI proxy in front of local vLLM, vLLM Metal, or FreeToken.
 
 Operator/product narrative: [overview.md](overview.md). Platform routing, billing, and verify-judge: **inferoute-node** `documentation/technical.md`. Sticky-routing design: [plans/kv-cache-sticky-routing.md](plans/kv-cache-sticky-routing.md). Customer install: inferoute-docs `provider-client/`.
 
@@ -22,7 +22,7 @@ flowchart LR
   Orch[Orchestrator / provider-comm]
   CF[cloudflared tunnel]
   Client[inferoute-client]
-  LLM[Ollama or vLLM]
+  LLM[vLLM, vLLM Metal, or FreeToken]
   Plat[core.inferoute.com]
 
   Orch --> CF --> Client --> LLM
@@ -36,7 +36,7 @@ flowchart LR
 | `internal/config` | YAML load and defaults |
 | `pkg/server` | HTTP, console/HTML UI, HMAC, session queue, proxy |
 | `pkg/health` | Assemble + push health; busy-transition reports |
-| `pkg/llm` | Ollama / vLLM (`ListModels`, `ForwardRequest`) |
+| `pkg/llm` | OpenAI-compatible client (`ListModels`, `ForwardRequest`) |
 | `pkg/gpu` | NVIDIA `nvidia-smi` (Linux/Windows, ~1s cache); basic info on macOS. Windows spawn uses `CREATE_NO_WINDOW` so the console does not flash. |
 | `pkg/compat` | Pre-flight hardware vs catalog scoring |
 | `pkg/cloudflare` | Tunnel request + `cloudflared` supervision. Invalid provider API key → `ErrInvalidAPIKey` (**401** from the platform). |
@@ -66,7 +66,7 @@ Windows: tray is default; process detaches so closing PowerShell does not kill i
 | Section | Fields that matter |
 |---------|-------------------|
 | `server` | `port` (8080), `host` (`127.0.0.1`; set `0.0.0.0` only for LAN/Docker host dashboard), `max_concurrent_inference` (**1**; `0` = unlimited), `session_queue_wait_seconds` (**90**), `request_timeout_seconds` (**240** — must cover queue + inference) |
-| `provider` | `api_key`, `url` (platform base), `provider_type` (`ollama` \| `vllm`), `llm_url`, `llm_timeout_seconds` (**120**, matches platform sticky timeout), optional `hf_hub_cache` / `model_path` |
+| `provider` | `api_key`, `url` (platform base), `provider_type` (`vllm` for vLLM, vLLM Metal, and FreeToken), `engine` (`vllm` \| `vllm-metal` \| `freetoken`), `llm_url`, `llm_timeout_seconds` (**120**, matches platform sticky timeout), optional `hf_hub_cache` / `model_path` |
 | `logging` | level, `log_dir`, rotation |
 
 `TunnelServiceURL()` is `http://localhost:<port>` when host is loopback or `0.0.0.0`. No Cloudflare block in YAML — token comes from the platform. Platform tunnel ingress forwards only `/v1/chat/completions`, `/v1/completions`, and `/v1/embeddings`.
@@ -112,12 +112,11 @@ Server-as-judge. Client measures; never learns expected hashes.
 
 | Engine | Measure | POST |
 |--------|---------|------|
-| Ollama | digest + size `/api/tags` | `/api/provider/verify-model` |
-| vLLM | SHA256 of weights under HF cache or `model_path` | same |
+| vLLM, vLLM Metal, FreeToken | weight fingerprint + manifest of files under the HF cache or `model_path` | `/api/provider/verify-model` |
 
-Result cache **10 min** per alias; invalidate on digest/size change, vLLM file stats, catalog fingerprint, or TTL. vLLM also caches fingerprints to skip re-hash. Console redraw (3s) must not hammer verify — it reads `GetDisplayedModels()` from the last health snapshot.
+Result cache **10 min** per alias; invalidate on weight-file stats, catalog fingerprint, or TTL. Fingerprints are cached to skip re-hash. Console redraw (3s) must not hammer verify — it reads `GetDisplayedModels()` from the last health snapshot.
 
-Public catalog includes `min_size_bytes` for the compatibility command; it must not include digests/manifests.
+Public catalog includes `min_size_bytes` for the compatibility command; it must not include weight fingerprints or manifests.
 
 **Honest-client guarantee only.** A forked client can lie. Node Phase 2 is live canaries.
 
@@ -127,7 +126,7 @@ No daemon, no key. Default catalog `https://core.inferoute.com`. `--provider-typ
 
 Memory for scoring: largest single NVIDIA GPU VRAM; Apple Silicon 65% of unified RAM; else 70% of system RAM with a CPU-path warning. Multi-GPU does **not** aggregate.
 
-Required = `min_size_bytes` × overhead (Ollama 1.25, vLLM 1.50, unknown 1.35), plus catalog KV when `max_model_len` is set.
+Required = `min_size_bytes` × overhead (vLLM 1.50, unknown 1.35), plus catalog KV when `max_model_len` is set on a vLLM row.
 
 Catalog `engines` is a runtime allowlist. NULL vLLM row ⇒ `vllm` + `vllm-metal`. **`freetoken` is never implied.** Windows `compatibility` / setup therefore hide untagged vLLM models. FreeToken families: https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md
 

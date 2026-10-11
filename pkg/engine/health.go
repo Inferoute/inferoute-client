@@ -16,7 +16,6 @@ const probeTimeout = 3 * time.Second
 
 // Healthy reports whether the engine at llmURL can serve inference.
 //
-// Ollama: /api/tags with at least one model.
 // vLLM / vLLM Metal: /v1/models with at least one id. An empty 200 is not
 // ready — vLLM lists models while weights are still downloading.
 // FreeToken: GET /health with status "ok". /v1/models 200s while weights
@@ -46,8 +45,6 @@ func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 
 func probePath(kind Kind) string {
 	switch kind {
-	case KindOllama:
-		return "/api/tags"
 	case KindFreeToken:
 		return "/health"
 	default:
@@ -59,7 +56,7 @@ func bodyReady(kind Kind, body []byte) bool {
 	if kind == KindFreeToken {
 		return freeTokenReady(body)
 	}
-	return hasLoadedModel(kind, body)
+	return hasLoadedModel(body)
 }
 
 func freeTokenReady(body []byte) bool {
@@ -72,16 +69,7 @@ func freeTokenReady(body []byte) bool {
 	return strings.EqualFold(strings.TrimSpace(h.Status), "ok")
 }
 
-func hasLoadedModel(kind Kind, body []byte) bool {
-	if kind == KindOllama {
-		var tags struct {
-			Models []json.RawMessage `json:"models"`
-		}
-		if json.Unmarshal(body, &tags) != nil {
-			return false
-		}
-		return len(tags.Models) > 0
-	}
+func hasLoadedModel(body []byte) bool {
 	var listing struct {
 		Data []json.RawMessage `json:"data"`
 	}

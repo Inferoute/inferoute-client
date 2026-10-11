@@ -9,7 +9,6 @@ import (
 type Kind string
 
 const (
-	KindOllama    Kind = "ollama"
 	KindVLLM      Kind = "vllm"
 	KindVLLMMetal Kind = "vllm-metal"
 	KindFreeToken Kind = "freetoken"
@@ -25,15 +24,13 @@ func Label(k Kind) string {
 	case KindVLLM:
 		return "vLLM"
 	default:
-		return "Ollama"
+		return "vLLM"
 	}
 }
 
 // ParseKind accepts wizard / config values.
 func ParseKind(s string) (Kind, bool) {
 	switch Kind(strings.ToLower(strings.TrimSpace(s))) {
-	case KindOllama:
-		return KindOllama, true
 	case KindVLLM:
 		return KindVLLM, true
 	case KindVLLMMetal:
@@ -47,9 +44,6 @@ func ParseKind(s string) (Kind, bool) {
 
 // PlatformType is the Inferoute provider_type for this engine.
 func PlatformType(k Kind) string {
-	if k == KindOllama {
-		return "ollama"
-	}
 	return "vllm"
 }
 
@@ -59,12 +53,8 @@ func CatalogType(k Kind) string {
 }
 
 // CompatKind is the engine used to filter the catalog on this OS when the
-// operator asked for a service_type (ollama vs vllm) rather than a runtime.
+// operator asked for a service_type rather than a runtime.
 func CompatKind(goos, providerType string) Kind {
-	pt := strings.ToLower(strings.TrimSpace(providerType))
-	if pt == "ollama" || pt == string(KindOllama) {
-		return KindOllama
-	}
 	switch goos {
 	case "windows":
 		return KindFreeToken
@@ -77,7 +67,7 @@ func CompatKind(goos, providerType string) Kind {
 
 // RuntimeKind maps a requested engine (including the service-type alias "vllm")
 // onto the runtime this OS actually installs and filters.
-// Explicit freetoken / vllm-metal / ollama stay as given.
+// Explicit freetoken / vllm-metal stay as given.
 func RuntimeKind(goos string, requested Kind) Kind {
 	if requested == KindVLLM {
 		return CompatKind(goos, string(KindVLLM))
@@ -88,8 +78,6 @@ func RuntimeKind(goos string, requested Kind) Kind {
 // DefaultURL is the loopback URL the client should probe.
 func DefaultURL(k Kind) string {
 	switch k {
-	case KindOllama:
-		return "http://127.0.0.1:11434"
 	case KindFreeToken:
 		return "http://127.0.0.1:1919"
 	default:
@@ -108,28 +96,25 @@ type Option struct {
 func OptionsFor(goos, goarch string, hasNVIDIA bool) []Option {
 	switch goos {
 	case "linux":
-		opts := []Option{{Kind: KindOllama, Label: "Ollama"}}
 		vllm := Option{Kind: KindVLLM, Label: "vLLM"}
 		if !hasNVIDIA {
 			vllm.Unavailable = "needs an NVIDIA GPU (nvidia-smi not found)"
 		}
-		return append(opts, vllm)
+		return []Option{vllm}
 	case "darwin":
-		opts := []Option{{Kind: KindOllama, Label: "Ollama"}}
 		metal := Option{Kind: KindVLLMMetal, Label: "vLLM Metal"}
 		if goarch != "arm64" {
 			metal.Unavailable = "requires Apple Silicon"
 		}
-		return append(opts, metal)
+		return []Option{metal}
 	case "windows":
-		opts := []Option{{Kind: KindOllama, Label: "Ollama"}}
 		ft := Option{Kind: KindFreeToken, Label: "FreeToken"}
 		if !hasNVIDIA {
 			ft.Unavailable = "needs an NVIDIA GPU (nvidia-smi not found)"
 		}
-		return append(opts, ft)
+		return []Option{ft}
 	default:
-		return []Option{{Kind: KindOllama, Label: "Ollama"}}
+		return []Option{{Kind: KindVLLM, Label: "vLLM"}}
 	}
 }
 

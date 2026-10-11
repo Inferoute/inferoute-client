@@ -39,7 +39,7 @@ func TestRegisterModel(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		if err := NewClient(ts.URL, "k").RegisterModel(context.Background(), "m", "ollama", 1, 2); err != nil {
+		if err := NewClient(ts.URL, "k").RegisterModel(context.Background(), "m", "vllm", 1, 2); err != nil {
 			t.Fatalf("expected success, got %v", err)
 		}
 	})
@@ -51,7 +51,7 @@ func TestRegisterModel(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		err := NewClient(ts.URL, "k").RegisterModel(context.Background(), "m", "ollama", 1, 2)
+		err := NewClient(ts.URL, "k").RegisterModel(context.Background(), "m", "vllm", 1, 2)
 		if !errors.Is(err, ErrModelAlreadyExists) {
 			t.Fatalf("error = %v, want ErrModelAlreadyExists", err)
 		}
@@ -64,7 +64,7 @@ func TestRegisterModel(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		err := NewClient(ts.URL, "k").RegisterModel(context.Background(), "m", "ollama", 1, 2)
+		err := NewClient(ts.URL, "k").RegisterModel(context.Background(), "m", "vllm", 1, 2)
 		if err == nil || errors.Is(err, ErrModelAlreadyExists) {
 			t.Fatalf("error = %v, want a non-already-exists error", err)
 		}

@@ -1,16 +1,15 @@
 # Inferoute Provider Client
 
-The Inferoute Provider Client is a lightweight Go service that runs on vllm or Ollama provider machines. It handles health monitoring, reporting, and inference request handling.
+The Inferoute Provider Client is a lightweight Go service that runs next to vLLM, vLLM Metal, or FreeToken. It handles health monitoring, reporting, and inference request handling.
 
 
 ## Supported platforms
 
 | Platform | GPU | LLM backend |
 |----------|-----|-------------|
-| **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | Ollama or vLLM |
-| **macOS** (Apple Silicon) | Basic info via `system_profiler` | Ollama or vLLM Metal |
-| **macOS** (Intel) | Basic info via `system_profiler` | Ollama |
-| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | Ollama or FreeToken (tagged catalog models only) |
+| **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | vLLM |
+| **macOS** (Apple Silicon) | Basic info via `system_profiler` | vLLM Metal |
+| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | FreeToken (tagged catalog models only) |
 
 
 
@@ -30,7 +29,7 @@ The Inferoute Provider Client is a lightweight Go service that runs on vllm or O
 
 #### Linux / macOS one-liner
 
-Works on Linux (amd64/arm64) and macOS (Intel and Apple Silicon). The wizard asks for your API key, engine, and model:
+Works on Linux (amd64/arm64) and macOS (Apple Silicon). Intel Macs are not supported. The wizard asks for your API key, engine, and model:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
@@ -42,7 +41,7 @@ Additional information: see the [macOS install documentation](https://docs.infer
 
 #### Windows (PowerShell)
 
-Requires 64-bit Windows. The wizard offers Ollama or FreeToken.
+Requires 64-bit Windows and an NVIDIA GPU. The wizard offers FreeToken.
 
 ```powershell
 irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
@@ -58,8 +57,8 @@ If you already have a supported inference client running, you can skip the wizar
 ```bash
 export INFEROUTE_SKIP_SETUP=1
 export PROVIDER_API_KEY="your-provider-api-key"
-export PROVIDER_TYPE="ollama"  # or "vllm"
-export LLM_URL="http://127.0.0.1:11434"
+export PROVIDER_TYPE="vllm"
+export LLM_URL="http://127.0.0.1:8000"
 export SERVER_PORT="8080"
 
 curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
@@ -85,7 +84,6 @@ Works on **Linux + NVIDIA** (`nvidia-smi`), **Windows + NVIDIA** (`nvidia-smi`),
 ```bash
 inferoute-client setup
 inferoute-client compatibility
-inferoute-client compatibility --provider-type ollama
 inferoute-client compatibility --provider-type vllm
 inferoute-client compatibility --json
 inferoute-client compatibility --catalog-url https://core.inferoute.com
@@ -103,9 +101,7 @@ FreeToken rows carry a `MOE` column: `fused` when the model fits in VRAM, `auto`
 
 The official Inferoute Docker image inferoute/inferoute-client is available on Docker Hub. 
 
-Please note if running Inferoute within Docker you need to ensure your Ollama instance is running on port 0.0.0.0 (This allows the Docker container to access the Ollama Server - [See Ollama guide for help](https://github.com/inferoute/inferoute-client/blob/main/docs/ollama.md))
-
-We set the LLM_URL to http://host.docker.internal (resolves to the internal IP address used by the Docker host).
+If the inference engine runs on the Docker host, bind it to `0.0.0.0` so the container can reach it. Set `LLM_URL` to `http://host.docker.internal:8000` (vLLM) or `:1919` (FreeToken). `host.docker.internal` resolves to the Docker host.
 
 The client listens on `127.0.0.1` inside the container. The Cloudflare tunnel does **not** need a published port. To open the local dashboard from the host, set `server.host` to `0.0.0.0` in the container config and publish the port (for example `-p 127.0.0.1:8080:8080`).
 
@@ -114,8 +110,8 @@ The client listens on `127.0.0.1` inside the container. The Cloudflare tunnel do
 docker run -d \
   --name inferoute-client \
   -e PROVIDER_API_KEY="your-key" \
-  -e PROVIDER_TYPE="ollama" \
-  -e LLM_URL="http://host.docker.internal:11434" \
+  -e PROVIDER_TYPE="vllm" \
+  -e LLM_URL="http://host.docker.internal:8000" \
   inferoute/inferoute-client:latest
 ```
 
@@ -127,8 +123,8 @@ services:
     image: inferoute/inferoute-client:latest
     environment:
       - PROVIDER_API_KEY=your-key
-      - PROVIDER_TYPE=ollama
-      - LLM_URL=http://host.docker.internal:11434
+      - PROVIDER_TYPE=vllm
+      - LLM_URL=http://host.docker.internal:8000
     restart: unless-stopped
 ```
 
@@ -163,8 +159,9 @@ The configuration file (`config.yaml`) contains the following settings:
 
 - **server**: Server configuration (port, host) to access rest API's. 
 - **provider**: Provider configuration (API key, central system URL)
-  - **provider_type**: Type of LLM provider being used (default: "ollama", future support for "exo-labs" and "llama.cpp")
-  - **llm_url**: URL of the local LLM provider API (default: "http://localhost:11434")
+  - **provider_type**: Platform provider type (default: `"vllm"`). vLLM, vLLM Metal, and FreeToken all use this.
+  - **engine**: Local binary: `vllm`, `vllm-metal`, or `freetoken`
+  - **llm_url**: URL of the local engine (default: `http://127.0.0.1:8000`; FreeToken: `http://127.0.0.1:1919`)
 - **logging**: Logging configuration
   - **level**: Log level (debug, info, warn, error)
   - **log_dir**: Directory where logs are stored (defaults to ~/.local/state/inferoute/log)

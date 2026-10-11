@@ -10,9 +10,9 @@ func TestWriteTableNumbersAndUsableGreen(t *testing.T) {
 	report := Report{
 		Hardware: Hardware{OS: "darwin", Arch: "arm64"},
 		Models: []ModelResult{
-			{Alias: "gguf/phi3.5", ServiceType: "ollama", Status: StatusRunsWell, MinSizeBytes: 2 << 30, RequiredBytes: 3 << 30, Reason: "needs ~3 GiB"},
-			{Alias: "gguf/mistral:7b", ServiceType: "ollama", Status: StatusFits, MinSizeBytes: 4 << 30, RequiredBytes: 5 << 30, Reason: "needs ~5 GiB"},
-			{Alias: "huge", ServiceType: "ollama", Status: StatusTooLarge, MinSizeBytes: 40 << 30, RequiredBytes: 50 << 30, Reason: "too big"},
+			{Alias: "Qwen/Qwen2.5-7B-Instruct", ServiceType: "vllm", Status: StatusRunsWell, MinSizeBytes: 2 << 30, RequiredBytes: 3 << 30, Reason: "needs ~3 GiB"},
+			{Alias: "mistralai/Mistral-7B-Instruct-v0.3", ServiceType: "vllm", Status: StatusFits, MinSizeBytes: 4 << 30, RequiredBytes: 5 << 30, Reason: "needs ~5 GiB"},
+			{Alias: "huge", ServiceType: "vllm", Status: StatusTooLarge, MinSizeBytes: 40 << 30, RequiredBytes: 50 << 30, Reason: "too big"},
 			{Alias: "openai/gpt-oss-20b", ServiceType: "vllm", Status: StatusFits, MinSizeBytes: 13 << 30, RequiredBytes: 15 << 30, MoeStrategy: "auto"},
 			{Alias: "google/gemma-4-26B-A4B-it", ServiceType: "vllm", Status: StatusTight, MinSizeBytes: 48 << 30, RequiredBytes: 58 << 30, MoeStrategy: "auto"},
 		},
@@ -29,7 +29,7 @@ func TestWriteTableNumbersAndUsableGreen(t *testing.T) {
 	if !strings.Contains(got, "#") || !strings.Contains(got, "1") || !strings.Contains(got, "2") {
 		t.Fatalf("expected numbered rows:\n%s", got)
 	}
-	if !strings.Contains(got, "gguf/phi3.5") || !strings.Contains(got, "gguf/mistral:7b") {
+	if !strings.Contains(got, "Qwen/Qwen2.5-7B-Instruct") || !strings.Contains(got, "mistralai/Mistral-7B-Instruct-v0.3") {
 		t.Fatalf("missing models:\n%s", got)
 	}
 	if !strings.Contains(got, ansiGreen) || !strings.Contains(got, ansiReset) {
@@ -51,7 +51,7 @@ func TestWriteTableNumbersAndUsableGreen(t *testing.T) {
 		if strings.Contains(line, "gemma") && strings.Contains(line, ansiGreen) {
 			t.Fatalf("tight row must not be green: %q", line)
 		}
-		if strings.Contains(line, "gguf/phi3.5") && !strings.HasSuffix(strings.TrimSpace(strings.TrimSuffix(line, ansiReset)), "-") {
+		if strings.Contains(line, "Qwen/Qwen2.5-7B-Instruct") && !strings.HasSuffix(strings.TrimSpace(strings.TrimSuffix(line, ansiReset)), "-") {
 			t.Fatalf("non-FreeToken row should show - in MOE column: %q", line)
 		}
 	}

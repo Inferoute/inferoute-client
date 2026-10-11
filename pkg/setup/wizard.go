@@ -237,7 +237,7 @@ func applyEngine(cfg *config.Config, opts Options, io Streams) (engine.Kind, err
 func resolveEngine(goos, name string) (engine.Kind, error) {
 	k, ok := engine.ParseKind(name)
 	if !ok {
-		return "", fmt.Errorf("unknown engine %q (ollama, vllm, vllm-metal, freetoken)", name)
+		return "", fmt.Errorf("unknown engine %q (vllm, vllm-metal, freetoken)", name)
 	}
 	return engine.RuntimeKind(goos, k), nil
 }
@@ -357,9 +357,6 @@ func applyServeOpts(cfg *config.Config, entry verify.CatalogEntry, hfRepo string
 func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Options, haveBin bool, io Streams) error {
 	if opts.NoStart || !haveBin {
 		fmt.Fprintf(io.Out, "\nTo serve this model later:\n  %s\n", spec.CommandLine())
-		if kind == engine.KindOllama {
-			fmt.Fprintf(io.Out, "  %s\n", engine.PullSpec(spec.Bin, cfg.Provider.Model).CommandLine())
-		}
 		return nil
 	}
 
@@ -368,9 +365,6 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	if engine.Healthy(ctx, kind, cfg.Provider.LLMURL) {
 		fmt.Fprintf(io.Out, "\n%s is already running at %s.\n", kind, cfg.Provider.LLMURL)
 		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", spec.CommandLine())
-		if kind == engine.KindOllama {
-			fmt.Fprintf(io.Out, "  %s\n", engine.PullSpec(spec.Bin, cfg.Provider.Model).CommandLine())
-		}
 		return nil
 	}
 	waitMsg := fmt.Sprintf("Waiting for %s to finish downloading and start serving at %s", engine.Label(kind), cfg.Provider.LLMURL)
@@ -402,16 +396,6 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	if !startNow {
 		fmt.Fprintf(io.Out, "\nStart it later with:\n  %s\n", spec.CommandLine())
 		return nil
-	}
-
-	if kind == engine.KindOllama {
-		pull := engine.PullSpec(spec.Bin, cfg.Provider.Model)
-		fmt.Fprintf(io.Out, "Pulling %s...\n", engine.OllamaPullName(cfg.Provider.Model))
-		pullCtx, pullCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
-		defer pullCancel()
-		if err := engine.Run(pullCtx, pull, io.Out); err != nil {
-			return fmt.Errorf("ollama pull: %w", err)
-		}
 	}
 
 	fmt.Fprintf(io.Out, "Starting %s...\n", kind)

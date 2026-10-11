@@ -18,40 +18,35 @@ func TestOptionsFor(t *testing.T) {
 	t.Parallel()
 
 	linux := OptionsFor("linux", "amd64", true)
-	if len(linux) != 2 || linux[0].Kind != KindOllama || linux[1].Kind != KindVLLM || linux[1].Unavailable != "" {
+	if len(linux) != 1 || linux[0].Kind != KindVLLM || linux[0].Unavailable != "" {
 		t.Fatalf("linux+nvidia = %+v", linux)
 	}
 	linuxNoGPU := OptionsFor("linux", "amd64", false)
-	if linuxNoGPU[1].Unavailable == "" {
+	if linuxNoGPU[0].Unavailable == "" {
 		t.Fatal("linux without nvidia should mark vLLM unavailable")
 	}
 
 	mac := OptionsFor("darwin", "arm64", false)
-	if len(mac) != 2 || mac[1].Kind != KindVLLMMetal || mac[1].Unavailable != "" {
+	if len(mac) != 1 || mac[0].Kind != KindVLLMMetal || mac[0].Unavailable != "" {
 		t.Fatalf("darwin arm64 = %+v", mac)
 	}
 	macIntel := OptionsFor("darwin", "amd64", false)
-	if macIntel[1].Unavailable == "" {
+	if macIntel[0].Unavailable == "" {
 		t.Fatal("intel mac should mark vLLM Metal unavailable")
 	}
 
 	win := OptionsFor("windows", "amd64", true)
-	if len(win) != 2 || win[1].Kind != KindFreeToken {
+	if len(win) != 1 || win[0].Kind != KindFreeToken || win[0].Unavailable != "" {
 		t.Fatalf("windows = %+v", win)
+	}
+	winNoGPU := OptionsFor("windows", "amd64", false)
+	if winNoGPU[0].Unavailable == "" {
+		t.Fatal("windows without nvidia should mark FreeToken unavailable")
 	}
 }
 
 func TestServeSpec(t *testing.T) {
 	t.Parallel()
-
-	ollama := ServeSpec(KindOllama, "ollama", "gguf/qwen3:0.6b", "", ServeOpts{})
-	if got := ollama.CommandLine(); got != "ollama serve" {
-		t.Errorf("ollama serve = %q", got)
-	}
-	pull := PullSpec("ollama", "gguf/qwen3:0.6b")
-	if got := pull.CommandLine(); got != "ollama pull qwen3:0.6b" {
-		t.Errorf("ollama pull = %q", got)
-	}
 
 	vllm := ServeSpec(KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{})
 	if got := vllm.CommandLine(); got != "vllm serve Qwen/Qwen2.5-7B-Instruct --host 127.0.0.1 --port 8000" {
@@ -139,21 +134,6 @@ func TestServeSpecWithOpts(t *testing.T) {
 	if strings.Contains(strings.Join(vllmMoe.Args, " "), "moe") {
 		t.Fatalf("vllm must ignore MoeStrategy: %v", vllmMoe.Args)
 	}
-
-	ollama := ServeSpec(KindOllama, "ollama", "gguf/qwen3:0.6b", "", ServeOpts{MaxModelLen: 131072, ToolCallParser: "hermes"})
-	if got := ollama.CommandLine(); got != "ollama serve" {
-		t.Errorf("ollama must ignore serve opts: %q", got)
-	}
-}
-
-func TestOllamaPullName(t *testing.T) {
-	t.Parallel()
-	if got := OllamaPullName("gguf/qwen3:0.6b"); got != "qwen3:0.6b" {
-		t.Errorf("got %q", got)
-	}
-	if got := OllamaPullName("qwen3:0.6b"); got != "qwen3:0.6b" {
-		t.Errorf("got %q", got)
-	}
 }
 
 func TestHFRepo(t *testing.T) {
@@ -169,19 +149,19 @@ func TestHealthy(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/tags" {
+		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:0.6b"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3-0.6B"}]}`))
 	}))
 	t.Cleanup(srv.Close)
 
-	if !Healthy(context.Background(), KindOllama, srv.URL) {
-		t.Fatal("expected ollama healthy")
+	if !Healthy(context.Background(), KindVLLM, srv.URL) {
+		t.Fatal("expected vllm healthy")
 	}
-	if Healthy(context.Background(), KindOllama, "http://127.0.0.1:1") {
+	if Healthy(context.Background(), KindVLLM, "http://127.0.0.1:1") {
 		t.Fatal("refused port should be unhealthy")
 	}
 	if PortOpen(context.Background(), srv.URL) {
@@ -195,10 +175,10 @@ func TestHealthy(t *testing.T) {
 
 	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"models":[],"data":[]}`))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	t.Cleanup(empty.Close)
-	if Healthy(context.Background(), KindOllama, empty.URL) {
+	if Healthy(context.Background(), KindVLLM, empty.URL) {
 		t.Fatal("empty model list must not count as healthy")
 	}
 
@@ -274,8 +254,8 @@ func TestWaitHealthyProcessExit(t *testing.T) {
 
 func TestLabel(t *testing.T) {
 	t.Parallel()
-	if got := Label(KindOllama); got != "Ollama" {
-		t.Errorf("Label(ollama) = %q, want Ollama", got)
+	if got := Label(Kind("")); got != "vLLM" {
+		t.Errorf("Label(default) = %q, want vLLM", got)
 	}
 	if got := Label(KindFreeToken); got != "FreeToken" {
 		t.Errorf("Label(freetoken) = %q, want FreeToken", got)
@@ -288,7 +268,7 @@ func TestLabel(t *testing.T) {
 func TestEnsureReadySkipsWithoutAutoStart(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{}
-	cfg.Provider.Engine = "ollama"
+	cfg.Provider.Engine = "vllm"
 	cfg.Provider.LLMURL = "http://127.0.0.1:1"
 	cfg.Provider.AutoStart = false
 	if err := EnsureReady(context.Background(), cfg, t.TempDir()); err != nil {
@@ -299,12 +279,12 @@ func TestEnsureReadySkipsWithoutAutoStart(t *testing.T) {
 func TestStartAndWaitAlreadyHealthy(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:0.6b"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3-0.6B"}]}`))
 	}))
 	t.Cleanup(srv.Close)
 
 	cfg := &config.Config{}
-	cfg.Provider.Engine = "ollama"
+	cfg.Provider.Engine = "vllm"
 	cfg.Provider.LLMURL = srv.URL
 	cfg.Provider.AutoStart = false
 	if err := StartAndWait(context.Background(), cfg, t.TempDir()); err != nil {
@@ -314,11 +294,8 @@ func TestStartAndWaitAlreadyHealthy(t *testing.T) {
 
 func TestPlatformTypeCatalog(t *testing.T) {
 	t.Parallel()
-	if PlatformType(KindFreeToken) != "vllm" || CatalogType(KindVLLMMetal) != "vllm" {
-		t.Fatal("openai-compatible engines must use vllm catalog")
-	}
-	if PlatformType(KindOllama) != "ollama" {
-		t.Fatal("ollama")
+	if PlatformType(KindFreeToken) != "vllm" || CatalogType(KindVLLMMetal) != "vllm" || PlatformType(KindVLLM) != "vllm" {
+		t.Fatal("engines must use vllm catalog")
 	}
 	if CompatKind("windows", "vllm") != KindFreeToken {
 		t.Fatal("windows vllm catalog is FreeToken")
@@ -329,8 +306,11 @@ func TestPlatformTypeCatalog(t *testing.T) {
 	if CompatKind("linux", "vllm") != KindVLLM {
 		t.Fatal("linux vllm catalog is vLLM")
 	}
-	if CompatKind("windows", "ollama") != KindOllama {
-		t.Fatal("ollama stays ollama")
+	if CompatKind("windows", "custom") != KindFreeToken {
+		t.Fatal("unknown provider type on windows is FreeToken")
+	}
+	if CompatKind("linux", "") != KindVLLM {
+		t.Fatal("empty provider type on linux is vLLM")
 	}
 	if RuntimeKind("windows", KindVLLM) != KindFreeToken {
 		t.Fatal("windows --engine vllm installs FreeToken")

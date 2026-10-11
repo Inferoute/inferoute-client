@@ -24,8 +24,8 @@ On Windows, vLLM catalog rows are filtered to FreeToken-tagged models. On macOS 
 are filtered to vLLM Metal. See ` + verify.FreeTokenModelsDoc + `
 
 Flags:
-  --provider-type string   Filter catalog: ollama, vllm, or empty for both (default: both)
-  --engine string          Filter by engine: ollama, vllm, vllm-metal, freetoken (default: from OS)
+  --provider-type string   Filter catalog: vllm, or empty for the vLLM catalog
+  --engine string          Filter by engine: vllm, vllm-metal, freetoken (default: from OS)
   --catalog-url string     Inferoute API base URL (default: https://core.inferoute.com, or INFEROUTE_URL)
   --offline-catalog path   Load catalog JSON from a local file instead of the network
   --json                   Emit machine-readable JSON
@@ -51,8 +51,8 @@ func Run(args []string) error {
 	opts := Options{
 		ShowTooLarge: true,
 	}
-	fs.StringVar(&opts.ProviderType, "provider-type", "", "Filter by provider type: ollama, vllm, or empty for both")
-	fs.StringVar(&opts.Engine, "engine", "", "Filter by engine: ollama, vllm, vllm-metal, freetoken")
+	fs.StringVar(&opts.ProviderType, "provider-type", "", "Filter by provider type: vllm, or empty for the vLLM catalog")
+	fs.StringVar(&opts.Engine, "engine", "", "Filter by engine: vllm, vllm-metal, freetoken")
 	fs.StringVar(&opts.CatalogURL, "catalog-url", "", "Inferoute catalog base URL")
 	fs.StringVar(&opts.OfflineCatalog, "offline-catalog", "", "Path to offline approved-builds JSON")
 	fs.BoolVar(&opts.JSON, "json", false, "Emit JSON output")
@@ -79,13 +79,13 @@ func Run(args []string) error {
 	}
 
 	pt := strings.ToLower(strings.TrimSpace(opts.ProviderType))
-	if pt != "" && pt != "ollama" && pt != "vllm" {
-		return fmt.Errorf("--provider-type must be ollama, vllm, or empty")
+	if pt != "" && pt != "vllm" {
+		return fmt.Errorf("--provider-type must be vllm or empty")
 	}
 	opts.ProviderType = pt
 	eng := strings.ToLower(strings.TrimSpace(opts.Engine))
-	if eng != "" && eng != "ollama" && eng != "vllm" && eng != "vllm-metal" && eng != "freetoken" {
-		return fmt.Errorf("--engine must be ollama, vllm, vllm-metal, freetoken, or empty")
+	if eng != "" && eng != "vllm" && eng != "vllm-metal" && eng != "freetoken" {
+		return fmt.Errorf("--engine must be vllm, vllm-metal, freetoken, or empty")
 	}
 	opts.Engine = eng
 	if opts.CatalogURL == "" {

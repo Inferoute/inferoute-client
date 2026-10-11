@@ -21,8 +21,8 @@ func TestConsoleLLMUnreachable(t *testing.T) {
 
 func TestConsoleLLMHTTP(t *testing.T) {
 	err := fmt.Errorf("list models: %w", llm.ErrHTTP)
-	got := Console(err, "ollama")
-	want := "Ollama returned an error"
+	got := Console(err, "vllm")
+	want := "vLLM returned an error"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

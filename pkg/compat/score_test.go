@@ -22,11 +22,11 @@ func TestScoreModelVRAMBoundaries(t *testing.T) {
 		svc  string
 		want FitStatus
 	}{
-		{"runs_well", 8 * 1024 * 1024 * 1024, "ollama", StatusRunsWell},  // 8GiB * 1.25 = 10 < 12
-		{"fits", 14 * 1024 * 1024 * 1024, "ollama", StatusFits},          // 14*1.25=17.5 < 18
-		{"tight", 17 * 1024 * 1024 * 1024, "ollama", StatusTight},        // 17*1.25=21.25 < 22.8
-		{"too_large", 22 * 1024 * 1024 * 1024, "ollama", StatusTooLarge}, // 22*1.25=27.5 > 24
-		{"unknown_size", 0, "ollama", StatusUnknown},
+		{"runs_well", 6 * 1024 * 1024 * 1024, "vllm", StatusRunsWell},  // 6GiB * 1.50 = 9 < 12
+		{"fits", 10 * 1024 * 1024 * 1024, "vllm", StatusFits},          // 10*1.50=15 < 18
+		{"tight", 14 * 1024 * 1024 * 1024, "vllm", StatusTight},        // 14*1.50=21 < 22.8
+		{"too_large", 16 * 1024 * 1024 * 1024, "vllm", StatusTooLarge}, // 16*1.50=24 >= 22.8
+		{"unknown_size", 0, "vllm", StatusUnknown},
 	}
 
 	for _, tc := range cases {
@@ -51,11 +51,11 @@ func TestScoreModelUnifiedMemoryReason(t *testing.T) {
 		UnifiedMemory: true,
 		UsableBytes:   16 * 1024 * 1024 * 1024,
 	}
-	// Force tight: required ~15.6 GiB on 16 GiB usable.
+	// Force tight: 9 GiB * 1.50 = 13.5 GiB on 16 GiB usable.
 	got := ScoreModel(hw, verify.CatalogEntry{
 		Alias:        "Qwen/Qwen2.5-7B-Instruct",
-		ServiceType:  "ollama",
-		MinSizeBytes: 12 * 1024 * 1024 * 1024,
+		ServiceType:  "vllm",
+		MinSizeBytes: 9 * 1024 * 1024 * 1024,
 		IsActive:     true,
 	})
 	if got.Status != StatusTight {
@@ -73,7 +73,7 @@ func TestScoreModelSystemRAMSlowWarning(t *testing.T) {
 	}
 	got := ScoreModel(hw, verify.CatalogEntry{
 		Alias:        "small/model",
-		ServiceType:  "ollama",
+		ServiceType:  "vllm",
 		MinSizeBytes: 4 * 1024 * 1024 * 1024,
 		IsActive:     true,
 	})
@@ -88,10 +88,10 @@ func TestScoreModelSystemRAMSlowWarning(t *testing.T) {
 func TestVLLMUsesHigherOverhead(t *testing.T) {
 	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 20 * 1024 * 1024 * 1024}
 	size := int64(12 * 1024 * 1024 * 1024)
-	ollama := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size})
+	plain := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "custom", MinSizeBytes: size})
 	vllm := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "vllm", MinSizeBytes: size})
-	if ollama.RequiredBytes >= vllm.RequiredBytes {
-		t.Fatalf("vllm required=%d should exceed ollama=%d", vllm.RequiredBytes, ollama.RequiredBytes)
+	if plain.RequiredBytes >= vllm.RequiredBytes {
+		t.Fatalf("vllm required=%d should exceed default=%d", vllm.RequiredBytes, plain.RequiredBytes)
 	}
 }
 
@@ -133,10 +133,10 @@ func TestScoreModelContextKVScale(t *testing.T) {
 		t.Fatalf("7B @ 128k on 62GiB usable should fit, got %s required=%d", mac128.Status, mac128.RequiredBytes)
 	}
 
-	ollama := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size, MaxModelLen: &len128k})
-	ollamaNull := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size})
-	if ollama.RequiredBytes != ollamaNull.RequiredBytes {
-		t.Fatalf("ollama must ignore max_model_len: %d vs %d", ollama.RequiredBytes, ollamaNull.RequiredBytes)
+	other := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "custom", MinSizeBytes: size, MaxModelLen: &len128k})
+	otherNull := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "custom", MinSizeBytes: size})
+	if other.RequiredBytes != otherNull.RequiredBytes {
+		t.Fatalf("non-vllm must ignore max_model_len: %d vs %d", other.RequiredBytes, otherNull.RequiredBytes)
 	}
 }
 
@@ -191,12 +191,12 @@ func TestScoreModelCatalogKVPerToken(t *testing.T) {
 	}
 
 	// Non-vLLM ignores KV per token entirely.
-	ollama := ScoreModel(mac, verify.CatalogEntry{
-		Alias: "m", ServiceType: "ollama", MinSizeBytes: size, MaxModelLen: &len128k, KVCacheBytesPerToken: &kvQwen7,
+	other := ScoreModel(mac, verify.CatalogEntry{
+		Alias: "m", ServiceType: "custom", MinSizeBytes: size, MaxModelLen: &len128k, KVCacheBytesPerToken: &kvQwen7,
 	})
-	ollamaNull := ScoreModel(mac, verify.CatalogEntry{Alias: "m", ServiceType: "ollama", MinSizeBytes: size})
-	if ollama.RequiredBytes != ollamaNull.RequiredBytes {
-		t.Fatalf("ollama must ignore kv_cache_bytes_per_token: %d vs %d", ollama.RequiredBytes, ollamaNull.RequiredBytes)
+	otherNull := ScoreModel(mac, verify.CatalogEntry{Alias: "m", ServiceType: "custom", MinSizeBytes: size})
+	if other.RequiredBytes != otherNull.RequiredBytes {
+		t.Fatalf("non-vllm must ignore kv_cache_bytes_per_token: %d vs %d", other.RequiredBytes, otherNull.RequiredBytes)
 	}
 }
 
@@ -264,12 +264,12 @@ func TestScoreEntriesForHostResolvesEngine(t *testing.T) {
 	const gib = 1024 * 1024 * 1024
 	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 22 * gib, SystemRAMBytes: 32 * gib}
 	entries := []verify.CatalogEntry{
-		{Alias: "gguf/x", ServiceType: "ollama", MinSizeBytes: 4 * gib},
+		{Alias: "dense/huge", ServiceType: "vllm", MinSizeBytes: 100 * gib},
 		{Alias: "big/moe", ServiceType: "vllm", MinSizeBytes: 16 * gib, Engines: []string{"vllm", "freetoken"}},
 	}
 	win := scoreEntriesForHost(hw, entries, "", "windows")
-	if win[0].MoeStrategy != "" {
-		t.Fatalf("ollama row must not carry a MoE strategy: %+v", win[0])
+	if win[0].MoeStrategy != "" || win[0].Status != StatusTooLarge {
+		t.Fatalf("too-large row must not carry a MoE strategy: %+v", win[0])
 	}
 	if win[1].MoeStrategy != engine.MoeAuto {
 		t.Fatalf("windows vllm row scores as FreeToken and should offload: %+v", win[1])
@@ -291,8 +291,8 @@ func TestReportJSONStableShape(t *testing.T) {
 		SystemRAMBytes: 16 << 30, UsableBytes: 10 << 30,
 	}
 	results := []ModelResult{
-		{Alias: "a", ServiceType: "ollama", Status: StatusFits, MinSizeBytes: 1, RequiredBytes: 2},
-		{Alias: "b", ServiceType: "ollama", Status: StatusTooLarge, MinSizeBytes: 9, RequiredBytes: 10},
+		{Alias: "a", ServiceType: "vllm", Status: StatusFits, MinSizeBytes: 1, RequiredBytes: 2},
+		{Alias: "b", ServiceType: "vllm", Status: StatusTooLarge, MinSizeBytes: 9, RequiredBytes: 10},
 	}
 	report := BuildReport(hw, results, false)
 	if len(report.Models) != 1 {
@@ -340,20 +340,20 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 	payload := `{
 	  "object":"list",
 	  "data":[
-	    {"alias":"a","service_type":"ollama","display_name":"A","min_size_bytes":100,"is_active":true},
-	    {"alias":"b","service_type":"vllm","display_name":"B","min_size_bytes":200,"is_active":true},
-	    {"alias":"c","service_type":"ollama","display_name":"C","min_size_bytes":300,"is_active":false},
+	    {"alias":"a","service_type":"vllm","display_name":"A","min_size_bytes":100,"is_active":true},
+	    {"alias":"b","service_type":"vllm","display_name":"B","min_size_bytes":200,"is_active":true,"engines":["vllm-metal"]},
+	    {"alias":"c","service_type":"vllm","display_name":"C","min_size_bytes":300,"is_active":false},
 	    {"alias":"d","service_type":"vllm","display_name":"D","min_size_bytes":200,"is_active":true,"engines":["vllm","vllm-metal","freetoken"]}
 	  ]
 	}`
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := LoadOfflineCatalog(path, "ollama")
+	entries, err := LoadOfflineCatalog(path, "vllm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Alias != "a" {
+	if len(entries) != 3 {
 		t.Fatalf("entries=%+v", entries)
 	}
 
@@ -362,12 +362,12 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	win := filterEntriesForHost(all, "", "windows")
-	if len(win) != 2 {
-		t.Fatalf("windows host should keep ollama + freetoken-tagged vllm, got %+v", win)
+	if len(win) != 1 || win[0].Alias != "d" {
+		t.Fatalf("windows host should keep freetoken-tagged vllm, got %+v", win)
 	}
 	linux := filterEntriesForHost(all, "", "linux")
-	if len(linux) != 3 {
-		t.Fatalf("linux should keep ollama+vllm, got %+v", linux)
+	if len(linux) != 2 {
+		t.Fatalf("linux should keep untagged vllm + tagged vllm, got %+v", linux)
 	}
 	ft := filterEntriesForHost(all, "freetoken", "linux")
 	if len(ft) != 1 || ft[0].Alias != "d" {
@@ -382,7 +382,7 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 		t.Fatalf("linux --engine vllm should keep untagged+tagged, got %+v", linuxVLLM)
 	}
 	darwinVLLM := filterEntriesForHost(all, "vllm", "darwin")
-	if len(darwinVLLM) != 2 {
+	if len(darwinVLLM) != 3 {
 		t.Fatalf("darwin --engine vllm should remap to vllm-metal (untagged implied), got %+v", darwinVLLM)
 	}
 }

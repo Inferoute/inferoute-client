@@ -1,7 +1,6 @@
 {
   "alias": "qwen2.5-7b-instruct",
   "service_type": "vllm",
-  "digest": "sha256:abc",
   "size_bytes": 100,
   "files": [
     {"name": "model.safetensors", "hash": "abc", "hash_method": "sha256", "size": 100}

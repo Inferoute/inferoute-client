@@ -295,12 +295,8 @@ if [ "${INFEROUTE_SKIP_SETUP:-0}" = "1" ]; then
     echo -e "${YELLOW}INFEROUTE_SKIP_SETUP=1 — writing config from environment (no wizard).${NC}"
     curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
     PROVIDER_API_KEY="${PROVIDER_API_KEY:-}"
-    PROVIDER_TYPE="${PROVIDER_TYPE:-ollama}"
-    if [ "$PROVIDER_TYPE" = "vllm" ]; then
-        DEFAULT_LLM_URL="http://127.0.0.1:8000"
-    else
-        DEFAULT_LLM_URL="http://127.0.0.1:11434"
-    fi
+    PROVIDER_TYPE="${PROVIDER_TYPE:-vllm}"
+    DEFAULT_LLM_URL="http://127.0.0.1:8000"
     LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "$DEFAULT_LLM_URL")
     SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
     if [ -z "$PROVIDER_API_KEY" ]; then

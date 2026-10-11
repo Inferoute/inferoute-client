@@ -26,8 +26,6 @@ type fingerprintCache struct {
 type verifyResultEntry struct {
 	result   Result
 	cachedAt time.Time
-	digest   string
-	size     int64
 	stats    map[string]fileStat
 }
 
@@ -83,34 +81,6 @@ func (v *Verifier) resolveVLLMRoot(entry CatalogEntry, alias string) (string, er
 	return ResolveHFModelRoot(hub, repo, ref)
 }
 
-// VerifyOllamaModel submits digest and size to the server for verification.
-func (v *Verifier) VerifyOllamaModel(ctx context.Context, alias, digest string, sizeBytes int64) (Result, error) {
-	res := Result{Alias: alias, Digest: NormalizeDigest(digest), SizeBytes: sizeBytes}
-
-	if _, ok := v.catalog.Get(alias); !ok {
-		res.Status = StatusUnverified
-		return res, nil
-	}
-
-	if cached, ok := v.cachedOllamaResult(alias, res.Digest, sizeBytes); ok {
-		return cached, nil
-	}
-
-	resp, err := v.server.VerifyModel(ctx, verifyModelRequest{
-		Alias:       alias,
-		ServiceType: v.serviceType,
-		Digest:      res.Digest,
-		SizeBytes:   sizeBytes,
-	})
-	if err != nil {
-		res.Status = StatusFailed
-		return res, err
-	}
-	applyServerResponse(&res, resp)
-	v.storeOllamaResult(alias, res.Digest, sizeBytes, res)
-	return res, nil
-}
-
 // VerifyVLLMModel hashes local weights and asks the server to verify.
 func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, error) {
 	res := Result{Alias: alias}
@@ -156,32 +126,6 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 	applyServerResponse(&res, resp)
 	v.storeVLLMResult(alias, currentStats, res)
 	return res, nil
-}
-
-func (v *Verifier) cachedOllamaResult(alias, digest string, size int64) (Result, bool) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	entry, ok := v.resultCache[alias]
-	if !ok || !verifyResultFresh(entry) {
-		return Result{}, false
-	}
-	if entry.digest != digest || entry.size != size {
-		return Result{}, false
-	}
-	return entry.result, true
-}
-
-func (v *Verifier) storeOllamaResult(alias, digest string, size int64, res Result) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	v.resultCache[alias] = &verifyResultEntry{
-		result:   res,
-		cachedAt: time.Now(),
-		digest:   digest,
-		size:     size,
-	}
 }
 
 func (v *Verifier) cachedVLLMResult(alias string, stats map[string]fileStat) (Result, bool) {
@@ -274,9 +218,6 @@ func applyServerResponse(res *Result, resp verifyModelResponse) {
 		return
 	}
 	res.Status = Status(strings.TrimSpace(resp.VerificationStatus))
-	if resp.Digest != "" {
-		res.Digest = NormalizeDigest(resp.Digest)
-	}
 	if resp.WeightFingerprint != "" {
 		res.WeightFingerprint = strings.ToLower(strings.TrimSpace(resp.WeightFingerprint))
 	}
@@ -284,32 +225,10 @@ func applyServerResponse(res *Result, resp verifyModelResponse) {
 
 // ApplyToModels enriches discovered models with verification fields.
 func (v *Verifier) ApplyToModels(ctx context.Context, llmClient llm.Client, models []llm.Model) []llm.Model {
-	var ollamaDetails map[string]ollamaDetail
-	if v.serviceType == "ollama" {
-		if oc, ok := llmClient.(*llm.OllamaClient); ok {
-			if tags, err := oc.ListTags(ctx); err == nil {
-				ollamaDetails = OllamaDetailsFromTags(tags)
-			}
-		}
-	}
-
 	out := make([]llm.Model, len(models))
 	for i, m := range models {
 		out[i] = m
 		switch v.serviceType {
-		case "ollama":
-			detail, ok := ollamaDetails[m.ID]
-			if !ok {
-				out[i].VerificationStatus = string(StatusUnverified)
-				continue
-			}
-			res, err := v.VerifyOllamaModel(ctx, m.ID, detail.Digest, detail.Size)
-			if err != nil {
-				logger.Error("Ollama verification error", zap.String("alias", m.ID), zap.Error(err))
-				out[i].VerificationStatus = string(StatusFailed)
-				continue
-			}
-			applyResult(&out[i], res)
 		case "vllm":
 			res, err := v.VerifyVLLMModel(ctx, m.ID)
 			if err != nil {
@@ -331,7 +250,6 @@ func (v *Verifier) ApplyToModels(ctx context.Context, llmClient llm.Client, mode
 
 func applyResult(m *llm.Model, res Result) {
 	m.VerificationStatus = string(res.Status)
-	m.Digest = res.Digest
 	m.WeightFingerprint = res.WeightFingerprint
 	m.SizeBytes = res.SizeBytes
 }
@@ -339,25 +257,6 @@ func applyResult(m *llm.Model, res Result) {
 // IsInferenceAllowed returns true when the model may serve traffic.
 func IsInferenceAllowed(status string) bool {
 	return status == string(StatusVerified)
-}
-
-type ollamaDetail struct {
-	Digest string
-	Size   int64
-}
-
-// OllamaDetailsFromTags maps Ollama tag entries to consumer aliases (gguf/...).
-func OllamaDetailsFromTags(tags []llm.OllamaModel) map[string]ollamaDetail {
-	out := make(map[string]ollamaDetail, len(tags))
-	for _, t := range tags {
-		format := "unknown"
-		if details, ok := t.Details["format"]; ok {
-			format = fmt.Sprintf("%v", details)
-		}
-		alias := fmt.Sprintf("%s/%s", format, t.Model)
-		out[alias] = ollamaDetail{Digest: t.Digest, Size: t.Size}
-	}
-	return out
 }
 
 // CatalogClient exposes the public model catalog.

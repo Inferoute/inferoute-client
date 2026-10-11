@@ -418,7 +418,7 @@ func (r *Reporter) GetLastUpdateTime() time.Time {
 }
 
 // RefreshModelsForDisplay polls the local LLM and returns models with verification status.
-// Used by the console UI to reflect vLLM/Ollama model changes between health reports.
+// Used by the console UI to reflect local model changes between health reports.
 func (r *Reporter) RefreshModelsForDisplay(ctx context.Context) ([]llm.Model, error) {
 	models, err := r.llmClient.ListModels(ctx)
 	if err != nil {

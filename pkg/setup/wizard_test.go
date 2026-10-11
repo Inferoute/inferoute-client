@@ -21,8 +21,8 @@ func TestExecuteYesWritesConfig(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	opts := Options{
 		ConfigPath:     cfgPath,
-		Engine:         "ollama",
-		Model:          "gguf/qwen3:0.6b",
+		Engine:         "vllm",
+		Model:          "Qwen/Qwen3-0.6B",
 		APIKey:         "test-key-123",
 		OfflineCatalog: catalog,
 		Yes:            true,
@@ -39,10 +39,11 @@ func TestExecuteYesWritesConfig(t *testing.T) {
 	if cfg.Provider.APIKey != "test-key-123" {
 		t.Errorf("api_key = %q", cfg.Provider.APIKey)
 	}
-	if cfg.Provider.Engine != "ollama" || cfg.Provider.ProviderType != "ollama" {
-		t.Errorf("engine/type = %q/%q", cfg.Provider.Engine, cfg.Provider.ProviderType)
+	wantEngine := string(engine.RuntimeKind(runtime.GOOS, engine.KindVLLM))
+	if cfg.Provider.Engine != wantEngine || cfg.Provider.ProviderType != "vllm" {
+		t.Errorf("engine/type = %q/%q, want %s/vllm", cfg.Provider.Engine, cfg.Provider.ProviderType, wantEngine)
 	}
-	if cfg.Provider.Model != "gguf/qwen3:0.6b" {
+	if cfg.Provider.Model != "Qwen/Qwen3-0.6B" {
 		t.Errorf("model = %q", cfg.Provider.Model)
 	}
 	if cfg.Provider.URL != config.DefaultPlatformURL {
@@ -125,7 +126,6 @@ func TestResolveEngineRemapsServiceTypeVLLM(t *testing.T) {
 		{"darwin", "vllm", engine.KindVLLMMetal},
 		{"linux", "vllm", engine.KindVLLM},
 		{"windows", "freetoken", engine.KindFreeToken},
-		{"windows", "ollama", engine.KindOllama},
 		{"linux", "freetoken", engine.KindFreeToken},
 		{"darwin", "vllm-metal", engine.KindVLLMMetal},
 	}
@@ -200,7 +200,7 @@ func TestExecuteYesVLLMWindowsRejectsUntagged(t *testing.T) {
 }
 
 func TestExecuteYesRequiresKey(t *testing.T) {
-	err := Execute(Options{Yes: true, Engine: "ollama", Model: "x", NoStart: true}, Streams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+	err := Execute(Options{Yes: true, Engine: "vllm", Model: "x", NoStart: true}, Streams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -211,8 +211,8 @@ func TestExecuteRerunKeepsServerPort(t *testing.T) {
 	cfgPath := filepath.Join(dir, "config.yaml")
 	first := Options{
 		ConfigPath:     cfgPath,
-		Engine:         "ollama",
-		Model:          "gguf/qwen3:0.6b",
+		Engine:         "vllm",
+		Model:          "Qwen/Qwen3-0.6B",
 		APIKey:         "first-key",
 		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
 		Yes:            true,
@@ -259,8 +259,8 @@ func TestExecuteURLFromEnv(t *testing.T) {
 	var out bytes.Buffer
 	err := Execute(Options{
 		ConfigPath:     cfgPath,
-		Engine:         "ollama",
-		Model:          "gguf/qwen3:0.6b",
+		Engine:         "vllm",
+		Model:          "Qwen/Qwen3-0.6B",
 		APIKey:         "k",
 		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
 		Yes:            true,
@@ -288,8 +288,8 @@ func TestExecuteCatalogURLFlagBeatsEnv(t *testing.T) {
 	var out bytes.Buffer
 	err := Execute(Options{
 		ConfigPath:     cfgPath,
-		Engine:         "ollama",
-		Model:          "gguf/qwen3:0.6b",
+		Engine:         "vllm",
+		Model:          "Qwen/Qwen3-0.6B",
 		APIKey:         "k",
 		CatalogURL:     "https://flag.example",
 		OfflineCatalog: filepath.Join("testdata", "catalog.json"),

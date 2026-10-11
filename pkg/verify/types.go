@@ -62,7 +62,6 @@ type ManifestEntry struct {
 type verifyModelRequest struct {
 	Alias       string            `json:"alias"`
 	ServiceType string            `json:"service_type,omitempty"`
-	Digest      string            `json:"digest,omitempty"`
 	SizeBytes   int64             `json:"size_bytes,omitempty"`
 	Files       []FileMeasurement `json:"files,omitempty"`
 	Stale       bool              `json:"stale,omitempty"`
@@ -71,7 +70,6 @@ type verifyModelRequest struct {
 // verifyModelResponse is the server-as-judge verification result.
 type verifyModelResponse struct {
 	VerificationStatus string `json:"verification_status"`
-	Digest             string `json:"digest,omitempty"`
 	WeightFingerprint  string `json:"weight_fingerprint,omitempty"`
 }
 
@@ -79,7 +77,6 @@ type verifyModelResponse struct {
 type Result struct {
 	Alias             string
 	Status            Status
-	Digest            string
 	WeightFingerprint string
 	SizeBytes         int64
 }

@@ -17,7 +17,7 @@ import (
 const defaultCatalogURL = "https://core.inferoute.com"
 
 // FetchCatalog loads approved builds from the public Inferoute catalog.
-// When providerType is empty, both ollama and vllm catalogs are fetched and merged.
+// When providerType is empty, the vLLM catalog is fetched.
 func FetchCatalog(ctx context.Context, catalogURL, providerType string) ([]verify.CatalogEntry, error) {
 	base := strings.TrimRight(catalogURL, "/")
 	if base == "" {
@@ -26,7 +26,7 @@ func FetchCatalog(ctx context.Context, catalogURL, providerType string) ([]verif
 
 	types := []string{providerType}
 	if strings.TrimSpace(providerType) == "" {
-		types = []string{"ollama", "vllm"}
+		types = []string{"vllm"}
 	}
 
 	client := nodeapi.NewHTTPClient(30 * time.Second)

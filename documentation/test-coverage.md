@@ -26,7 +26,7 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 ## Test stack
 
 - Go stdlib `testing` only (no testify or mockery)
-- `net/http/httptest` for node and Ollama endpoint fakes
+- `net/http/httptest` for node and engine endpoint fakes
 - `llm.Client` interface faked in server tests
 - Zap nop logger via `TestMain` in packages that would otherwise write log files
 
@@ -47,18 +47,12 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 |------|----------------|
 | `client_test.go` | `GetModelPrices`; `RegisterModel` success; 400 + "already exists" → `ErrModelAlreadyExists`; other 4xx → `*ErrorResponse` |
 
-### `pkg/llm`
-
-| File | What is tested |
-|------|----------------|
-| `ollama_test.go` | `ForwardRequest` strips `gguf/` prefix; preserves non-gguf model names; non-200 → HTTP error |
-
 ### `pkg/verify`
 
 | File | What is tested |
 |------|----------------|
 | `verifier_test.go` | Server response status mapping; result cache hit/miss/TTL; vLLM weight-change invalidation |
-| `fingerprint_test.go` | Deterministic weight fingerprint; `NormalizeDigest` |
+| `fingerprint_test.go` | Deterministic weight fingerprint |
 | `hfresolve_test.go` | Hugging Face cache dir resolution (pinned rev, `refs/main`, flat dir) |
 
 ### `pkg/geoloc`
@@ -118,7 +112,6 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 |---------|------------|
 | `pkg/server` | `handler_test.go`, `hmac_test.go` |
 | `pkg/pricing` | `client_test.go` |
-| `pkg/llm` | `ollama_test.go` |
 | `pkg/verify` | `verifier_test.go`, `fingerprint_test.go`, `hfresolve_test.go` |
 | `pkg/geoloc` | `lookup_test.go` |
 | `pkg/usermsg` | `format_test.go` |

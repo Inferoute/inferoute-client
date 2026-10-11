@@ -1,12 +1,12 @@
 # Setup: Windows
 
-Use this guide when you run the provider client natively on 64-bit Windows. The setup wizard offers **Ollama** or **FreeToken**. Native vLLM is not supported.
+Use this guide when you run the provider client natively on 64-bit Windows. The setup wizard offers **FreeToken**. Native vLLM is not supported.
 
 You need an NVIDIA GPU with **24 GB** of VRAM, and either **32 GB** of RAM plus a **fixed 64 GB page file**, or **64 GB** of RAM.
 
 FreeToken here is the **`ft` CLI** (`ft serve` on port **1919**), installed into `%LOCALAPPDATA%\inferoute\venv-freetoken` with **CUDA PyTorch** (PyPI’s Windows `torch` wheel is CPU-only). It is not **FreeToken Desktop**. If that app is already on the machine, close it before setup — it binds the same API port and its bundled `ft.exe` cannot serve models for Inferoute.
 
-FreeToken does **not** run the full vLLM catalog. Setup and `compatibility` only list models whose catalog `engines` include `freetoken`. Encoder/embedding models (for example `baai/bge-m3`) and older decoder families (Phi-3, Qwen2.5) will be hidden or marked unsupported on Windows. See [FreeToken supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md). Ollama on Windows still serves the Ollama catalog.
+FreeToken does **not** run the full vLLM catalog. Setup and `compatibility` only list models whose catalog `engines` include `freetoken`. Encoder/embedding models (for example `baai/bge-m3`) and older decoder families (Phi-3, Qwen2.5) will be hidden or marked unsupported on Windows. See [FreeToken supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md).
 
 ## Memory: where the model lives
 
@@ -58,13 +58,7 @@ Default config: `%USERPROFILE%\.config\inferoute\config.yaml`. Logs: `%USERPROFI
 
 If SmartScreen says **Windows protected your PC**, choose **More info** → **Run anyway** (the GitHub binary is not Authenticode-signed).
 
-## Ollama on Windows
-
-Ollama is the supported backend on Windows.
-
-If the client runs in Docker and Ollama on the host, see [Setup: Ollama](setup-ollama.md#windows). For a native install, `http://localhost:11434` is the default.
-
-Allow Ollama through **Windows Firewall** if prompted. The Inferoute Cloudflare tunnel is outbound HTTPS and does not need an inbound port.
+FreeToken listens on `http://127.0.0.1:1919`. Allow it through **Windows Firewall** if prompted. The Inferoute Cloudflare tunnel is outbound HTTPS and does not need an inbound port.
 
 ## GPU monitoring
 
@@ -77,7 +71,7 @@ Install the [NVIDIA driver](https://www.nvidia.com/drivers) so `nvidia-smi` is o
 1. Download `inferoute-client-windows-amd64.zip` from [GitHub Releases](https://github.com/inferoute/inferoute-client/releases).
 2. Install **cloudflared**: download `cloudflared-windows-amd64.exe` from [Cloudflare releases](https://github.com/cloudflare/cloudflared/releases) (or `winget install Cloudflare.cloudflared`).
 3. Place both executables on **PATH**.
-4. Copy `config.yaml.example` to `%USERPROFILE%\.config\inferoute\config.yaml` and set `api_key`, `provider_type: ollama`, and `llm_url`.
+4. Copy `config.yaml.example` to `%USERPROFILE%\.config\inferoute\config.yaml` and set `api_key`, `engine: freetoken`, `provider_type: vllm`, and `llm_url: http://127.0.0.1:1919`.
 5. Run `inferoute-client`.
 
 The client requests a Cloudflare tunnel from the platform and runs **cloudflared** for you.
@@ -96,5 +90,4 @@ Or double-click `scripts\build.bat`. Writes `inferoute-client.exe` in the repo r
 
 - [Installation](installation.md)
 - [Configuration](configuration.md)
-- [Setup: Ollama](setup-ollama.md)
 - [FAQ](faq.md)

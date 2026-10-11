@@ -2,7 +2,7 @@
 
 By default we assume:
 
-- your provider type is Ollama and that it's running on http://localhost:11434
+- your provider type is vLLM and that it's running on http://127.0.0.1:8000
 - Inferoute-client server port will run on port 8080
 
 If you would like to override these default parameters follow the below.
@@ -14,7 +14,7 @@ If you would like to override these default parameters follow the below.
 curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scripts/install.sh | \
   PROVIDER_API_KEY="your-key" \
   PROVIDER_TYPE="custom-provider" \
-  LLM_URL="http://custom-ollama:11434" \
+  LLM_URL="http://127.0.0.1:8000" \
   SERVER_PORT="9090" \
   bash
 ```
@@ -24,13 +24,13 @@ curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scr
 
 ```powershell
 $env:PROVIDER_API_KEY="your-key"
-$env:PROVIDER_TYPE="ollama"
-$env:LLM_URL="http://localhost:11434"
+$env:PROVIDER_TYPE="freetoken"
+$env:LLM_URL="http://127.0.0.1:1919"
 $env:SERVER_PORT="9090"
 irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
 ```
 
-Windows providers should use Ollama. vLLM is not supported on native Windows.
+Windows runs FreeToken. Native vLLM is not supported. Intel Macs are not supported; macOS needs Apple Silicon for vLLM Metal.
 
 
 3. To override parameters during Docker run

@@ -9,7 +9,7 @@ import (
 )
 
 // applyContextGate fails verification when live engine context is below catalog max_model_len.
-// Catalog null/zero → no gate. Ollama never reaches this (service_type=ollama).
+// Catalog null/zero → no gate.
 func applyContextGate(ctx context.Context, llmClient llm.Client, model *llm.Model, entry CatalogEntry) {
 	if model == nil || entry.MaxModelLen == nil || *entry.MaxModelLen <= 0 {
 		return

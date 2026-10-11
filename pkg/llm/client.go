@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"strings"
 	"time"
 )
 
@@ -12,7 +11,6 @@ type Model struct {
 	Object             string `json:"object"`
 	Created            int64  `json:"created"`
 	OwnedBy            string `json:"owned_by"`
-	Digest             string `json:"digest,omitempty"`
 	SizeBytes          int64  `json:"size_bytes,omitempty"`
 	WeightFingerprint  string `json:"weight_fingerprint,omitempty"`
 	VerificationStatus string `json:"verification_status,omitempty"`
@@ -74,16 +72,11 @@ type Client interface {
 // turns can finish decoding.
 const DefaultTimeout = 120 * time.Second
 
-// NewClient creates a new LLM client based on the provider type.
-// timeout <= 0 falls back to DefaultTimeout.
+// NewClient creates an OpenAI-compatible LLM client. vLLM, vLLM Metal, and
+// FreeToken all use it. timeout <= 0 falls back to DefaultTimeout.
 func NewClient(providerType string, baseURL string, timeout time.Duration) Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "vllm", "vllm-metal", "freetoken":
-		return NewVLLMClient(baseURL, timeout)
-	default:
-		return NewOllamaClient(baseURL, timeout)
-	}
+	return NewVLLMClient(baseURL, timeout)
 }

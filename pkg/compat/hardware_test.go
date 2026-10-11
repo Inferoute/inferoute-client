@@ -25,7 +25,7 @@ func TestFormatBytes(t *testing.T) {
 }
 
 func TestOverheadFactor(t *testing.T) {
-	if overheadFactor("vllm") <= overheadFactor("ollama") {
-		t.Fatal("vllm overhead should exceed ollama")
+	if overheadFactor("vllm") <= overheadFactor("") {
+		t.Fatal("vllm overhead should exceed the default")
 	}
 }

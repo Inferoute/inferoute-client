@@ -44,8 +44,6 @@ func Detect(kind Kind) Detected {
 func lookup(kind Kind) string {
 	home, _ := os.UserHomeDir()
 	switch kind {
-	case KindOllama:
-		return lookPath("ollama")
 	case KindVLLM:
 		if home != "" {
 			if p := firstExisting(
