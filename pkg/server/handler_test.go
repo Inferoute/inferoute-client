@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,9 +37,18 @@ func (f *fakeLLM) ListModels(ctx context.Context) (*llm.ListModelsResponse, erro
 func (f *fakeLLM) Chat(ctx context.Context, r *llm.ChatRequest) (*llm.ChatResponse, error) {
 	return nil, nil
 }
-func (f *fakeLLM) ForwardRequest(ctx context.Context, path string, body []byte) ([]byte, error) {
+func (f *fakeLLM) ForwardRequest(ctx context.Context, path string, body []byte) (*http.Response, error) {
 	f.gotPath, f.gotBody = path, body
-	return f.forwardResp, f.forwardErr
+	if f.forwardErr != nil {
+		return nil, f.forwardErr
+	}
+	header := make(http.Header)
+	header.Set("Content-Type", "application/json")
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     header,
+		Body:       io.NopCloser(bytes.NewReader(f.forwardResp)),
+	}, nil
 }
 
 // nodeStub returns an httptest server that answers the HMAC validation endpoint.
@@ -70,6 +81,46 @@ func postChat(s *Server, hmac, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	s.handleChatCompletions(rec, req)
 	return rec
+}
+
+func TestHandleChatCompletionsStreamsSSE(t *testing.T) {
+	node := nodeStub(t, true)
+	sse := "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\ndata: [DONE]\n\n"
+	s := newTestServer(node.URL, &sseLLM{body: sse})
+
+	rec := postChat(s, "good-hmac", `{"model":"m","stream":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "data: [DONE]") {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+	if rec.Flushed {
+		// httptest.ResponseRecorder.Flushed is true after Flush.
+	} else {
+		t.Fatal("response was not flushed")
+	}
+}
+
+type sseLLM struct{ body string }
+
+func (s *sseLLM) ListModels(ctx context.Context) (*llm.ListModelsResponse, error) {
+	return nil, nil
+}
+func (s *sseLLM) Chat(ctx context.Context, r *llm.ChatRequest) (*llm.ChatResponse, error) {
+	return nil, nil
+}
+func (s *sseLLM) ForwardRequest(ctx context.Context, path string, body []byte) (*http.Response, error) {
+	h := make(http.Header)
+	h.Set("Content-Type", "text/event-stream")
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     h,
+		Body:       io.NopCloser(strings.NewReader(s.body)),
+	}, nil
 }
 
 func TestHandleChatCompletionsGuardChain(t *testing.T) {
@@ -176,7 +227,7 @@ func (b *blockingLLM) ListModels(ctx context.Context) (*llm.ListModelsResponse, 
 func (b *blockingLLM) Chat(ctx context.Context, r *llm.ChatRequest) (*llm.ChatResponse, error) {
 	return b.inner.Chat(ctx, r)
 }
-func (b *blockingLLM) ForwardRequest(ctx context.Context, path string, body []byte) ([]byte, error) {
+func (b *blockingLLM) ForwardRequest(ctx context.Context, path string, body []byte) (*http.Response, error) {
 	select {
 	case b.started <- struct{}{}:
 	default:

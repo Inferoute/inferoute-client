@@ -157,8 +157,36 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 		s.logRequest(r.Method, r.URL.Path, http.StatusBadGateway, startTime)
 		return
 	}
+	defer llmResp.Body.Close()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(llmResp)
+	if ct := llmResp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := llmResp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				s.logError(fmt.Sprintf("Failed to write LLM response: %v", writeErr))
+				s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			s.logError(fmt.Sprintf("Failed to read LLM response: %v", readErr))
+			s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+			return
+		}
+	}
 	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
 }

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"net/http"
 	"time"
 )
 
@@ -62,9 +63,9 @@ type Client interface {
 	// Chat sends a chat request to the LLM API
 	Chat(ctx context.Context, request *ChatRequest) (*ChatResponse, error)
 
-	// ForwardRequest forwards a raw request to the LLM API
-	// This is used for direct forwarding of OpenAI-compatible requests
-	ForwardRequest(ctx context.Context, path string, body []byte) ([]byte, error)
+	// ForwardRequest forwards a raw request to the LLM API.
+	// The caller must close the response body. A non-200 from the engine is an error.
+	ForwardRequest(ctx context.Context, path string, body []byte) (*http.Response, error)
 }
 
 // DefaultTimeout is used when no explicit LLM timeout is configured. Aligned
