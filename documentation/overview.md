@@ -54,7 +54,7 @@ If this machine is busy with someone else’s chat, rejecting quickly is the cor
 
 - It does not train models or download weights for you (except whatever the local engine already does).
 - It does not expose a public OpenAI API to the internet. The tunnel is for Inferoute only; requests without a valid platform token are rejected.
-- It does not stream tokens back to the consumer today — the full reply is buffered, then returned. The platform can stream when the client does; this is a known gap.
+- `stream: true` is proxied. The client copies the engine response and flushes as bytes arrive, so the consumer gets SSE.
 - It cannot stop a malicious fork of the client. Verification catches wrong files on an honest install.
 
 ## In summary

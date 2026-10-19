@@ -82,7 +82,7 @@ Order is load-bearing:
 5. Same session → `acquireInferenceWait` up to `session_queue_wait_seconds`; other → `tryAcquireInference`. Fail → 503.
 6. `forwardToLLM`, write **entire** body, release slot.
 
-**No streaming proxy.** Orchestrator has SSE plumbing; this process buffers. Treat consumer `stream=true` as unsupported until this changes.
+**Streaming proxy.** `ForwardRequest` returns the engine response body unread. `handleInference` copies it to the caller and flushes after each write, so consumer `stream=true` is SSE.
 
 Timeout alignment: platform pinned attempt 120s; client LLM forward 120s; HTTP read/write 240s.
 

@@ -406,6 +406,6 @@ func (s *Server) verifyModelInRequest(ctx context.Context, body []byte) error {
 }
 
 // forwardToLLM forwards a request to the LLM provider
-func (s *Server) forwardToLLM(ctx context.Context, path string, body []byte) ([]byte, error) {
+func (s *Server) forwardToLLM(ctx context.Context, path string, body []byte) (*http.Response, error) {
 	return s.llmClient.ForwardRequest(ctx, path, body)
 }

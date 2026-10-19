@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -132,8 +131,10 @@ func (c *VLLMClient) Chat(ctx context.Context, request *ChatRequest) (*ChatRespo
 	return &response, nil
 }
 
-// ForwardRequest forwards a raw request to the vLLM API
-func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byte) ([]byte, error) {
+// ForwardRequest forwards a raw request to the vLLM API.
+// The caller owns resp.Body and must close it. Bytes are not buffered here so
+// stream:true reaches the orchestrator as SSE.
+func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byte) (*http.Response, error) {
 	url := fmt.Sprintf("%s%s", c.baseURL, path)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
@@ -141,28 +142,19 @@ func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byt
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add headers
 	req.Header.Set("Content-Type", "application/json")
 
-	// Send request
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("forward: %w", wrapRequestErr(err))
 	}
-	defer resp.Body.Close()
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
 		return nil, fmt.Errorf("forward: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	return respBody, nil
+	return resp, nil
 }
 
 // FreeTokenCacheCapacity reads effective KV token capacity from GET /v1/cache/status.
