@@ -10,7 +10,7 @@ import (
 )
 
 // Apply hides the child console on Windows. Console-subsystem binaries
-// (nvidia-smi, cloudflared) otherwise flash a terminal for every spawn.
+// (nvidia-smi) otherwise flash a terminal for every spawn.
 func Apply(cmd *exec.Cmd) {
 	if cmd == nil {
 		return

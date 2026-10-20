@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/connect"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
@@ -46,7 +46,7 @@ func TestApprovalLabel(t *testing.T) {
 }
 
 func TestStartupInvalidAPIKey(t *testing.T) {
-	err := fmt.Errorf("failed to request tunnel: %w", cloudflare.ErrInvalidAPIKey)
+	err := fmt.Errorf("failed to connect: %w", connect.ErrInvalidAPIKey)
 	if got := Startup(err); got != InvalidAPIKey {
 		t.Fatalf("Startup() = %q, want %q", got, InvalidAPIKey)
 	}

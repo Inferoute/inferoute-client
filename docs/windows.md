@@ -36,7 +36,7 @@ The choice is saved as `provider.moe_strategy` in `config.yaml` and reused on au
    irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
    ```
 
-The script installs **cloudflared** and **inferoute-client** to `%LOCALAPPDATA%\inferoute\bin`, runs `inferoute-client setup`, and adds that folder to your user **PATH**. It does **not** require Administrator. Re-run `inferoute-client setup` anytime to change engine, model, or API key.
+The script installs **inferoute-client** to `%LOCALAPPDATA%\inferoute\bin`, runs `inferoute-client setup`, and adds that folder to your user **PATH**. It does **not** require Administrator. Re-run `inferoute-client setup` anytime to change engine, model, or API key.
 
 3. Start the client from **Start Menu → Inferoute → Inferoute Client**, or from a **new** terminal:
 
@@ -58,7 +58,7 @@ Default config: `%USERPROFILE%\.config\inferoute\config.yaml`. Logs: `%USERPROFI
 
 If SmartScreen says **Windows protected your PC**, choose **More info** → **Run anyway** (the GitHub binary is not Authenticode-signed).
 
-FreeToken listens on `http://127.0.0.1:1919`. Allow it through **Windows Firewall** if prompted. The Inferoute Cloudflare tunnel is outbound HTTPS and does not need an inbound port.
+FreeToken listens on `http://127.0.0.1:1919`. Allow it through **Windows Firewall** if prompted. The connection to Inferoute is outbound and does not need an inbound port.
 
 ## GPU monitoring
 
@@ -69,12 +69,11 @@ Install the [NVIDIA driver](https://www.nvidia.com/drivers) so `nvidia-smi` is o
 ## Manual install
 
 1. Download `inferoute-client-windows-amd64.zip` from [GitHub Releases](https://github.com/inferoute/inferoute-client/releases).
-2. Install **cloudflared**: download `cloudflared-windows-amd64.exe` from [Cloudflare releases](https://github.com/cloudflare/cloudflared/releases) (or `winget install Cloudflare.cloudflared`).
-3. Place both executables on **PATH**.
-4. Copy `config.yaml.example` to `%USERPROFILE%\.config\inferoute\config.yaml` and set `api_key`, `engine: freetoken`, `provider_type: vllm`, and `llm_url: http://127.0.0.1:1919`.
-5. Run `inferoute-client`.
+2. Place `inferoute-client.exe` on **PATH**.
+3. Copy `config.yaml.example` to `%USERPROFILE%\.config\inferoute\config.yaml` and set `api_key`, `engine: freetoken`, `provider_type: vllm`, and `llm_url: http://127.0.0.1:1919`.
+4. Run `inferoute-client`.
 
-The client requests a Cloudflare tunnel from the platform and runs **cloudflared** for you.
+The client opens an outbound connection to Inferoute. No extra binary and no inbound port.
 
 ## Build from source
 

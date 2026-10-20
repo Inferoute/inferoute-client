@@ -57,35 +57,6 @@ func TestLoadHostFromYAML(t *testing.T) {
 	}
 }
 
-func TestTunnelServiceURL(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		host string
-		port int
-		want string
-	}{
-		{name: "empty", host: "", port: 8080, want: "http://127.0.0.1:8080"},
-		{name: "all interfaces", host: "0.0.0.0", port: 8080, want: "http://127.0.0.1:8080"},
-		{name: "loopback v4", host: "127.0.0.1", port: 8080, want: "http://127.0.0.1:8080"},
-		{name: "localhost alias", host: "localhost", port: 8080, want: "http://127.0.0.1:8080"},
-		{name: "loopback v6", host: "::1", port: 9090, want: "http://[::1]:9090"},
-		{name: "explicit LAN", host: "192.168.1.10", port: 8080, want: "http://192.168.1.10:8080"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := &Config{}
-			cfg.Server.Host = tt.host
-			cfg.Server.Port = tt.port
-			if got := cfg.TunnelServiceURL(); got != tt.want {
-				t.Errorf("TunnelServiceURL() host=%q port=%d = %q, want %q", tt.host, tt.port, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestLoadEngineDefaultsFromProviderType(t *testing.T) {
 	t.Parallel()
 

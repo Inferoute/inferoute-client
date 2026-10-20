@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -23,15 +22,14 @@ import (
 
 // Reporter handles health reporting to the central system
 type Reporter struct {
-	config           *config.Config
-	gpuMonitor       *gpu.Monitor
-	llmClient        llm.Client
-	cloudflareClient *cloudflare.Client
-	pricingClient    *pricing.Client
-	verifier         *verify.Verifier
-	client           *http.Client
-	lastUpdateTime   time.Time
-	lastUpdateMutex  sync.Mutex
+	config          *config.Config
+	gpuMonitor      *gpu.Monitor
+	llmClient       llm.Client
+	pricingClient   *pricing.Client
+	verifier        *verify.Verifier
+	client          *http.Client
+	lastUpdateTime  time.Time
+	lastUpdateMutex sync.Mutex
 	// Track registered models to avoid duplicate registrations
 	registeredModels   map[string]bool
 	registeredModelsMu sync.Mutex
@@ -54,11 +52,10 @@ const (
 
 // HealthReport represents a health report to be sent to the central system
 type HealthReport struct {
-	Object       string                 `json:"object"`
-	Data         []llm.Model            `json:"data"`
-	GPU          *gpu.GPUInfo           `json:"gpu"`
-	Cloudflare   map[string]interface{} `json:"cloudflare"`
-	ProviderType string                 `json:"provider_type"`
+	Object       string       `json:"object"`
+	Data         []llm.Model  `json:"data"`
+	GPU          *gpu.GPUInfo `json:"gpu"`
+	ProviderType string       `json:"provider_type"`
 }
 
 // SetVerifier attaches the model integrity verifier (optional).
@@ -68,17 +65,12 @@ func (r *Reporter) SetVerifier(v *verify.Verifier) {
 
 // NewReporter creates a new health reporter
 func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Client) *Reporter {
-	// Create Cloudflare client using provider API key
-	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.TunnelServiceURL())
-
-	// Create pricing client
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	return &Reporter{
 		config:           cfg,
 		gpuMonitor:       gpuMonitor,
 		llmClient:        llmClient,
-		cloudflareClient: cloudflareClient,
 		pricingClient:    pricingClient,
 		client:           nodeapi.NewHTTPClient(10 * time.Second),
 		registeredModels: make(map[string]bool),
@@ -265,9 +257,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	// Register any new models
 	r.registerNewModels(ctx, report.Data)
 
-	// Log the Cloudflare section of the report before sending
-	logger.Info("Preparing to send health report with Cloudflare info",
-		zap.Any("cloudflare_section", report.Cloudflare))
+	logger.Info("Preparing to send health report", zap.Int("models", len(report.Data)))
 
 	// Marshal report to JSON
 	reportJSON, err := json.Marshal(report)
@@ -363,51 +353,14 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		gpuInfo.IsBusy = true
 	}
 
-	// Get Cloudflare info if available
-	var cloudflareInfo map[string]interface{}
-	if r.cloudflareClient != nil {
-		tunnelURL := r.cloudflareClient.GetTunnelURL()
-		hostname := r.cloudflareClient.GetHostname()
-		isRunning := r.cloudflareClient.IsRunning()
-
-		logger.Info("Gathering Cloudflare information for health report",
-			zap.String("tunnel_url", tunnelURL),
-			zap.String("hostname", hostname),
-			zap.Bool("is_running", isRunning))
-
-		cloudflareInfo = cloudflareReportInfo(tunnelURL, isRunning)
-		if cloudflareInfo != nil {
-			logger.Info("Cloudflare info will be included in health report",
-				zap.Any("cloudflare_info", cloudflareInfo))
-		} else if !isRunning {
-			logger.Warn("Omitting Cloudflare URL; tunnel is not running")
-		} else {
-			logger.Warn("No Cloudflare tunnel URL available for health report")
-		}
-	} else {
-		logger.Warn("No Cloudflare client available for health report")
-	}
-
-	// Create report
 	report := &HealthReport{
 		Object:       "list",
 		Data:         enriched,
 		GPU:          gpuInfo,
-		Cloudflare:   cloudflareInfo,
 		ProviderType: r.config.Provider.ProviderType,
 	}
 
 	return report, nil
-}
-
-// cloudflareReportInfo omits the tunnel URL unless the process is actually
-// running. RequestTunnel sets the hostname before StartTunnel, and StopTunnel
-// leaves it set, so a URL alone would advertise a dead endpoint.
-func cloudflareReportInfo(url string, running bool) map[string]interface{} {
-	if url == "" || !running {
-		return nil
-	}
-	return map[string]interface{}{"url": url}
 }
 
 // GetLastUpdateTime gets the time of the last successful health update
@@ -452,9 +405,4 @@ func (r *Reporter) setDisplayedModels(models []llm.Model) {
 	r.displayedModelsMu.Lock()
 	r.displayedModels = models
 	r.displayedModelsMu.Unlock()
-}
-
-// SetCloudflareClient updates the Cloudflare client used by the health reporter
-func (r *Reporter) SetCloudflareClient(client *cloudflare.Client) {
-	r.cloudflareClient = client
 }

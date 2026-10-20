@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
@@ -33,10 +32,6 @@ func TestRequestShapes(t *testing.T) {
 				ProductName: "Example GPU", DriverVersion: "550.0", CUDAVersion: "12.4",
 				GPUCount: 1, UUID: "GPU-example", MemoryTotal: 24576, MemoryUsed: 1024, MemoryFree: 23552,
 			},
-			Cloudflare: map[string]interface{}{
-				"url": "https://inferoute-cluster1.example.com", "public_ip": "203.0.113.10",
-				"location": "London, England, United Kingdom",
-			},
 			ProviderType: "vllm",
 		}},
 		{"models.request.json", pricing.RegisterModelRequest{
@@ -44,7 +39,6 @@ func TestRequestShapes(t *testing.T) {
 			InputPriceTokens: 0.0000005, OutputPriceTokens: 0.000001,
 		}},
 		{"get-prices.request.json", pricing.GetPricesRequest{Models: []string{"Qwen/Qwen2.5-7B-Instruct"}}},
-		{"tunnel-request.request.json", cloudflare.TunnelRequest{ServiceURL: "http://127.0.0.1:8080"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {

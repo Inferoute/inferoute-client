@@ -1,6 +1,6 @@
 # Requires -Version 5.1
 # Inferoute Client Windows installation script.
-# Mirrors scripts/install.sh: cloudflared + inferoute-client on PATH, config at ~/.config/inferoute.
+# Mirrors scripts/install.sh: inferoute-client on PATH, config at ~/.config/inferoute.
 #
 # Usage:
 #   $env:PROVIDER_API_KEY="your-key"; irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
@@ -69,7 +69,6 @@ $BinDir = Join-Path $env:LOCALAPPDATA "inferoute\bin"
 $ConfigDir = Join-Path $HomeDir ".config\inferoute"
 $LogDir = Join-Path $HomeDir ".local\state\inferoute\log"
 $GitHubRepo = "inferoute/inferoute-client"
-$CloudflaredUrl = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
 $ClientZipUrl = "https://github.com/$GitHubRepo/releases/latest/download/inferoute-client-windows-amd64.zip"
 
 Write-Info "=== Inferoute Client Installation ==="
@@ -80,17 +79,6 @@ Write-Info "Config:   $ConfigDir\config.yaml"
 New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
-
-$CloudflaredExe = Join-Path $BinDir "cloudflared.exe"
-Write-Info "Installing cloudflared..."
-try {
-    Invoke-WebRequest -Uri $CloudflaredUrl -OutFile $CloudflaredExe -UseBasicParsing
-    Write-Ok "cloudflared installed."
-} catch {
-    Write-Err "Failed to download cloudflared: $_"
-    Write-Warn "Install manually from https://github.com/cloudflare/cloudflared/releases or: winget install Cloudflare.cloudflared"
-    exit 1
-}
 
 $ClientZip = Join-Path $env:TEMP "inferoute-client-windows-amd64.zip"
 Write-Info "Downloading inferoute-client..."

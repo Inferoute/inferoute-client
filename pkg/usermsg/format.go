@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/connect"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
@@ -45,7 +45,7 @@ const InvalidAPIKey = "Invalid provider API key. Copy it from cluster Settings o
 
 // Startup maps a fatal startup error to a message for stderr and the Windows dialog.
 func Startup(err error) string {
-	if errors.Is(err, cloudflare.ErrInvalidAPIKey) {
+	if errors.Is(err, connect.ErrInvalidAPIKey) {
 		return InvalidAPIKey
 	}
 	return "Failed to start server: " + err.Error()

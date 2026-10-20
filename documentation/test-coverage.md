@@ -73,12 +73,11 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 |------|----------------|
 | `monitor_test.go` | `GetGPUInfo` 1s cache hit/expiry/error cache; returned copy is isolated from caller mutation; concurrent refresh is a single query; `IsBusy` uses the cache |
 
-### `pkg/cloudflare`
+### `pkg/connect`
 
 | File | What is tested |
 |------|----------------|
-| `client_test.go` | Supervision loop vs startup timeout; `StartTunnel` rejects canceled context; `RequestTunnel` 401 / consumer-key → `ErrInvalidAPIKey`; success decodes token |
-| `process_test.go` | cloudflared log path is OS-correct |
+| `client_test.go` | Dial URL: `https` → `wss`, `http` → `ws` |
 
 ### `pkg/exechide`
 
@@ -116,7 +115,7 @@ GitHub Actions workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.ym
 | `pkg/geoloc` | `lookup_test.go` |
 | `pkg/usermsg` | `format_test.go` |
 | `pkg/gpu` | `monitor_test.go` |
-| `pkg/cloudflare` | `client_test.go`, `process_test.go` |
+| `pkg/connect` | `client_test.go` |
 | `pkg/exechide` | `hide_windows_test.go`, `hide_other_test.go` |
 
-**Total:** 14 test files. `cmd/`, `internal/config`, and `pkg/health` still have no tests.
+**Total:** 13 test files in this index. `cmd/`, `internal/config`, and `pkg/health` still have no tests listed here.
