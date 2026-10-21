@@ -74,7 +74,7 @@ type Client interface {
 const DefaultTimeout = 120 * time.Second
 
 // NewClient creates an OpenAI-compatible LLM client. vLLM, vLLM Metal, and
-// FreeToken all use it. timeout <= 0 falls back to DefaultTimeout.
+// llama.cpp all use it. timeout <= 0 falls back to DefaultTimeout.
 func NewClient(providerType string, baseURL string, timeout time.Duration) Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout

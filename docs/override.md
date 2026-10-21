@@ -24,13 +24,13 @@ curl -fsSL https://raw.githubusercontent.com/Inferoute/inferoute-client/main/scr
 
 ```powershell
 $env:PROVIDER_API_KEY="your-key"
-$env:PROVIDER_TYPE="freetoken"
+$env:PROVIDER_TYPE="llama_cpp"
 $env:LLM_URL="http://127.0.0.1:1919"
 $env:SERVER_PORT="9090"
 irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
 ```
 
-Windows runs FreeToken. Native vLLM is not supported. Intel Macs are not supported; macOS needs Apple Silicon for vLLM Metal.
+Windows runs llama.cpp. Native vLLM is not supported. Intel Macs are not supported; macOS needs Apple Silicon for vLLM Metal or llama.cpp.
 
 
 3. To override parameters during Docker run

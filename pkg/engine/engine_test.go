@@ -27,21 +27,21 @@ func TestOptionsFor(t *testing.T) {
 	}
 
 	mac := OptionsFor("darwin", "arm64", false)
-	if len(mac) != 1 || mac[0].Kind != KindVLLMMetal || mac[0].Unavailable != "" {
+	if len(mac) != 2 || mac[0].Kind != KindVLLMMetal || mac[0].Unavailable != "" || mac[1].Kind != KindLlamaCpp {
 		t.Fatalf("darwin arm64 = %+v", mac)
 	}
 	macIntel := OptionsFor("darwin", "amd64", false)
-	if macIntel[0].Unavailable == "" {
-		t.Fatal("intel mac should mark vLLM Metal unavailable")
+	if macIntel[0].Unavailable == "" || macIntel[1].Unavailable == "" {
+		t.Fatal("intel mac should mark both engines unavailable")
 	}
 
 	win := OptionsFor("windows", "amd64", true)
-	if len(win) != 1 || win[0].Kind != KindFreeToken || win[0].Unavailable != "" {
+	if len(win) != 1 || win[0].Kind != KindLlamaCpp || win[0].Unavailable != "" {
 		t.Fatalf("windows = %+v", win)
 	}
 	winNoGPU := OptionsFor("windows", "amd64", false)
 	if winNoGPU[0].Unavailable == "" {
-		t.Fatal("windows without nvidia should mark FreeToken unavailable")
+		t.Fatal("windows without nvidia should mark llama.cpp unavailable")
 	}
 }
 
@@ -53,14 +53,14 @@ func TestServeSpec(t *testing.T) {
 		t.Errorf("vllm = %q", got)
 	}
 
-	ft := ServeSpec(KindFreeToken, "ft", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{})
-	wantArgs := []string{"serve", "--model", "Qwen/Qwen2.5-7B-Instruct", "--served-model-name", "Qwen/Qwen2.5-7B-Instruct", "--host", "127.0.0.1", "--port", "1919", "--moe-backend", "fused"}
+	ft := ServeSpec(KindLlamaCpp, "llama-server", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct-GGUF", ServeOpts{GGUFFile: "qwen2.5-7b-instruct-q4_k_m.gguf"})
+	wantArgs := []string{"--hf-repo", "Qwen/Qwen2.5-7B-Instruct-GGUF", "--hf-file", "qwen2.5-7b-instruct-q4_k_m.gguf", "--alias", "Qwen/Qwen2.5-7B-Instruct", "--host", "127.0.0.1", "--port", "8081", "-ngl", "99"}
 	if len(ft.Args) != len(wantArgs) {
-		t.Fatalf("freetoken args = %v", ft.Args)
+		t.Fatalf("llama.cpp args = %v", ft.Args)
 	}
 	for i := range wantArgs {
 		if ft.Args[i] != wantArgs[i] {
-			t.Fatalf("freetoken args = %v", ft.Args)
+			t.Fatalf("llama.cpp args = %v", ft.Args)
 		}
 	}
 
@@ -104,35 +104,21 @@ func TestServeSpecWithOpts(t *testing.T) {
 		t.Fatalf("gemma missing max-model-len: %v", gemma.Args)
 	}
 
-	ft := ServeSpec(KindFreeToken, "ft", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct", ServeOpts{
-		ToolCallParser:     "hermes",
-		MaxModelLen:        131072,
-		RopeType:           "yarn",
-		RopeBaseContextLen: 32768,
+	llama := ServeSpec(KindLlamaCpp, "llama-server", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct-GGUF", ServeOpts{
+		ToolCallParser: "hermes",
+		MaxModelLen:    131072,
+		GGUFFile:       "qwen2.5-7b-instruct-q4_k_m.gguf",
 	})
-	join = strings.Join(ft.Args, " ")
+	join = strings.Join(llama.Args, " ")
 	if strings.Contains(join, "--tool-call-parser") || strings.Contains(join, "--hf-overrides") {
-		t.Fatalf("freetoken should ignore parser/rope: %v", ft.Args)
+		t.Fatalf("llama.cpp should not pass vLLM parser flags: %v", llama.Args)
 	}
-	if !strings.Contains(join, "--max-seq-len-override 131072") {
-		t.Fatalf("freetoken missing max-seq-len-override: %v", ft.Args)
+	if !strings.Contains(join, "--jinja") || !strings.Contains(join, "-c 131072") {
+		t.Fatalf("llama.cpp missing jinja or context: %v", llama.Args)
 	}
-	if !strings.Contains(join, "--moe-backend fused") {
-		t.Fatalf("freetoken missing moe-backend fused: %v", ft.Args)
-	}
-
-	offload := ServeSpec(KindFreeToken, "ft", "openai/gpt-oss-20b", "openai/gpt-oss-20b", ServeOpts{MoeStrategy: MoeAuto})
-	join = strings.Join(offload.Args, " ")
-	if !strings.Contains(join, "--moe-backend auto") || strings.Contains(join, "fused") {
-		t.Fatalf("freetoken MoeAuto should emit --moe-backend auto: %v", offload.Args)
-	}
-	garbage := ServeSpec(KindFreeToken, "ft", "m", "m", ServeOpts{MoeStrategy: "cpu"})
-	if !strings.Contains(strings.Join(garbage.Args, " "), "--moe-backend fused") {
-		t.Fatalf("unknown strategy must fall back to fused: %v", garbage.Args)
-	}
-	vllmMoe := ServeSpec(KindVLLM, "vllm", "m", "m", ServeOpts{MoeStrategy: MoeAuto})
-	if strings.Contains(strings.Join(vllmMoe.Args, " "), "moe") {
-		t.Fatalf("vllm must ignore MoeStrategy: %v", vllmMoe.Args)
+	plain := ServeSpec(KindLlamaCpp, "llama-server", "m", "org/m", ServeOpts{GGUFFile: "m.gguf"})
+	if strings.Contains(strings.Join(plain.Args, " "), "--jinja") {
+		t.Fatalf("llama.cpp without a parser must not pass --jinja: %v", plain.Args)
 	}
 }
 
@@ -194,15 +180,15 @@ func TestHealthy(t *testing.T) {
 	if !Healthy(context.Background(), KindVLLM, vllm.URL) {
 		t.Fatal("expected vllm healthy")
 	}
-	if Healthy(context.Background(), KindFreeToken, vllm.URL) {
-		t.Fatal("FreeToken must not treat /v1/models as ready")
+	if Healthy(context.Background(), KindLlamaCpp, vllm.URL) {
+		t.Fatal("llama.cpp must not treat /v1/models as ready")
 	}
 
 	notReady := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}))
 	t.Cleanup(notReady.Close)
-	if Healthy(context.Background(), KindFreeToken, notReady.URL) {
+	if Healthy(context.Background(), KindLlamaCpp, notReady.URL) {
 		t.Fatal("4xx must not count as healthy")
 	}
 }
@@ -232,9 +218,9 @@ func TestHealthyFreeTokenHealth(t *testing.T) {
 				_, _ = w.Write([]byte(tt.body))
 			}))
 			t.Cleanup(srv.Close)
-			got := Healthy(context.Background(), KindFreeToken, srv.URL)
+			got := Healthy(context.Background(), KindLlamaCpp, srv.URL)
 			if got != tt.want {
-				t.Fatalf("Healthy(freetoken, %s) = %v, want %v", tt.name, got, tt.want)
+				t.Fatalf("Healthy(llama_cpp, %s) = %v, want %v", tt.name, got, tt.want)
 			}
 		})
 	}
@@ -246,7 +232,7 @@ func TestWaitHealthyProcessExit(t *testing.T) {
 	exited <- fmt.Errorf("exit 1")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	err := WaitHealthy(ctx, KindFreeToken, "http://127.0.0.1:1", 50*time.Millisecond, exited)
+	err := WaitHealthy(ctx, KindLlamaCpp, "http://127.0.0.1:1", 50*time.Millisecond, exited)
 	if err == nil || !strings.Contains(err.Error(), "process exited") {
 		t.Fatalf("got %v", err)
 	}
@@ -257,8 +243,8 @@ func TestLabel(t *testing.T) {
 	if got := Label(Kind("")); got != "vLLM" {
 		t.Errorf("Label(default) = %q, want vLLM", got)
 	}
-	if got := Label(KindFreeToken); got != "FreeToken" {
-		t.Errorf("Label(freetoken) = %q, want FreeToken", got)
+	if got := Label(KindLlamaCpp); got != "llama.cpp" {
+		t.Errorf("Label(llama_cpp) = %q, want llama.cpp", got)
 	}
 	if got := Label(KindVLLMMetal); got != "vLLM Metal" {
 		t.Errorf("Label(vllm-metal) = %q, want vLLM Metal", got)
@@ -294,11 +280,11 @@ func TestStartAndWaitAlreadyHealthy(t *testing.T) {
 
 func TestPlatformTypeCatalog(t *testing.T) {
 	t.Parallel()
-	if PlatformType(KindFreeToken) != "vllm" || CatalogType(KindVLLMMetal) != "vllm" || PlatformType(KindVLLM) != "vllm" {
-		t.Fatal("engines must use vllm catalog")
+	if PlatformType(KindLlamaCpp) != "llama_cpp" || CatalogType(KindVLLMMetal) != "vllm" || PlatformType(KindVLLM) != "vllm" {
+		t.Fatal("llama.cpp uses llama_cpp; vLLM engines use vllm")
 	}
-	if CompatKind("windows", "vllm") != KindFreeToken {
-		t.Fatal("windows vllm catalog is FreeToken")
+	if CompatKind("windows", "vllm") != KindLlamaCpp {
+		t.Fatal("windows vllm catalog is llama.cpp")
 	}
 	if CompatKind("darwin", "vllm") != KindVLLMMetal {
 		t.Fatal("darwin vllm catalog is vLLM Metal")
@@ -306,14 +292,14 @@ func TestPlatformTypeCatalog(t *testing.T) {
 	if CompatKind("linux", "vllm") != KindVLLM {
 		t.Fatal("linux vllm catalog is vLLM")
 	}
-	if CompatKind("windows", "custom") != KindFreeToken {
-		t.Fatal("unknown provider type on windows is FreeToken")
+	if CompatKind("windows", "custom") != KindLlamaCpp {
+		t.Fatal("unknown provider type on windows is llama.cpp")
 	}
 	if CompatKind("linux", "") != KindVLLM {
 		t.Fatal("empty provider type on linux is vLLM")
 	}
-	if RuntimeKind("windows", KindVLLM) != KindFreeToken {
-		t.Fatal("windows --engine vllm installs FreeToken")
+	if RuntimeKind("windows", KindVLLM) != KindLlamaCpp {
+		t.Fatal("windows --engine vllm installs llama.cpp")
 	}
 	if RuntimeKind("darwin", KindVLLM) != KindVLLMMetal {
 		t.Fatal("darwin --engine vllm installs vLLM Metal")
@@ -321,8 +307,8 @@ func TestPlatformTypeCatalog(t *testing.T) {
 	if RuntimeKind("linux", KindVLLM) != KindVLLM {
 		t.Fatal("linux --engine vllm stays CUDA vLLM")
 	}
-	if RuntimeKind("linux", KindFreeToken) != KindFreeToken {
-		t.Fatal("explicit freetoken is not remapped")
+	if RuntimeKind("linux", KindLlamaCpp) != KindLlamaCpp {
+		t.Fatal("explicit llama_cpp is not remapped")
 	}
 	if RuntimeKind("windows", KindVLLMMetal) != KindVLLMMetal {
 		t.Fatal("explicit vllm-metal is not remapped")

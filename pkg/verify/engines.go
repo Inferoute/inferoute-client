@@ -3,22 +3,22 @@ package verify
 import "strings"
 
 const (
-	EngineVLLM         = "vllm"
-	EngineVLLMMetal    = "vllm-metal"
-	EngineFreeToken    = "freetoken"
-	FreeTokenModelsDoc = "https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md"
+	EngineVLLM      = "vllm"
+	EngineVLLMMetal = "vllm-metal"
+	EngineLlamaCpp  = "llama_cpp"
 )
 
 // DefaultEngines is used when the catalog row omits engines.
-// FreeToken is never implied — it must be opted in on the build.
-// Empty and unknown service types use the vLLM-family defaults.
+// Empty llama_cpp rows default to llama.cpp. Other rows default to vLLM + vLLM Metal.
 func DefaultEngines(serviceType string) []string {
-	_ = serviceType
+	if strings.EqualFold(strings.TrimSpace(serviceType), EngineLlamaCpp) {
+		return []string{EngineLlamaCpp}
+	}
 	return []string{EngineVLLM, EngineVLLMMetal}
 }
 
 // SupportsEngine reports whether this catalog row can be served by engineKind
-// (vllm, vllm-metal, freetoken).
+// (vllm, vllm-metal, llama_cpp).
 func SupportsEngine(entry CatalogEntry, engineKind string) bool {
 	want := strings.ToLower(strings.TrimSpace(engineKind))
 	if want == "" {

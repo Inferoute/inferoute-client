@@ -39,10 +39,10 @@ type Config struct {
 		APIKey       string `yaml:"api_key"`
 		URL          string `yaml:"url"`
 		ProviderType string `yaml:"provider_type"`
-		// Engine is the local inference binary: vllm, vllm-metal, freetoken.
+		// Engine is the local inference binary: vllm, vllm-metal, llama_cpp.
 		// Empty defaults from ProviderType so existing configs keep working.
 		Engine string `yaml:"engine,omitempty"`
-		// EngineBin is an absolute path when the binary is not on PATH (Windows FreeToken).
+		// EngineBin is an absolute path when the binary is not on PATH.
 		EngineBin string `yaml:"engine_bin,omitempty"`
 		LLMURL    string `yaml:"llm_url"`
 		// Model is the catalog alias (or HF repo) used to start the engine.
@@ -52,7 +52,7 @@ type Config struct {
 		HFHubCache string `yaml:"hf_hub_cache,omitempty"` // optional; default ~/.cache/huggingface/hub
 		ModelPath  string `yaml:"model_path,omitempty"`   // optional flat dir override (hf download --local-dir)
 		// LLMTimeoutSeconds is the timeout for requests forwarded to the
-		// local vLLM, vLLM Metal, or FreeToken instance. Default 120, aligned with the
+		// local vLLM, vLLM Metal, or llama.cpp instance. Default 120, aligned with the
 		// orchestrator's sticky inference timeout.
 		LLMTimeoutSeconds int `yaml:"llm_timeout_seconds"`
 		// Catalog serve flags (SNTNL-119). Persisted from approved-builds so
@@ -61,11 +61,10 @@ type Config struct {
 		MaxModelLen        int64  `yaml:"max_model_len,omitempty"`
 		RopeType           string `yaml:"rope_type,omitempty"`
 		RopeBaseContextLen int64  `yaml:"rope_base_context_len,omitempty"`
-		// MoeStrategy is FreeToken expert placement chosen by setup for this
-		// machine: fused (VRAM) or auto (system-RAM offload). Empty = fused.
-		MoeStrategy string `yaml:"moe_strategy,omitempty"`
 		// HFRepo is the HuggingFace id when it differs from Model (alias).
 		HFRepo string `yaml:"hf_repo,omitempty"`
+		// GGUFFile is the HuggingFace filename llama.cpp serves.
+		GGUFFile string `yaml:"gguf_file,omitempty"`
 	} `yaml:"provider"`
 
 	// Logging configuration
@@ -125,8 +124,8 @@ func (c *Config) normalize() {
 	c.Provider.Model = strings.TrimSpace(c.Provider.Model)
 	c.Provider.ToolCallParser = strings.TrimSpace(c.Provider.ToolCallParser)
 	c.Provider.RopeType = strings.TrimSpace(c.Provider.RopeType)
-	c.Provider.MoeStrategy = strings.ToLower(strings.TrimSpace(c.Provider.MoeStrategy))
 	c.Provider.HFRepo = strings.TrimSpace(c.Provider.HFRepo)
+	c.Provider.GGUFFile = strings.TrimSpace(c.Provider.GGUFFile)
 	if c.Provider.Engine == "" {
 		c.Provider.Engine = "vllm"
 	}
@@ -135,14 +134,17 @@ func (c *Config) normalize() {
 
 // PlatformType is the Inferoute provider_type for a local engine.
 func PlatformType(engine string) string {
+	if strings.EqualFold(strings.TrimSpace(engine), "llama_cpp") {
+		return "llama_cpp"
+	}
 	return "vllm"
 }
 
 // DefaultLLMURL is the loopback URL for an engine.
 func DefaultLLMURL(engine string) string {
 	switch strings.ToLower(strings.TrimSpace(engine)) {
-	case "freetoken":
-		return "http://127.0.0.1:1919"
+	case "llama_cpp":
+		return "http://127.0.0.1:8081"
 	default:
 		return "http://127.0.0.1:8000"
 	}

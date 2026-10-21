@@ -1,6 +1,6 @@
 # Inferoute Provider Client — technical overview
 
-Audience: **technical managers**. This is the GPU-side daemon (`inferoute-client`): outbound connection, health, model verification, and the HMAC-gated OpenAI proxy in front of local vLLM, vLLM Metal, or FreeToken.
+Audience: **technical managers**. This is the GPU-side daemon (`inferoute-client`): outbound connection, health, model verification, and the HMAC-gated OpenAI proxy in front of local vLLM, vLLM Metal, or llama.cpp.
 
 Operator/product narrative: [overview.md](overview.md). Platform routing, billing, and verify-judge: **inferoute-node** `documentation/technical.md`. Sticky-routing design: [plans/kv-cache-sticky-routing.md](plans/kv-cache-sticky-routing.md). Customer install: inferoute-docs `provider-client/`.
 
@@ -22,7 +22,7 @@ flowchart LR
   Orch[Orchestrator / provider-comm]
   GW[connect-gateway]
   Client[inferoute-client]
-  LLM[vLLM, vLLM Metal, or FreeToken]
+  LLM[vLLM, vLLM Metal, or llama.cpp]
   Plat[core.inferoute.com]
 
   Orch --> GW --> Client --> LLM
@@ -66,7 +66,7 @@ Windows: tray is default; process detaches so closing PowerShell does not kill i
 | Section | Fields that matter |
 |---------|-------------------|
 | `server` | `port` (8080), `host` (`127.0.0.1`; set `0.0.0.0` only for LAN/Docker host dashboard), `max_concurrent_inference` (**1**; `0` = unlimited), `session_queue_wait_seconds` (**90**), `request_timeout_seconds` (**240** — must cover queue + inference) |
-| `provider` | `api_key`, `url` (platform base), `provider_type` (`vllm` for vLLM, vLLM Metal, and FreeToken), `engine` (`vllm` \| `vllm-metal` \| `freetoken`), `llm_url`, `llm_timeout_seconds` (**120**, matches platform sticky timeout), optional `hf_hub_cache` / `model_path` |
+| `provider` | `api_key`, `url` (platform base), `provider_type` (`vllm` or `llama_cpp`), `engine` (`vllm` \| `vllm-metal` \| `llama_cpp`), `llm_url`, `llm_timeout_seconds` (**120**, matches platform sticky timeout), optional `hf_hub_cache` / `model_path` / `gguf_file` |
 | `logging` | level, `log_dir`, rotation |
 
 `TunnelServiceURL()` is `http://localhost:<port>` when host is loopback or `0.0.0.0`. No Cloudflare block in YAML — token comes from the platform. Platform tunnel ingress forwards only `/v1/chat/completions`, `/v1/completions`, and `/v1/embeddings`.
@@ -112,7 +112,7 @@ Server-as-judge. Client measures; never learns expected hashes.
 
 | Engine | Measure | POST |
 |--------|---------|------|
-| vLLM, vLLM Metal, FreeToken | weight fingerprint + manifest of files under the HF cache or `model_path` | `/api/provider/verify-model` |
+| vLLM, vLLM Metal, llama.cpp | weight fingerprint + manifest. vLLM hashes the HF cache. llama.cpp hashes the GGUF in the llama.cpp cache | `/api/provider/verify-model` |
 
 Result cache **10 min** per alias; invalidate on weight-file stats, catalog fingerprint, or TTL. Fingerprints are cached to skip re-hash. Console redraw (3s) must not hammer verify — it reads `GetDisplayedModels()` from the last health snapshot.
 
@@ -126,17 +126,9 @@ No daemon, no key. Default catalog `https://core.inferoute.com`. `--provider-typ
 
 Memory for scoring: largest single NVIDIA GPU VRAM; Apple Silicon 65% of unified RAM; else 70% of system RAM with a CPU-path warning. Multi-GPU does **not** aggregate.
 
-Required = `min_size_bytes` × overhead (vLLM 1.50, unknown 1.35), plus catalog KV when `max_model_len` is set on a vLLM row.
+Required = `min_size_bytes` × overhead (vLLM 1.50, llama.cpp 1.20, unknown 1.35), plus catalog KV when `max_model_len` is set on a vLLM or llama.cpp row.
 
-Catalog `engines` is a runtime allowlist. NULL vLLM row ⇒ `vllm` + `vllm-metal`. **`freetoken` is never implied.** Windows `compatibility` / setup therefore hide untagged vLLM models. FreeToken families: https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md
-
-Scoring is keyed on `engine.Kind`, not GOOS (`ScoreModelFor(hw, entry, kind)`; `compat` resolves per-row via `engine.CompatKind`). Only `KindFreeToken` gets a second pass (`applyFreeTokenStrategy`):
-
-- VRAM status `runs_well`/`fits` ⇒ `MoeStrategy=fused`. `tight` is **not** trusted: the fused loader (`gpt_oss/weight.py iter_weights`, safe_open→cuda + `.clone()`) peaks above resident size and OOMed gpt-oss-20b on a 22.5 GiB L4.
-- Otherwise, if `MemoryKind==vram` and `SystemRAMBytes>0`: `hostRequired = min_size_bytes × 1.2` scored against `SystemRAMBytes` with the same thresholds ⇒ `MoeStrategy=auto`, `RequiredBytes`/`UsableBytes` swapped to the host numbers. Else `too_large`.
-- Setup writes the result to `provider.moe_strategy`; `ServeSpec` emits `--moe-backend <strategy>` (empty ⇒ `fused`; `--moe-backend` is the alias the installed CLI wheel understands, `--moe-strategy` is the new spelling).
-
-Known gap: the catalog has no MoE flag. A dense FreeToken model that is too large for VRAM would be offered `auto`, which FreeToken cannot offload. Add a catalog `moe_strategy` column before tagging dense models `freetoken`.
+Catalog `engines` is a runtime allowlist. NULL vLLM row ⇒ `vllm` + `vllm-metal`. NULL `llama_cpp` row ⇒ `llama_cpp`. Windows setup and `compatibility` fetch `service_type=llama_cpp`. llama-server is `llama-<tag>-bin-win-cuda-12.4-x64.zip` on Windows and the macOS arm64 tarball on Apple Silicon. `--jinja` is added when `tool_call_parser` is set.
 
 | Ratio | Status |
 |-------|--------|

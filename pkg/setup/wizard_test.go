@@ -90,7 +90,7 @@ func TestExecuteYesFreeToken(t *testing.T) {
 	var out bytes.Buffer
 	opts := Options{
 		ConfigPath:     cfgPath,
-		Engine:         "freetoken",
+		Engine:         "llama_cpp",
 		Model:          "Qwen/Qwen3-0.6B",
 		APIKey:         "k",
 		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
@@ -104,16 +104,14 @@ func TestExecuteYesFreeToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Provider.Engine != "freetoken" || cfg.Provider.ProviderType != "vllm" {
+	if cfg.Provider.Engine != "llama_cpp" || cfg.Provider.ProviderType != "llama_cpp" {
 		t.Errorf("engine/type = %q/%q", cfg.Provider.Engine, cfg.Provider.ProviderType)
 	}
-	if cfg.Provider.LLMURL != "http://127.0.0.1:1919" {
+	if cfg.Provider.LLMURL != "http://127.0.0.1:8081" {
 		t.Errorf("llm_url = %q", cfg.Provider.LLMURL)
 	}
-	// A 1 MB model never needs host offload; strategy is fused (or empty when
-	// this host has no detectable memory pool).
-	if cfg.Provider.MoeStrategy == engine.MoeAuto {
-		t.Errorf("tiny model must not be scored for offload: %+v", cfg.Provider)
+	if cfg.Provider.GGUFFile != "qwen3-0.6b-q4_k_m.gguf" {
+		t.Errorf("gguf_file = %q", cfg.Provider.GGUFFile)
 	}
 }
 
@@ -122,11 +120,11 @@ func TestResolveEngineRemapsServiceTypeVLLM(t *testing.T) {
 		goos, in string
 		want     engine.Kind
 	}{
-		{"windows", "vllm", engine.KindFreeToken},
+		{"windows", "vllm", engine.KindLlamaCpp},
 		{"darwin", "vllm", engine.KindVLLMMetal},
 		{"linux", "vllm", engine.KindVLLM},
-		{"windows", "freetoken", engine.KindFreeToken},
-		{"linux", "freetoken", engine.KindFreeToken},
+		{"windows", "llama_cpp", engine.KindLlamaCpp},
+		{"linux", "llama_cpp", engine.KindLlamaCpp},
 		{"darwin", "vllm-metal", engine.KindVLLMMetal},
 	}
 	for _, tt := range tests {
@@ -168,11 +166,11 @@ func TestExecuteYesVLLMWindowsUsesFreeToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Provider.Engine != "freetoken" || cfg.Provider.ProviderType != "vllm" {
-		t.Errorf("engine/type = %q/%q, want freetoken/vllm", cfg.Provider.Engine, cfg.Provider.ProviderType)
+	if cfg.Provider.Engine != "llama_cpp" || cfg.Provider.ProviderType != "llama_cpp" {
+		t.Errorf("engine/type = %q/%q, want llama_cpp/llama_cpp", cfg.Provider.Engine, cfg.Provider.ProviderType)
 	}
-	if cfg.Provider.LLMURL != "http://127.0.0.1:1919" {
-		t.Errorf("llm_url = %q, want :1919", cfg.Provider.LLMURL)
+	if cfg.Provider.LLMURL != "http://127.0.0.1:8081" {
+		t.Errorf("llm_url = %q, want :8081", cfg.Provider.LLMURL)
 	}
 }
 
@@ -192,7 +190,7 @@ func TestExecuteYesVLLMWindowsRejectsUntagged(t *testing.T) {
 		NoStart:        true,
 	}, Streams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
 	if err == nil {
-		t.Fatal("expected untagged encoder to be rejected on Windows vllm→freetoken")
+		t.Fatal("expected untagged encoder to be rejected on Windows vllm→llama_cpp")
 	}
 	if !strings.Contains(err.Error(), "baai/bge-m3") {
 		t.Errorf("error = %v", err)

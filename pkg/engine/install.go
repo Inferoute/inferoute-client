@@ -12,10 +12,8 @@ import (
 )
 
 const (
-	vllmMetalInstallURL        = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
-	freeTokenEngineManifestURL = "https://github.com/FlashML-org/FreeToken-Web/releases/download/beta/engine-win_amd64.json"
-	uvWindowsURL               = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
-	vllmDocsURL                = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
+	vllmMetalInstallURL = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
+	vllmDocsURL         = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
 )
 
 // Install runs the engine's official install path. It prints progress to w.
@@ -28,8 +26,8 @@ func Install(ctx context.Context, kind Kind, w io.Writer) error {
 		return installVLLM(ctx, w)
 	case KindVLLMMetal:
 		return installVLLMMetal(ctx, w)
-	case KindFreeToken:
-		return installFreeToken(ctx, w)
+	case KindLlamaCpp:
+		return installLlamaCpp(ctx, w)
 	default:
 		return fmt.Errorf("unknown engine %s", kind)
 	}
