@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-// shortcut: cache names are `<repo with / → _>_<hf filename>`, pinned to llama.cpp b11770.
+// --hf-repo stores the file under the HuggingFace hub snapshot, original name.
+// The flat `<repo with / → _>_<filename>` cache is only a fallback.
 var ggufShardName = regexp.MustCompile(`^(.+)-\d+-of-\d+\.gguf$`)
 
 func ggufName(entry CatalogEntry) string {
@@ -74,19 +75,20 @@ func listGGUF(cacheDir, repo, ggufFile string) ([]manifestFile, error) {
 	}
 	var files []manifestFile
 	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(strings.ToLower(name), ".gguf") {
+		if e.IsDir() || !wantedGGUF(e.Name(), prefix, ggufFile) {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			return nil, err
 		}
+		name := e.Name()
+		rel := name
+		if strings.HasPrefix(name, repoKey) {
+			rel = strings.TrimPrefix(name, repoKey)
+		}
 		files = append(files, manifestFile{
-			rel:     strings.TrimPrefix(name, repoKey),
+			rel:     rel,
 			abs:     filepath.Join(cacheDir, name),
 			size:    info.Size(),
 			modTime: info.ModTime().UnixNano(),
@@ -96,6 +98,92 @@ func listGGUF(cacheDir, repo, ggufFile string) ([]manifestFile, error) {
 		return nil, fmt.Errorf("no GGUF for %s in %s", ggufFile, cacheDir)
 	}
 	return files, nil
+}
+
+func wantedGGUF(name, prefix, ggufFile string) bool {
+	base := filepath.Base(name)
+	if !strings.HasSuffix(strings.ToLower(base), ".gguf") {
+		return false
+	}
+	if base == filepath.Base(strings.TrimSpace(ggufFile)) {
+		return true
+	}
+	stem := strings.TrimSuffix(filepath.Base(strings.TrimSpace(ggufFile)), ".gguf")
+	if m := ggufShardName.FindStringSubmatch(base); m != nil && m[1] == stem {
+		return true
+	}
+	return prefix != "" && strings.HasPrefix(base, prefix)
+}
+
+// resolveGGUFSnapshot finds the HuggingFace hub snapshot llama-server filled via --hf-repo.
+func resolveGGUFSnapshot(repo, revision string) (string, error) {
+	hub, err := DefaultHFHubCache()
+	if err != nil {
+		return "", err
+	}
+	cacheDir := filepath.Join(hub, HFRepoToCacheDir(strings.TrimSpace(repo)))
+	try := []string{strings.TrimSpace(revision), "main"}
+	for _, rev := range try {
+		if rev == "" {
+			continue
+		}
+		if snap, err := ggufSnapshot(cacheDir, rev); err == nil {
+			return snap, nil
+		}
+	}
+	snapshots := filepath.Join(cacheDir, "snapshots")
+	entries, err := os.ReadDir(snapshots)
+	if err != nil {
+		return "", fmt.Errorf("no GGUF snapshot for %s: %w", repo, err)
+	}
+	var found string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(snapshots, e.Name())
+		if !dirHasGGUF(candidate) {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("multiple GGUF snapshots under %s", cacheDir)
+		}
+		found = candidate
+	}
+	if found == "" {
+		return "", fmt.Errorf("no GGUF snapshot for %s", repo)
+	}
+	return found, nil
+}
+
+func ggufSnapshot(cacheDir, revision string) (string, error) {
+	snap := filepath.Join(cacheDir, "snapshots", revision)
+	if dirHasGGUF(snap) {
+		return snap, nil
+	}
+	data, err := os.ReadFile(filepath.Join(cacheDir, "refs", revision))
+	if err != nil {
+		return "", err
+	}
+	sha := strings.TrimSpace(string(data))
+	snap = filepath.Join(cacheDir, "snapshots", sha)
+	if sha != "" && dirHasGGUF(snap) {
+		return snap, nil
+	}
+	return "", fmt.Errorf("revision %s not found under %s", revision, cacheDir)
+}
+
+func dirHasGGUF(root string) bool {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".gguf") {
+			return true
+		}
+	}
+	return false
 }
 
 func ggufStats(cacheDir, repo, ggufFile string) (map[string]fileStat, error) {

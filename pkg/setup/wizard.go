@@ -343,7 +343,11 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", spec.CommandLine())
 		return nil
 	}
-	waitMsg := fmt.Sprintf("Waiting for %s to finish downloading and start serving at %s", engine.Label(kind), cfg.Provider.LLMURL)
+	model := strings.TrimSpace(cfg.Provider.Model)
+	if model == "" {
+		model = "the model"
+	}
+	waitMsg := fmt.Sprintf("Waiting for %s to finish downloading and start serving at %s", model, cfg.Provider.LLMURL)
 
 	if engine.PortOpen(ctx, cfg.Provider.LLMURL) {
 		fmt.Fprintf(io.Out, "\n%s is already starting at %s (port in use).\n", kind, cfg.Provider.LLMURL)

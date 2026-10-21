@@ -205,6 +205,12 @@ func (v *Verifier) resolveLlamaRoot(entry CatalogEntry) (string, error) {
 	if v.modelPathOverride != "" {
 		return filepath.Abs(v.modelPathOverride)
 	}
+	repo := hfRepoForCatalog("", entry)
+	if repo != "" {
+		if snap, err := resolveGGUFSnapshot(repo, hfRefForCatalog(entry)); err == nil {
+			return snap, nil
+		}
+	}
 	return DefaultLlamaCacheDir()
 }
 
