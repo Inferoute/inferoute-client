@@ -1,6 +1,6 @@
 # Inferoute Provider Client — technical overview
 
-Audience: **technical managers**. This is the GPU-side daemon (`inferoute-client`): tunnel, health, model verification, and the HMAC-gated OpenAI proxy in front of local vLLM, vLLM Metal, or FreeToken.
+Audience: **technical managers**. This is the GPU-side daemon (`inferoute-client`): outbound connection, health, model verification, and the HMAC-gated OpenAI proxy in front of local vLLM, vLLM Metal, or FreeToken.
 
 Operator/product narrative: [overview.md](overview.md). Platform routing, billing, and verify-judge: **inferoute-node** `documentation/technical.md`. Sticky-routing design: [plans/kv-cache-sticky-routing.md](plans/kv-cache-sticky-routing.md). Customer install: inferoute-docs `provider-client/`.
 
@@ -8,8 +8,8 @@ Operator/product narrative: [overview.md](overview.md). Platform routing, billin
 
 The client is not an inference engine. It is the Inferoute **cluster agent**:
 
-- Requests a Cloudflare tunnel and supervises `cloudflared`
-- Pushes health (models, GPU, tunnel URL — **never geolocation**)
+- Opens an outbound connection to Inferoute and reconnects if it drops
+- Pushes health (models, GPU — **never geolocation**)
 - Measures local weights; platform **judges** allowlisted aliases
 - Registers models + default prices
 - Accepts only HMAC’d `/v1/chat/completions`, `/v1/completions`, and `/v1/embeddings`, forwards to localhost LLM
@@ -20,13 +20,13 @@ Entry: `cmd/main.go`. Standalone `inferoute-client compatibility` exits before a
 ```mermaid
 flowchart LR
   Orch[Orchestrator / provider-comm]
-  CF[cloudflared tunnel]
+  GW[connect-gateway]
   Client[inferoute-client]
   LLM[vLLM, vLLM Metal, or FreeToken]
   Plat[core.inferoute.com]
 
-  Orch --> CF --> Client --> LLM
-  Client -->|health, verify, tunnel request, HMAC check| Plat
+  Orch --> GW --> Client --> LLM
+  Client -->|health, verify, connection, HMAC check| Plat
 ```
 
 ## Package layout
@@ -39,7 +39,7 @@ flowchart LR
 | `pkg/llm` | OpenAI-compatible client (`ListModels`, `ForwardRequest`) |
 | `pkg/gpu` | NVIDIA `nvidia-smi` (Linux/Windows, ~1s cache); basic info on macOS. Windows spawn uses `CREATE_NO_WINDOW` so the console does not flash. |
 | `pkg/compat` | Pre-flight hardware vs catalog scoring |
-| `pkg/cloudflare` | Tunnel request + `cloudflared` supervision. Invalid provider API key → `ErrInvalidAPIKey` (**401** from the platform). |
+| `pkg/connect` | Outbound connection. Invalid provider API key → `ErrInvalidAPIKey` (**401** from the platform). |
 | `pkg/tray` | Windows notification area; stub elsewhere |
 | `pkg/pricing` | Market prices + `POST /api/provider/models` |
 | `pkg/verify` | Catalog fetch, local measure, cache, inference gate |
@@ -56,8 +56,8 @@ Daemon:
 2. Logger, optional GPU monitor, LLM client
 3. `GET /api/models/approved-builds`
 4. Verifier + pricing registration
-5. HTTP server; `POST /api/cloudflare/tunnel/request`; start `cloudflared`. Invalid API key → process exits with an operator-facing message (not a raw 500).
-6. Health loop (`ReportInterval` = **3 minutes**): wait up to 30s for tunnel URL, initial push, then ticker **and** busy-edge pushes (10s cooldown)
+5. HTTP server and the outbound connection. Invalid API key → process exits with an operator-facing message (not a raw 500).
+6. Health loop (`ReportInterval` = **3 minutes**): initial push, then ticker **and** busy-edge pushes (10s cooldown)
 
 Windows: tray is default; process detaches so closing PowerShell does not kill it. `--console` for the TUI.
 
@@ -100,11 +100,11 @@ Platform affinity key (see node technical). Client tracks one active key (`max_c
 
 - Interval: 3 min + **immediate on busy flip** (buffered, 10s cooldown) so Redis `provider_busy` is seconds-stale, not minutes.
 - `is_busy`: GPU util > 20% **or** all inference slots taken (macOS / util- lag path).
-- Payload: models (with verification fields), GPU block, `cloudflare.url`, `provider_type`.
+- Payload: models (with verification fields), GPU block, `provider_type`.
 - Per cycle: refresh catalog → `ListModels` → `ApplyToModels` → register newly verified → `POST /api/provider/health`.
 - Local: `GET /api/health`, `GET /api/busy`.
 
-Platform persists GPU/tunnel, publishes RabbitMQ, resolves **country from tunnel `origin_ip`** — not from this payload.
+Platform persists GPU, publishes RabbitMQ, resolves **country from the connection’s public IP** — not from this payload.
 
 ## Verification (`pkg/verify`)
 
@@ -151,9 +151,9 @@ Fit only — not tokens/sec.
 
 Startup: list models → `POST /api/model-pricing/get-prices` → `POST /api/provider/models` (per-token). Health cycle registers newly verified models (HTTP 400 “already exists” → mark tracked). Dashboard later edits $/1M; this API is $/token.
 
-## Tunnel (`pkg/cloudflare`)
+## Connection (`pkg/connect`)
 
-`POST /api/cloudflare/tunnel/request` with `service_url` → `token` + `hostname` → `cloudflared tunnel run --token`. Supervise every **10s**, restart with backoff (max 30s). `cloudflared` must be on PATH (install scripts install it).
+At startup the client dials `wss://<provider.url>/api/connect/ws` (or `ws://` when the platform URL is `http`). It sends the provider API key and client version. Inference comes back over that connection. If it drops, the client reconnects with backoff (1s, doubling to 30s). A **401** is a bad API key and the process exits.
 
 ## HTTP surface
 
@@ -167,7 +167,7 @@ Startup: list models → `POST /api/model-pricing/get-prices` → `POST /api/pro
 | POST | `/v1/completions` | Proxy |
 | POST | `/v1/embeddings` | Proxy |
 
-TUI redraw 3s. Windows tray “Open dashboard” → `http://127.0.0.1:<port>/`. Operator routes (`/`, `/api/*`) are local-only; the tunnel forwards only the inference POSTs.
+TUI redraw 3s. Windows tray “Open dashboard” → `http://127.0.0.1:<port>/`. Operator routes (`/`, `/api/*`) stay on the local listener. The connection carries only the inference POSTs.
 
 ## Platforms
 
@@ -183,16 +183,16 @@ Client keeps running without GPU data. Compat probes can still score RAM.
 ## Deploy
 
 - Install scripts: `scripts/install.sh`, macOS/Windows variants; Docker `Dockerfile` + `scripts/entrypoint.sh`
-- Docker: LLM must bind `0.0.0.0`; `LLM_URL=http://host.docker.internal:<port>`. Client default bind is `127.0.0.1` — tunnel does not need a published port. Host dashboard requires `server.host: 0.0.0.0` plus `-p 127.0.0.1:8080:8080`.
+- Docker: LLM must bind `0.0.0.0`; `LLM_URL=http://host.docker.internal:<port>`. Client default bind is `127.0.0.1` — the connection does not need a published port. Host dashboard requires `server.host: 0.0.0.0` plus `-p 127.0.0.1:8080:8080`.
 - Binary config default `~/.config/inferoute/config.yaml`
 
 ## Cross-repo contracts
 
 | Topic | Owner |
 |-------|--------|
-| HMAC validate, verify-model judge, health ingest, tunnel tokens | inferoute-node |
+| HMAC validate, verify-model judge, health ingest, connect gateway | inferoute-node |
 | Affinity key + Redis pin + sticky 120s timeout | inferoute-node orchestrator |
 | `X-Session-Key` queue vs 503 | this client |
-| Cluster country | node cloudflare-service from `origin_ip` |
+| Cluster country | node connect-gateway from the connection’s public IP |
 
 If you change the session-queue wait, also change platform `PROVIDER_STICKY_INFERENCE_TIMEOUT` and this client’s `llm_timeout_seconds` / `request_timeout_seconds`.

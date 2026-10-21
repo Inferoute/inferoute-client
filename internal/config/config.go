@@ -196,21 +196,6 @@ func (c *Config) LLMTimeout() time.Duration {
 	return time.Duration(c.Provider.LLMTimeoutSeconds) * time.Second
 }
 
-// TunnelServiceURL returns the URL the Cloudflare tunnel should target (the proxy).
-// Loopback and all-interfaces binds are rewritten to 127.0.0.1 — not "localhost".
-// macOS resolves localhost to ::1 first; the server listens on 127.0.0.1, so
-// cloudflared then 502s. Linux/Windows typically hit IPv4 and hide the bug.
-func (c *Config) TunnelServiceURL() string {
-	host := c.Server.Host
-	switch host {
-	case "", "0.0.0.0", "127.0.0.1", "localhost":
-		return fmt.Sprintf("http://127.0.0.1:%d", c.Server.Port)
-	case "::1":
-		return fmt.Sprintf("http://[::1]:%d", c.Server.Port)
-	}
-	return fmt.Sprintf("http://%s:%d", host, c.Server.Port)
-}
-
 // LocalDashboardURL is the loopback URL for the in-process status page.
 func (c *Config) LocalDashboardURL() string {
 	return fmt.Sprintf("http://127.0.0.1:%d/", c.Server.Port)

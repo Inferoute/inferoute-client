@@ -9,21 +9,11 @@ import (
 // the inference slot. The queue has depth 1 in practice, so polling is fine.
 const slotAcquirePollInterval = 100 * time.Millisecond
 
-// gpuBusy reports NVIDIA utilization busy (Linux/Windows). Always false on macOS
-// and when no GPU monitor is available.
-func (s *Server) gpuBusy() (bool, error) {
-	if s.gpuMonitor == nil {
-		return false, nil
-	}
-	return s.gpuMonitor.IsBusy()
-}
-
-// isBusy is true if a slot is already taken or the GPU reports busy.
+// isBusy is true when every inference slot is taken.
+// nvidia-smi utilization is not an admission check: it is a trailing window
+// and stays high for about a second after this process's own forward.
 func (s *Server) isBusy() (bool, error) {
-	if s.slotsBusy() {
-		return true, nil
-	}
-	return s.gpuBusy()
+	return s.slotsBusy(), nil
 }
 
 // slotsBusy reports whether all inference slots are taken.

@@ -40,7 +40,7 @@ type StatusSnapshot struct {
 	ProviderAPIKey   string        `json:"provider_api_key"`
 	ProviderURL      string        `json:"provider_url"`
 	LLMURL           string        `json:"llm_url"`
-	TunnelURL        string        `json:"cloudflare_tunnel_url,omitempty"`
+	Connected        bool          `json:"connected"`
 	Models           []StatusModel `json:"models"`
 	GPU              *gpu.GPUInfo  `json:"gpu"`
 	RecentRequests   []RequestLog  `json:"recent_requests"`
@@ -61,11 +61,6 @@ func (s *Server) snapshot() StatusSnapshot {
 		if info, err := s.gpuMonitor.GetGPUInfo(); err == nil && info != nil {
 			gpuInfo = info
 		}
-	}
-
-	var tunnelURL string
-	if s.cloudflareClient != nil {
-		tunnelURL = s.cloudflareClient.GetTunnelURL()
 	}
 
 	lastUpdateStr := "Never"
@@ -112,7 +107,7 @@ func (s *Server) snapshot() StatusSnapshot {
 		ProviderAPIKey:   apiKey,
 		ProviderURL:      providerURL,
 		LLMURL:           llmURL,
-		TunnelURL:        tunnelURL,
+		Connected:        s.gatewayConnected(),
 		Models:           models,
 		GPU:              gpuInfo,
 		RecentRequests:   reqs,

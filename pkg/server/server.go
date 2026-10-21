@@ -10,9 +10,11 @@ import (
 	"os"
 	"time"
 
+	"errors"
+
 	"github.com/gorilla/mux"
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/connect"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
@@ -38,10 +40,6 @@ func maskStringHelper(s string) string {
 
 // Creates a new server
 func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *health.Reporter, verifier *verify.Verifier) *Server {
-	// Create Cloudflare client using provider API key
-	cloudflareClient := cloudflare.NewClient(cfg.Provider.URL, cfg.Provider.APIKey, cfg.TunnelServiceURL())
-
-	// Create LLM client based on provider type
 	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL, cfg.LLMTimeout())
 
 	s := &Server{
@@ -50,7 +48,6 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		healthReporter:   healthReporter,
 		llmClient:        llmClient,
 		verifier:         verifier,
-		cloudflareClient: cloudflareClient,
 		consoleUI:        true,
 		maxInflight:      int32(cfg.Server.MaxConcurrentInference),
 		sessionQueueWait: cfg.SessionQueueWait(),
@@ -72,28 +69,22 @@ func (s *Server) SetConsoleUI(enabled bool) {
 	s.consoleUI = enabled
 }
 
-// Start starts the server
+// Start starts the local dashboard and the outbound provider connection.
 func (s *Server) Start() error {
-	// Request and start Cloudflare tunnel on startup
-	if s.cloudflareClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		logger.Info("Requesting Cloudflare tunnel...")
-		if err := s.cloudflareClient.RequestTunnel(ctx); err != nil {
-			logger.Error("Failed to request Cloudflare tunnel", zap.Error(err))
-			return fmt.Errorf("failed to request tunnel: %w", err)
+	connectCtx, connectCancel := context.WithCancel(context.Background())
+	s.connectCancel = connectCancel
+	s.connector = connect.New(s.config.Provider.URL, s.config.Provider.APIKey, s.inferenceMux(), s.onConnect)
+	go func() {
+		if err := s.connector.Run(connectCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("provider connection stopped", zap.Error(err))
 		}
-
-		logger.Info("Starting Cloudflare tunnel...")
-		if err := s.cloudflareClient.StartTunnel(ctx); err != nil {
-			logger.Error("Failed to start Cloudflare tunnel", zap.Error(err))
-			return fmt.Errorf("failed to start tunnel: %w", err)
-		}
-
-		logger.Info("Cloudflare tunnel is running",
-			zap.String("hostname", s.cloudflareClient.GetHostname()),
-			zap.String("url", s.cloudflareClient.GetTunnelURL()))
+	}()
+	readyCtx, readyCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	err := s.connector.Ready(readyCtx)
+	readyCancel()
+	if errors.Is(err, connect.ErrInvalidAPIKey) {
+		connectCancel()
+		return fmt.Errorf("failed to connect: %w", err)
 	}
 
 	// Create router
@@ -136,13 +127,8 @@ func (s *Server) Start() error {
 // Stop stops the server
 func (s *Server) Stop(ctx context.Context) error {
 	logger.Info("Stopping HTTP server")
-
-	// Stop Cloudflare tunnel
-	if s.cloudflareClient != nil {
-		logger.Info("Stopping Cloudflare tunnel")
-		if err := s.cloudflareClient.StopTunnel(); err != nil {
-			logger.Error("Failed to stop Cloudflare tunnel", zap.Error(err))
-		}
+	if s.connectCancel != nil {
+		s.connectCancel()
 	}
 
 	if s.server == nil {
@@ -151,9 +137,27 @@ func (s *Server) Stop(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
-// GetCloudflareClient returns the server's Cloudflare client
-func (s *Server) GetCloudflareClient() *cloudflare.Client {
-	return s.cloudflareClient
+func (s *Server) inferenceMux() http.Handler {
+	r := mux.NewRouter()
+	r.HandleFunc("/v1/chat/completions", s.handleChatCompletions).Methods(http.MethodPost)
+	r.HandleFunc("/v1/completions", s.handleCompletions).Methods(http.MethodPost)
+	r.HandleFunc("/v1/embeddings", s.handleEmbeddings).Methods(http.MethodPost)
+	return r
+}
+
+func (s *Server) onConnect() {
+	if s.healthReporter == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.healthReporter.SendHealthReport(ctx); err != nil {
+		logger.Error("health report after connect failed", zap.Error(err))
+	}
+}
+
+func (s *Server) gatewayConnected() bool {
+	return s.connector != nil && s.connector.Connected()
 }
 
 // consoleUpdater periodically updates the console with request stats and errors
@@ -196,9 +200,11 @@ func (s *Server) redrawConsole() {
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider API Key              \033[0m%s\n", snap.ProviderAPIKey))
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", snap.ProviderURL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", snap.LLMURL))
-	if snap.TunnelURL != "" {
-		buf.WriteString(fmt.Sprintf("\033[1;35mCloudflare Tunnel URL         \033[0m%s\n", snap.TunnelURL))
+	state := "connecting"
+	if snap.Connected {
+		state = "connected"
 	}
+	buf.WriteString(fmt.Sprintf("\033[1;35mPlatform connection           \033[0m%s\n", state))
 
 	s.writeModelStatus(&buf, snap.Models)
 

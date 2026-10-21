@@ -228,8 +228,6 @@ func main() {
 		serverErr <- srv.Start()
 	}()
 
-	healthReporter.SetCloudflareClient(srv.GetCloudflareClient())
-
 	go func() {
 		interval := health.ReportInterval
 		ticker := time.NewTicker(interval)
@@ -257,37 +255,10 @@ func main() {
 			logger.Error(msg, zap.Error(err))
 		}
 
-		// StartTunnel holds ~10s after RequestTunnel sets the hostname, so a
-		// URL is not proof the tunnel is up. Wait for the supervised process.
-		waitDeadline := time.Now().Add(45 * time.Second)
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-			cf := srv.GetCloudflareClient()
-			if cf != nil && cf.IsRunning() && cf.GetTunnelURL() != "" {
-				break
-			}
-			if time.Now().After(waitDeadline) {
-				logger.Warn("Cloudflare tunnel not running before initial health report timeout")
-				break
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(1 * time.Second):
-			}
-		}
-
 		if ctx.Err() != nil {
 			return
 		}
-		cf := srv.GetCloudflareClient()
-		if cf == nil || !cf.IsRunning() {
-			logger.Warn("Skipping initial health report; tunnel is not running")
-		} else {
-			report("Failed to send initial health report")
-		}
+		report("Failed to send initial health report")
 
 		for {
 			select {

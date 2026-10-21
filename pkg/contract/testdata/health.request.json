@@ -24,10 +24,5 @@
     "memory_free": 23552,
     "is_busy": false
   },
-  "cloudflare": {
-    "url": "https://inferoute-cluster1.example.com",
-    "public_ip": "203.0.113.10",
-    "location": "London, England, United Kingdom"
-  },
   "provider_type": "vllm"
 }

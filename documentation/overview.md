@@ -12,8 +12,8 @@ Providers install it with a one-liner (Linux/macOS) or a PowerShell script (Wind
 
 ## What it does
 
-1. **Opens a private path to the platform.** At startup it asks Inferoute for a Cloudflare tunnel and runs `cloudflared`. Inferoute can reach the machine without any inbound firewall ports. Each cluster gets its own hostname on the Inferoute tunnel domain.
-2. **Tells the platform the machine is alive.** Every three minutes (and immediately when the GPU goes busy or idle) it reports loaded models, GPU info, and the tunnel URL. If reports stop for five minutes, the platform stops sending work.
+1. **Opens a private path to the platform.** At startup it opens an outbound connection to Inferoute and reconnects if that connection drops. Inferoute sends inference back over it. No extra binary, no inbound ports, no public URL.
+2. **Tells the platform the machine is alive.** Every three minutes (and immediately when the GPU goes busy or idle) it reports loaded models and GPU info. If reports stop for five minutes, the platform stops sending work.
 3. **Registers models and default prices.** On first start it publishes whatever the local engine has loaded, using market-average prices. The provider then sets real prices in the dashboard.
 4. **Proves the weights match the name.** For marketplace-listed models, the client hashes local weight files and the platform decides `verified` / `failed`. Unverified allowlisted models are not served.
 5. **Runs inference only for real Inferoute traffic.** Incoming chat/completion requests must carry a one-time request token. The client checks it with the platform, then forwards the body to the local engine. Random internet callers cannot use the GPU.
@@ -23,7 +23,7 @@ There is also a **compatibility** command that does not start the service. It lo
 
 ## What the operator sees
 
-- **Linux / macOS:** a terminal dashboard that refreshes every few seconds (session, tunnel URL, GPU, model approval, recent requests).
+- **Linux / macOS:** a terminal dashboard that refreshes every few seconds (session, connection, GPU, model approval, recent requests).
 - **Windows:** the client lives in the notification area by default. From a terminal, the prompt waits until `http://127.0.0.1:8080/` is up, then returns. Closing the terminal does not stop it. “Open dashboard” shows the same status in a browser. `--console` keeps the old terminal UI.
 
 Logs rotate under `~/.local/state/inferoute/log` (Windows: under the user’s state directory).
@@ -38,7 +38,7 @@ Logs rotate under `~/.local/state/inferoute/log` (Windows: under the user’s st
 
 Hardware bar for a useful cluster: **32 GB** of system memory and an NVIDIA GPU with **24 GB+** VRAM on Linux; on Windows **32 GB** of RAM plus a **fixed 64 GB page file** (or **64 GB** of RAM) and **24 GB+** VRAM; or Apple Silicon with **48 GB+** unified memory. The compatibility command scores that conservatively.
 
-Docker is supported, but the local LLM must be reachable from the container (`host.docker.internal` is the usual pattern). `cloudflared` must be on the PATH; install scripts put it there.
+Docker is supported, but the local LLM must be reachable from the container (`host.docker.internal` is the usual pattern). The connection to Inferoute is outbound, so the client does not need a published port.
 
 ## How this relates to money and routing
 

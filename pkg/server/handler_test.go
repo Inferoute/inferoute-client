@@ -428,6 +428,21 @@ func TestSameSessionQueueTimesOut(t *testing.T) {
 	}
 }
 
+func TestIsBusyIsSlotOnly(t *testing.T) {
+	s := &Server{maxInflight: 1}
+	busy, err := s.isBusy()
+	if err != nil || busy {
+		t.Fatalf("free slot: busy=%v err=%v", busy, err)
+	}
+	if !s.tryAcquireInference() {
+		t.Fatal("acquire")
+	}
+	busy, err = s.isBusy()
+	if err != nil || !busy {
+		t.Fatalf("held slot: busy=%v err=%v", busy, err)
+	}
+}
+
 func TestTryAcquireInference(t *testing.T) {
 	s := &Server{maxInflight: 1}
 	if !s.tryAcquireInference() {

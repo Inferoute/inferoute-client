@@ -6,8 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"context"
+
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/cloudflare"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/connect"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
@@ -21,7 +23,8 @@ type Server struct {
 	healthReporter   *health.Reporter
 	llmClient        llm.Client
 	verifier         *verify.Verifier
-	cloudflareClient *cloudflare.Client
+	connector        *connect.Client
+	connectCancel    context.CancelFunc
 	consoleUI        bool
 	maxInflight      int32
 	inflight         atomic.Int32
