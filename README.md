@@ -16,7 +16,7 @@ The Inferoute Provider Client is a lightweight Go service that runs next to vLLM
 ## 💻 Hardware Requirements
 
 - **Linux:** At least **32 GB** of system memory and an NVIDIA GPU with **24 GB** of VRAM (for example RTX 3090 or RTX 4090)
-- **Windows:** **32 GB** of RAM and an NVIDIA GPU with **24 GB** of VRAM. See [docs/windows.md](docs/windows.md).
+- **Windows:** **32 GB** of RAM and an NVIDIA GPU with **24 GB** of VRAM. See the [Windows install documentation](https://docs.inferoute.com/introduction/setup-windows).
 - **macOS:** Apple Silicon with at least **48 GB** of unified memory
 
 
@@ -64,7 +64,7 @@ export SERVER_PORT="8080"
 curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
 
-[Override default parameters](https://github.com/inferoute/inferoute-client/blob/main/docs/override.md)
+[Override default parameters](https://docs.inferoute.com/provider-client/configuration#overriding-defaults)
 
 
 ## 🚀 Launch Inferoute-client 
