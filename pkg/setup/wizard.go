@@ -57,7 +57,6 @@ func Execute(opts Options, io Streams) error {
 
 	detected := engine.Detect(kind)
 	autoStart := true
-	installedNow := false
 	if !detected.Found {
 		doInstall := opts.Install
 		if !opts.Yes {
@@ -72,34 +71,16 @@ func Execute(opts Options, io Streams) error {
 			doInstall = ok
 		}
 		if doInstall {
-			var err error
-			if kind == engine.KindFreeToken {
-				err = SpinWhile(io.Out, "Installing FreeToken CLI (CUDA PyTorch download can take several minutes)", func() error {
-					return engine.Install(context.Background(), kind, nil)
-				})
-			} else {
-				fmt.Fprintf(io.Out, "Installing %s...\n", kind)
-				err = engine.Install(context.Background(), kind, io.Out)
-			}
-			if err != nil {
+			fmt.Fprintf(io.Out, "Installing %s...\n", engine.Label(kind))
+			if err := engine.Install(context.Background(), kind, io.Out); err != nil {
 				fmt.Fprintf(io.Err, "install failed: %v\n", err)
 				autoStart = false
 			} else {
 				detected = engine.Detect(kind)
-				installedNow = true
 			}
 		} else {
 			autoStart = false
 			fmt.Fprintf(io.Out, "Skipping install. You can install %s later and re-run inferoute-client setup.\n", kind)
-		}
-	}
-	if kind == engine.KindFreeToken && detected.Found && !installedNow {
-		err := SpinWhile(io.Out, "Installing CUDA PyTorch for FreeToken (PyPI torch on Windows is CPU-only)", func() error {
-			return engine.EnsureFreeTokenCUDATorch(context.Background(), nil)
-		})
-		if err != nil {
-			fmt.Fprintf(io.Err, "CUDA PyTorch install failed: %v\n", err)
-			return err
 		}
 	}
 	if detected.Found {
@@ -122,7 +103,6 @@ func Execute(opts Options, io Streams) error {
 	hfRepo := engine.HFRepo(entry)
 	applyServeOpts(cfg, entry, hfRepo)
 	serveOpts := engine.ServeOptsFromCatalog(entry)
-	serveOpts.MoeStrategy = cfg.Provider.MoeStrategy
 	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo, serveOpts)
 
 	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
@@ -237,7 +217,7 @@ func applyEngine(cfg *config.Config, opts Options, io Streams) (engine.Kind, err
 func resolveEngine(goos, name string) (engine.Kind, error) {
 	k, ok := engine.ParseKind(name)
 	if !ok {
-		return "", fmt.Errorf("unknown engine %q (vllm, vllm-metal, freetoken)", name)
+		return "", fmt.Errorf("unknown engine %q (vllm, vllm-metal, llama_cpp)", name)
 	}
 	return engine.RuntimeKind(goos, k), nil
 }
@@ -282,17 +262,15 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		for _, e := range entries {
 			if e.Alias == opts.Model {
 				cfg.Provider.Model = e.Alias
-				cfg.Provider.MoeStrategy = compat.ScoreModelFor(hw, e, kind).MoeStrategy
 				return e, nil
 			}
 		}
-		return verify.CatalogEntry{}, fmt.Errorf("model %q is not supported by %s%s", opts.Model, engine.Label(kind), engineHint(kind))
+		return verify.CatalogEntry{}, fmt.Errorf("model %q is not supported by %s", opts.Model, engine.Label(kind))
 	}
 	if opts.Yes {
 		if cfg.Provider.Model != "" {
 			for _, e := range entries {
 				if e.Alias == cfg.Provider.Model {
-					cfg.Provider.MoeStrategy = compat.ScoreModelFor(hw, e, kind).MoeStrategy
 					return e, nil
 				}
 			}
@@ -305,9 +283,6 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		return verify.CatalogEntry{}, err
 	}
 	if len(report.Models) == 0 {
-		if kind == engine.KindFreeToken {
-			return verify.CatalogEntry{}, fmt.Errorf("no fitting models for FreeToken on this machine. FreeToken only serves tagged catalog models — %s", verify.FreeTokenModelsDoc)
-		}
 		return verify.CatalogEntry{}, fmt.Errorf("no fitting models in the catalog")
 	}
 
@@ -334,10 +309,6 @@ func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL 
 		entry.HFRepo = picked.HFRepo
 	}
 	cfg.Provider.Model = entry.Alias
-	cfg.Provider.MoeStrategy = picked.MoeStrategy
-	if picked.MoeStrategy == engine.MoeAuto {
-		fmt.Fprintf(io.Out, "%s does not fit in VRAM alone. FreeToken will keep MoE experts in system RAM (offload). On Windows, set a 64 GB page file when you have 32 GB of RAM.\n", entry.Alias)
-	}
 	return entry, nil
 }
 
@@ -351,6 +322,11 @@ func applyServeOpts(cfg *config.Config, entry verify.CatalogEntry, hfRepo string
 		cfg.Provider.HFRepo = hfRepo
 	} else {
 		cfg.Provider.HFRepo = ""
+	}
+	if entry.GGUFFile != nil {
+		cfg.Provider.GGUFFile = strings.TrimSpace(*entry.GGUFFile)
+	} else {
+		cfg.Provider.GGUFFile = ""
 	}
 }
 
@@ -424,9 +400,3 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func engineHint(kind engine.Kind) string {
-	if kind == engine.KindFreeToken {
-		return ". See " + verify.FreeTokenModelsDoc
-	}
-	return ""
-}

@@ -46,12 +46,12 @@ $SkipSetup = $env:INFEROUTE_SKIP_SETUP -eq "1"
 $ProviderApiKey = $env:PROVIDER_API_KEY
 $ProviderType = $env:PROVIDER_TYPE
 if ([string]::IsNullOrWhiteSpace($ProviderType)) {
-    $ProviderType = "freetoken"
+    $ProviderType = "llama_cpp"
 }
-# Windows has no native vLLM — dashboard copies with PROVIDER_TYPE=vllm install FreeToken.
+# Windows has no native vLLM — dashboard copies with PROVIDER_TYPE=vllm install llama.cpp.
 $Engine = $ProviderType
 if ($Engine -eq "vllm") {
-    $Engine = "freetoken"
+    $Engine = "llama_cpp"
 }
 
 $ServerPort = $env:SERVER_PORT
@@ -61,7 +61,7 @@ if ([string]::IsNullOrWhiteSpace($ServerPort)) {
 
 $LlmUrl = $env:LLM_URL
 if ([string]::IsNullOrWhiteSpace($LlmUrl)) {
-    $LlmUrl = "http://127.0.0.1:1919"
+    $LlmUrl = "http://127.0.0.1:8081"
 }
 
 $HomeDir = $env:USERPROFILE
@@ -154,7 +154,7 @@ if ($SkipSetup) {
     $content = [System.IO.File]::ReadAllText($ConfigPath)
     $content = [regex]::Replace($content, '(?m)^(\s*port:\s*).*$', "`${1}$ServerPort")
     $content = [regex]::Replace($content, '(?m)^(\s*api_key:\s*).*$', "`${1}`"$ProviderApiKey`"")
-    $content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', '${1}"vllm"')
+    $content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', '${1}"llama_cpp"')
     $content = [regex]::Replace($content, '(?m)^(\s*)# engine:.*$', "`${1}engine: `"$Engine`"")
     $content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$LlmUrl`"")
     Write-Utf8File $ConfigPath $content
@@ -202,5 +202,5 @@ Write-Info "Re-run the wizard anytime:  inferoute-client setup"
 Write-Info "Right-click the Inferoute tray icon -> Open dashboard for live status."
 Write-Host "  inferoute-client --console   (terminal UI instead of tray)"
 Write-Host ""
-Write-Warn "Windows: FreeToken only. Allow Windows Firewall if prompted. NVIDIA GPU metrics need nvidia-smi on PATH."
+Write-Warn "Windows: llama.cpp (CUDA) only. Allow Windows Firewall if prompted. NVIDIA GPU metrics need nvidia-smi on PATH."
 Write-Warn "Unsigned download: SmartScreen may show 'Windows protected your PC' -> More info -> Run anyway."

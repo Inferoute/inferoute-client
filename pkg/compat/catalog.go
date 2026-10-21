@@ -7,9 +7,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
@@ -26,7 +28,7 @@ func FetchCatalog(ctx context.Context, catalogURL, providerType string) ([]verif
 
 	types := []string{providerType}
 	if strings.TrimSpace(providerType) == "" {
-		types = []string{"vllm"}
+		types = []string{engineCatalogType()}
 	}
 
 	client := nodeapi.NewHTTPClient(30 * time.Second)
@@ -117,4 +119,8 @@ func LoadOfflineCatalog(path, providerType string) ([]verify.CatalogEntry, error
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+func engineCatalogType() string {
+	return engine.CatalogType(engine.CompatKind(runtime.GOOS, ""))
 }

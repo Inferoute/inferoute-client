@@ -91,13 +91,19 @@ func (v *Verifier) VerifyVLLMModel(ctx context.Context, alias string) (Result, e
 		return res, nil
 	}
 
-	root, err := v.resolveVLLMRoot(entry, alias)
+	var root string
+	var err error
+	if v.serviceType == "llama_cpp" {
+		root, err = v.resolveLlamaRoot(entry)
+	} else {
+		root, err = v.resolveVLLMRoot(entry, alias)
+	}
 	if err != nil {
 		res.Status = StatusFailed
 		return res, fmt.Errorf("locate weights for %s: %w", alias, err)
 	}
 
-	currentStats, err := weightDirStats(root)
+	currentStats, err := v.weightStats(alias, root)
 	if err != nil {
 		res.Status = StatusFailed
 		return res, err
@@ -168,7 +174,7 @@ func verifyResultFresh(entry *verifyResultEntry) bool {
 }
 
 func (v *Verifier) measureWithCache(alias, root string) (files []FileMeasurement, stale bool, err error) {
-	currentStats, err := weightDirStats(root)
+	currentStats, err := v.weightStats(alias, root)
 	if err != nil {
 		return nil, false, err
 	}
@@ -181,13 +187,33 @@ func (v *Verifier) measureWithCache(alias, root string) (files []FileMeasurement
 		return prev.files, false, nil
 	}
 
-	files, err = measureWeightDir(root)
+	if v.serviceType == "llama_cpp" {
+		entry, _ := v.catalog.Get(alias)
+		files, err = measureGGUF(root, hfRepoForCatalog(alias, entry), ggufName(entry))
+	} else {
+		files, err = measureWeightDir(root)
+	}
 	if err != nil {
 		return nil, false, err
 	}
 
 	v.cache[alias] = &fingerprintCache{files: files, stats: currentStats}
 	return files, hadCache, nil
+}
+
+func (v *Verifier) resolveLlamaRoot(entry CatalogEntry) (string, error) {
+	if v.modelPathOverride != "" {
+		return filepath.Abs(v.modelPathOverride)
+	}
+	return DefaultLlamaCacheDir()
+}
+
+func (v *Verifier) weightStats(alias, root string) (map[string]fileStat, error) {
+	if v.serviceType != "llama_cpp" {
+		return weightDirStats(root)
+	}
+	entry, _ := v.catalog.Get(alias)
+	return ggufStats(root, hfRepoForCatalog(alias, entry), ggufName(entry))
 }
 
 func fileStatsEqual(a, b map[string]fileStat) bool {
@@ -229,7 +255,7 @@ func (v *Verifier) ApplyToModels(ctx context.Context, llmClient llm.Client, mode
 	for i, m := range models {
 		out[i] = m
 		switch v.serviceType {
-		case "vllm":
+		case "vllm", "llama_cpp":
 			res, err := v.VerifyVLLMModel(ctx, m.ID)
 			if err != nil {
 				logger.Error("vLLM verification error", zap.String("alias", m.ID), zap.Error(err))

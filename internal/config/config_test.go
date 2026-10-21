@@ -86,10 +86,10 @@ func TestLoadEngineDefaultsFromProviderType(t *testing.T) {
 			wantType:   "vllm",
 		},
 		{
-			name:       "freetoken maps platform type to vllm",
-			yaml:       "provider:\n  engine: freetoken\n  auto_start: true\n  model: Qwen/Qwen2.5-7B-Instruct\n",
-			wantEngine: "freetoken",
-			wantType:   "vllm",
+			name:       "llama_cpp keeps its platform type",
+			yaml:       "provider:\n  engine: llama_cpp\n  auto_start: true\n  model: Qwen/Qwen2.5-7B-Instruct\n",
+			wantEngine: "llama_cpp",
+			wantType:   "llama_cpp",
 			wantAuto:   true,
 		},
 	}
@@ -126,17 +126,17 @@ func TestSaveRoundTrip(t *testing.T) {
 	in.Server.Host = "127.0.0.1"
 	in.Provider.APIKey = "test-key"
 	in.Provider.URL = "https://core.inferoute.com"
-	in.Provider.Engine = "freetoken"
-	in.Provider.ProviderType = "vllm"
-	in.Provider.LLMURL = "http://127.0.0.1:1919"
+	in.Provider.Engine = "llama_cpp"
+	in.Provider.ProviderType = "llama_cpp"
+	in.Provider.LLMURL = "http://127.0.0.1:8081"
 	in.Provider.Model = "Qwen/Qwen2.5-7B-Instruct"
 	in.Provider.AutoStart = true
-	in.Provider.EngineBin = `C:\Users\you\AppData\Local\FreeToken\ft.exe`
+	in.Provider.EngineBin = `C:\Users\you\AppData\Local\inferoute\llama.cpp\llama-server.exe`
+	in.Provider.GGUFFile = "qwen2.5-7b-instruct-q4_k_m.gguf"
 	in.Provider.ToolCallParser = "hermes"
 	in.Provider.MaxModelLen = 131072
 	in.Provider.RopeType = "yarn"
 	in.Provider.RopeBaseContextLen = 32768
-	in.Provider.MoeStrategy = "AUTO"
 
 	if err := Save(path, in); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -145,7 +145,7 @@ func TestSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if out.Provider.Engine != "freetoken" || out.Provider.ProviderType != "vllm" {
+	if out.Provider.Engine != "llama_cpp" || out.Provider.ProviderType != "llama_cpp" {
 		t.Errorf("engine/type = %q/%q", out.Provider.Engine, out.Provider.ProviderType)
 	}
 	if !out.Provider.AutoStart || out.Provider.Model != "Qwen/Qwen2.5-7B-Instruct" {
@@ -158,8 +158,8 @@ func TestSaveRoundTrip(t *testing.T) {
 		out.Provider.RopeType != "yarn" || out.Provider.RopeBaseContextLen != 32768 {
 		t.Errorf("serve flags = %+v", out.Provider)
 	}
-	if out.Provider.MoeStrategy != "auto" {
-		t.Errorf("MoeStrategy = %q, want normalized %q", out.Provider.MoeStrategy, "auto")
+	if out.Provider.GGUFFile != "qwen2.5-7b-instruct-q4_k_m.gguf" {
+		t.Errorf("GGUFFile = %q", out.Provider.GGUFFile)
 	}
 }
 
@@ -187,11 +187,11 @@ func TestPlatformTypeAndDefaultURL(t *testing.T) {
 	if got := DefaultLLMURL("vllm"); got != "http://127.0.0.1:8000" {
 		t.Errorf("DefaultLLMURL(vllm) = %q", got)
 	}
-	if got := PlatformType("freetoken"); got != "vllm" {
-		t.Errorf("PlatformType(freetoken) = %q", got)
+	if got := PlatformType("llama_cpp"); got != "llama_cpp" {
+		t.Errorf("PlatformType(llama_cpp) = %q", got)
 	}
-	if got := DefaultLLMURL("freetoken"); got != "http://127.0.0.1:1919" {
-		t.Errorf("DefaultLLMURL(freetoken) = %q", got)
+	if got := DefaultLLMURL("llama_cpp"); got != "http://127.0.0.1:8081" {
+		t.Errorf("DefaultLLMURL(llama_cpp) = %q", got)
 	}
 }
 

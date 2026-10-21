@@ -1,6 +1,6 @@
 # Inferoute Provider Client
 
-The Inferoute Provider Client is a lightweight Go service that runs next to vLLM, vLLM Metal, or FreeToken. It handles health monitoring, reporting, and inference request handling.
+The Inferoute Provider Client is a lightweight Go service that runs next to vLLM, vLLM Metal, or llama.cpp. It handles health monitoring, reporting, and inference request handling.
 
 
 ## Supported platforms
@@ -8,15 +8,15 @@ The Inferoute Provider Client is a lightweight Go service that runs next to vLLM
 | Platform | GPU | LLM backend |
 |----------|-----|-------------|
 | **Linux + NVIDIA** | Full monitoring via `nvidia-smi` | vLLM |
-| **macOS** (Apple Silicon) | Basic info via `system_profiler` | vLLM Metal |
-| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | FreeToken (tagged catalog models only) |
+| **macOS** (Apple Silicon) | Basic info via `system_profiler` | vLLM Metal or llama.cpp |
+| **Windows amd64** | `nvidia-smi` when the NVIDIA driver is installed | llama.cpp (GGUF catalog rows) |
 
 
 
 ## 💻 Hardware Requirements
 
 - **Linux:** At least **32 GB** of system memory and an NVIDIA GPU with **24 GB** of VRAM (for example RTX 3090 or RTX 4090)
-- **Windows:** **32 GB** of RAM plus a **fixed 64 GB page file**, or **64 GB** of RAM, and an NVIDIA GPU with **24 GB** of VRAM. See [docs/windows.md](docs/windows.md#memory-where-the-model-lives).
+- **Windows:** **32 GB** of RAM and an NVIDIA GPU with **24 GB** of VRAM. See [docs/windows.md](docs/windows.md).
 - **macOS:** Apple Silicon with at least **48 GB** of unified memory
 
 
@@ -41,7 +41,7 @@ Additional information: see the [macOS install documentation](https://docs.infer
 
 #### Windows (PowerShell)
 
-Requires 64-bit Windows and an NVIDIA GPU. The wizard offers FreeToken.
+Requires 64-bit Windows and an NVIDIA GPU. The wizard offers llama.cpp.
 
 ```powershell
 irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
@@ -92,16 +92,14 @@ inferoute-client compatibility --offline-catalog ./approved-models.json
 
 Statuses: `runs_well`, `fits`, `tight`, `too_large`, `unknown`. Scoring uses catalog `min_size_bytes` plus a conservative runtime overhead (higher for vLLM). Apple Silicon uses a fraction of unified system RAM; Linux scores against the largest single GPU’s VRAM.
 
-Catalog `engines` further filters the list. Untagged vLLM rows are **not** offered to FreeToken. On Windows, `compatibility` hides those rows; they show as unsupported in the dashboard. FreeToken’s supported families: https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md
-
-FreeToken rows carry a `MOE` column: `fused` when the model fits in VRAM, `auto` when experts must be offloaded to system RAM (scored as `weights × 1.2` against RAM). See [docs/windows.md](docs/windows.md#memory-where-the-model-lives) for the page-file requirement.
+Catalog `engines` further filters the list. On Windows, `compatibility` lists `llama_cpp` rows (GGUF). Untagged vLLM rows stay on Linux and macOS.
 
 
 ## 📦 Docker Installation
 
 The official Inferoute Docker image inferoute/inferoute-client is available on Docker Hub. 
 
-If the inference engine runs on the Docker host, bind it to `0.0.0.0` so the container can reach it. Set `LLM_URL` to `http://host.docker.internal:8000` (vLLM) or `:1919` (FreeToken). `host.docker.internal` resolves to the Docker host.
+If the inference engine runs on the Docker host, bind it to `0.0.0.0` so the container can reach it. Set `LLM_URL` to `http://host.docker.internal:8000` (vLLM) or `:8081` (llama.cpp). `host.docker.internal` resolves to the Docker host.
 
 The client listens on `127.0.0.1` inside the container. The Cloudflare tunnel does **not** need a published port. To open the local dashboard from the host, set `server.host` to `0.0.0.0` in the container config and publish the port (for example `-p 127.0.0.1:8080:8080`).
 
@@ -159,9 +157,9 @@ The configuration file (`config.yaml`) contains the following settings:
 
 - **server**: Server configuration (port, host) to access rest API's. 
 - **provider**: Provider configuration (API key, central system URL)
-  - **provider_type**: Platform provider type (default: `"vllm"`). vLLM, vLLM Metal, and FreeToken all use this.
-  - **engine**: Local binary: `vllm`, `vllm-metal`, or `freetoken`
-  - **llm_url**: URL of the local engine (default: `http://127.0.0.1:8000`; FreeToken: `http://127.0.0.1:1919`)
+  - **provider_type**: Platform provider type. `vllm` for vLLM and vLLM Metal. `llama_cpp` for llama.cpp.
+  - **engine**: Local binary: `vllm`, `vllm-metal`, or `llama_cpp`
+  - **llm_url**: URL of the local engine (default: `http://127.0.0.1:8000`; llama.cpp: `http://127.0.0.1:8081`)
 - **logging**: Logging configuration
   - **level**: Log level (debug, info, warn, error)
   - **log_dir**: Directory where logs are stored (defaults to ~/.local/state/inferoute/log)

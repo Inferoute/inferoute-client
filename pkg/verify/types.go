@@ -34,6 +34,7 @@ type CatalogEntry struct {
 	RopeBaseContextLen    *int64   `json:"rope_base_context_len,omitempty"`
 	KVCacheBytesPerToken  *int64   `json:"kv_cache_bytes_per_token,omitempty"`
 	Engines               []string `json:"engines,omitempty"`
+	GGUFFile              *string  `json:"gguf_file,omitempty"`
 }
 
 // catalogResponse is the public list from GET /api/models/approved-builds.

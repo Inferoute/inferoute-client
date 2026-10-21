@@ -32,9 +32,6 @@ type ModelResult struct {
 	HFRepo        *string   `json:"hf_repo,omitempty"`
 	HFRef         *string   `json:"hf_ref,omitempty"`
 	MaxModelLen   *int64    `json:"max_model_len,omitempty"`
-	// MoeStrategy is set for FreeToken only: engine.MoeFused when the model
-	// fits in VRAM, engine.MoeAuto when experts must live in system RAM.
-	MoeStrategy string `json:"moe_strategy,omitempty"`
 }
 
 // ScoreModels scores approved catalog entries for the engine that will serve them.
@@ -46,57 +43,10 @@ func ScoreModels(hw *Hardware, entries []verify.CatalogEntry, kind engine.Kind) 
 	return out
 }
 
-// ScoreModelFor scores one entry for a specific engine. FreeToken can fall back
-// to host-RAM expert offload when the GPU alone is too small; other engines use
-// the plain memory-pool fit from ScoreModel.
+// ScoreModelFor scores one entry for the engine that will serve it.
 func ScoreModelFor(hw *Hardware, entry verify.CatalogEntry, kind engine.Kind) ModelResult {
-	res := ScoreModel(hw, entry)
-	if kind != engine.KindFreeToken {
-		return res
-	}
-	return applyFreeTokenStrategy(hw, entry, res)
-}
-
-// FreeToken's fused loader clones tensors while copying weights to the GPU, so
-// it peaks well above the resident size. A `tight` VRAM fit has OOMed in
-// practice, so only `runs_well` / `fits` are trusted for fused. Anything
-// tighter is re-scored for offload: weights resident in system RAM, attention
-// and KV on the GPU.
-func applyFreeTokenStrategy(hw *Hardware, entry verify.CatalogEntry, res ModelResult) ModelResult {
-	switch res.Status {
-	case StatusRunsWell, StatusFits:
-		res.MoeStrategy = engine.MoeFused
-		return res
-	case StatusUnknown:
-		return res
-	}
-
-	if hw == nil || hw.MemoryKind != MemoryVRAM || hw.SystemRAMBytes <= 0 {
-		res.Status = StatusTooLarge
-		res.Reason += "; FreeToken needs an NVIDIA GPU with room for the whole model, or system RAM for expert offload"
-		return res
-	}
-
-	hostRequired := int64(float64(entry.MinSizeBytes) * vllmContextRuntimeFactor)
-	ratio := float64(hostRequired) / float64(hw.SystemRAMBytes)
-	status := statusForRatio(ratio)
-	if status == StatusTooLarge {
-		res.Status = StatusTooLarge
-		res.Reason = fmt.Sprintf("needs ~%s VRAM or ~%s system RAM for expert offload; usable %s (vram), %s system RAM",
-			formatBytes(res.RequiredBytes), formatBytes(hostRequired), formatBytes(hw.UsableBytes), formatBytes(hw.SystemRAMBytes))
-		return res
-	}
-
-	res.Status = status
-	res.MoeStrategy = engine.MoeAuto
-	res.RequiredBytes = hostRequired
-	res.UsableBytes = hw.SystemRAMBytes
-	res.Reason = fmt.Sprintf("MoE experts in system RAM (offload): needs ~%s host RAM, system RAM %s; attention + KV on the GPU (%s vram)",
-		formatBytes(hostRequired), formatBytes(hw.SystemRAMBytes), formatBytes(hw.UsableBytes))
-	if status == StatusTight {
-		res.Reason += "; little headroom"
-	}
-	return res
+	_ = kind
+	return ScoreModel(hw, entry)
 }
 
 func statusForRatio(ratio float64) FitStatus {
@@ -157,7 +107,7 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 
 	baseReason := fmt.Sprintf("needs ~%s; usable %s (%s)",
 		formatBytes(required), formatBytes(hw.UsableBytes), hw.MemoryKind)
-	if entry.MaxModelLen != nil && *entry.MaxModelLen > 0 && strings.EqualFold(entry.ServiceType, "vllm") {
+	if entry.MaxModelLen != nil && *entry.MaxModelLen > 0 && contextFit(entry.ServiceType) {
 		baseReason = fmt.Sprintf("needs ~%s (incl. %s context); usable %s (%s)",
 			formatBytes(required), formatContextTokens(*entry.MaxModelLen), formatBytes(hw.UsableBytes), hw.MemoryKind)
 	}
@@ -187,7 +137,7 @@ func ScoreModel(hw *Hardware, entry verify.CatalogEntry) ModelResult {
 }
 
 func requiredMemoryBytes(minSizeBytes int64, serviceType string, maxModelLen, kvBytesPerToken *int64) int64 {
-	if maxModelLen == nil || *maxModelLen <= 0 || !strings.EqualFold(strings.TrimSpace(serviceType), "vllm") {
+	if maxModelLen == nil || *maxModelLen <= 0 || !contextFit(serviceType) {
 		return int64(float64(minSizeBytes) * overheadFactor(serviceType))
 	}
 	runtime := float64(minSizeBytes) * vllmContextRuntimeFactor
@@ -203,11 +153,23 @@ func requiredMemoryBytes(minSizeBytes int64, serviceType string, maxModelLen, kv
 	return int64(runtime + kv)
 }
 
+func contextFit(serviceType string) bool {
+	switch strings.ToLower(strings.TrimSpace(serviceType)) {
+	case "vllm", "llama_cpp":
+		return true
+	default:
+		return false
+	}
+}
+
 func overheadFactor(serviceType string) float64 {
 	switch strings.ToLower(strings.TrimSpace(serviceType)) {
 	case "vllm":
 		// KV cache + batching + CUDA graphs — conservative.
 		return 1.50
+	case "llama_cpp":
+		// Weights are already quantized. KV is added when max_model_len is set.
+		return 1.20
 	default:
 		return 1.35
 	}

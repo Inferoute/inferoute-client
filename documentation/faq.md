@@ -3,12 +3,12 @@
 ## General Questions
 
 ### What is the Inferoute Provider Client?
-The Inferoute Provider Client is a lightweight Go service that runs next to vLLM (Linux + NVIDIA), vLLM Metal (Apple Silicon), or FreeToken (Windows + NVIDIA). It monitors GPU resources, reports health metrics to the central system, and handles inference requests by forwarding them to the local engine.
+The Inferoute Provider Client is a lightweight Go service that runs next to vLLM (Linux + NVIDIA), vLLM Metal (Apple Silicon), or llama.cpp (Windows + NVIDIA, and Apple Silicon). It monitors GPU resources, reports health metrics to the central system, and handles inference requests by forwarding them to the local engine.
 
 ### What platforms does the Provider Client support?
 - **Linux + NVIDIA**: vLLM. Full GPU monitoring and busy status from GPU utilization.
 - **macOS Apple Silicon**: vLLM Metal. Basic GPU information. Intel Macs are not supported.
-- **Windows amd64 + NVIDIA**: FreeToken. `nvidia-smi` when the NVIDIA driver is installed. Only catalog models tagged `freetoken`.
+- **Windows amd64 + NVIDIA**: llama.cpp. `nvidia-smi` when the NVIDIA driver is installed. Only `llama_cpp` catalog rows (GGUF).
 
 ### How do I configure the Provider Client?
 The Provider Client reads from a YAML configuration file with sections for server settings, provider details, NGROK configuration, and logging options. A default configuration is provided if the file is not found.
@@ -31,7 +31,7 @@ Yes. Use `PUT /api/provider/models/{model_id}` with your provider API key (price
 In the dashboard, open your cluster → **Models** tab to edit per-model prices (per 1M tokens). You can apply market averages per row or for all models.
 
 ### Which engine runs on my machine?
-Linux with an NVIDIA GPU runs vLLM. Apple Silicon runs vLLM Metal. 64-bit Windows with an NVIDIA GPU runs FreeToken, and only models whose catalog `engines` include `freetoken`. All three use the platform provider type `vllm` and verify weights with a fingerprint of the local files.
+Linux with an NVIDIA GPU runs vLLM. Apple Silicon runs vLLM Metal or llama.cpp. 64-bit Windows with an NVIDIA GPU runs llama.cpp, and only `llama_cpp` catalog rows. vLLM and vLLM Metal use provider type `vllm`. llama.cpp uses `llama_cpp`. All of them verify weights with a fingerprint of the local files.
 
 ## NGROK Integration
 

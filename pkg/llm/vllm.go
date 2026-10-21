@@ -157,10 +157,10 @@ func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byt
 	return resp, nil
 }
 
-// FreeTokenCacheCapacity reads effective KV token capacity from GET /v1/cache/status.
-// Returns 0 when the endpoint is missing or unreadable (not FreeToken / old build).
-func (c *VLLMClient) FreeTokenCacheCapacity(ctx context.Context) (int64, error) {
-	url := fmt.Sprintf("%s/v1/cache/status", c.baseURL)
+// LlamaServerContext reads n_ctx from llama-server GET /props.
+// Returns 0 when the endpoint is missing (vLLM).
+func (c *VLLMClient) LlamaServerContext(ctx context.Context) (int64, error) {
+	url := fmt.Sprintf("%s/props", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, err
@@ -171,19 +171,18 @@ func (c *VLLMClient) FreeTokenCacheCapacity(ctx context.Context) (int64, error) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("cache status: %w", wrapHTTPStatusErr(resp.StatusCode))
+		return 0, fmt.Errorf("props: %w", wrapHTTPStatusErr(resp.StatusCode))
 	}
 	var body struct {
-		Geometry struct {
-			NumPages int64 `json:"num_pages"`
-			PageSize int64 `json:"page_size"`
-		} `json:"geometry"`
+		DefaultGenerationSettings struct {
+			NCtx int64 `json:"n_ctx"`
+		} `json:"default_generation_settings"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return 0, err
 	}
-	if body.Geometry.NumPages <= 0 || body.Geometry.PageSize <= 0 {
+	if body.DefaultGenerationSettings.NCtx <= 0 {
 		return 0, nil
 	}
-	return body.Geometry.NumPages * body.Geometry.PageSize, nil
+	return body.DefaultGenerationSettings.NCtx, nil
 }

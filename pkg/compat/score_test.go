@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
@@ -200,63 +199,18 @@ func TestScoreModelCatalogKVPerToken(t *testing.T) {
 	}
 }
 
-func TestScoreModelForFreeTokenStrategy(t *testing.T) {
-	const gib = 1024 * 1024 * 1024
-	len128k := int64(131072)
-	kvGptOss := int64(24576)
-	// openai/gpt-oss-20b: 12.84 GiB MXFP4 root checkpoint.
-	gptOss := verify.CatalogEntry{
-		Alias: "openai/gpt-oss-20b", ServiceType: "vllm", MinSizeBytes: 13789191359,
-		MaxModelLen: &len128k, KVCacheBytesPerToken: &kvGptOss,
-		Engines: []string{"vllm", "vllm-metal", "freetoken"},
+func TestScoreLlamaCppUsesContextFit(t *testing.T) {
+	len8k := int64(8192)
+	entry := verify.CatalogEntry{Alias: "m", ServiceType: "llama_cpp", MinSizeBytes: 4 << 30, MaxModelLen: &len8k}
+	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 24 << 30}
+	got := ScoreModel(hw, entry)
+	if got.Status == StatusUnknown || got.RequiredBytes <= entry.MinSizeBytes {
+		t.Fatalf("llama_cpp should include context in the fit: %+v", got)
 	}
-	l4 := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 23034 * 1024 * 1024, SystemRAMBytes: 32 * gib}
-
-	// 18.4 GiB of 22.5 GiB is `tight` on VRAM. The fused loader OOMed there,
-	// so FreeToken must fall back to host offload on a 32 GB box.
-	got := ScoreModelFor(l4, gptOss, engine.KindFreeToken)
-	if got.MoeStrategy != engine.MoeAuto {
-		t.Fatalf("gpt-oss on L4 + 32 GiB RAM should offload, got strategy=%q status=%s reason=%s", got.MoeStrategy, got.Status, got.Reason)
-	}
-	if got.Status == StatusTooLarge || got.Status == StatusTight {
-		t.Fatalf("offload on 32 GiB RAM should be a comfortable fit, got %s", got.Status)
-	}
-	if !strings.Contains(got.Reason, "offload") {
-		t.Fatalf("reason should explain offload: %s", got.Reason)
-	}
-
-	// Same card, 16 GiB RAM: 15.4 GiB host requirement is 96% — too_large.
-	small := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: l4.UsableBytes, SystemRAMBytes: 16 * gib}
-	if got := ScoreModelFor(small, gptOss, engine.KindFreeToken); got.Status != StatusTooLarge || got.MoeStrategy != "" {
-		t.Fatalf("16 GiB RAM should be too_large, got %s strategy=%q", got.Status, got.MoeStrategy)
-	}
-
-	// 48 GiB card holds it outright — experts stay on the GPU.
-	big := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 48 * gib, SystemRAMBytes: 32 * gib}
-	if got := ScoreModelFor(big, gptOss, engine.KindFreeToken); got.MoeStrategy != engine.MoeFused || got.Status != StatusRunsWell {
-		t.Fatalf("48 GiB VRAM should be fused/runs_well, got %s/%q", got.Status, got.MoeStrategy)
-	}
-
-	// vLLM on the same L4 keeps the plain VRAM verdict and no strategy.
-	if got := ScoreModelFor(l4, gptOss, engine.KindVLLM); got.MoeStrategy != "" || got.Status != StatusTight {
-		t.Fatalf("vllm must not get a MoE strategy, got %s/%q", got.Status, got.MoeStrategy)
-	}
-
-	// A 67 GiB BF16 MoE cannot offload into 32 GiB of RAM either.
-	qwen35 := verify.CatalogEntry{Alias: "qwen/qwen3.6-35b-a3b", ServiceType: "vllm", MinSizeBytes: 71926681382, MaxModelLen: &len128k}
-	if got := ScoreModelFor(l4, qwen35, engine.KindFreeToken); got.Status != StatusTooLarge {
-		t.Fatalf("67 GiB weights should be too_large on 22 GiB VRAM + 32 GiB RAM, got %s", got.Status)
-	}
-
-	// No NVIDIA GPU: FreeToken cannot run at all.
-	cpuOnly := &Hardware{MemoryKind: MemorySystem, UsableBytes: 22 * gib, SystemRAMBytes: 32 * gib}
-	if got := ScoreModelFor(cpuOnly, gptOss, engine.KindFreeToken); got.Status != StatusTooLarge {
-		t.Fatalf("system-RAM host should be too_large for FreeToken, got %s", got.Status)
-	}
-
-	// Unknown size stays unknown and unlabelled.
-	if got := ScoreModelFor(l4, verify.CatalogEntry{Alias: "x", ServiceType: "vllm"}, engine.KindFreeToken); got.Status != StatusUnknown || got.MoeStrategy != "" {
-		t.Fatalf("unknown size should stay unknown, got %s/%q", got.Status, got.MoeStrategy)
+	size := int64(4 << 30)
+	plain := ScoreModel(hw, verify.CatalogEntry{Alias: "m", ServiceType: "llama_cpp", MinSizeBytes: size})
+	if plain.RequiredBytes != int64(float64(size)*1.20) {
+		t.Fatalf("llama_cpp overhead = %d", plain.RequiredBytes)
 	}
 }
 
@@ -265,22 +219,15 @@ func TestScoreEntriesForHostResolvesEngine(t *testing.T) {
 	hw := &Hardware{MemoryKind: MemoryVRAM, UsableBytes: 22 * gib, SystemRAMBytes: 32 * gib}
 	entries := []verify.CatalogEntry{
 		{Alias: "dense/huge", ServiceType: "vllm", MinSizeBytes: 100 * gib},
-		{Alias: "big/moe", ServiceType: "vllm", MinSizeBytes: 16 * gib, Engines: []string{"vllm", "freetoken"}},
+		{Alias: "big/moe", ServiceType: "vllm", MinSizeBytes: 16 * gib, Engines: []string{"vllm", "llama_cpp"}},
 	}
 	win := scoreEntriesForHost(hw, entries, "", "windows")
-	if win[0].MoeStrategy != "" || win[0].Status != StatusTooLarge {
-		t.Fatalf("too-large row must not carry a MoE strategy: %+v", win[0])
-	}
-	if win[1].MoeStrategy != engine.MoeAuto {
-		t.Fatalf("windows vllm row scores as FreeToken and should offload: %+v", win[1])
+	if win[0].Status != StatusTooLarge || win[1].Status != StatusTooLarge {
+		t.Fatalf("both rows are too large for 22 GiB: %+v", win)
 	}
 	linux := scoreEntriesForHost(hw, entries, "", "linux")
-	if linux[1].MoeStrategy != "" || linux[1].Status != StatusTooLarge {
+	if linux[1].Status != StatusTooLarge {
 		t.Fatalf("linux vllm row keeps the VRAM verdict: %+v", linux[1])
-	}
-	explicit := scoreEntriesForHost(hw, entries[1:], "freetoken", "linux")
-	if explicit[0].MoeStrategy != engine.MoeAuto {
-		t.Fatalf("--engine freetoken on linux should still offload: %+v", explicit[0])
 	}
 }
 
@@ -343,7 +290,7 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 	    {"alias":"a","service_type":"vllm","display_name":"A","min_size_bytes":100,"is_active":true},
 	    {"alias":"b","service_type":"vllm","display_name":"B","min_size_bytes":200,"is_active":true,"engines":["vllm-metal"]},
 	    {"alias":"c","service_type":"vllm","display_name":"C","min_size_bytes":300,"is_active":false},
-	    {"alias":"d","service_type":"vllm","display_name":"D","min_size_bytes":200,"is_active":true,"engines":["vllm","vllm-metal","freetoken"]}
+	    {"alias":"d","service_type":"vllm","display_name":"D","min_size_bytes":200,"is_active":true,"engines":["vllm","vllm-metal","llama_cpp"]}
 	  ]
 	}`
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
@@ -363,19 +310,19 @@ func TestLoadOfflineCatalogFilters(t *testing.T) {
 	}
 	win := filterEntriesForHost(all, "", "windows")
 	if len(win) != 1 || win[0].Alias != "d" {
-		t.Fatalf("windows host should keep freetoken-tagged vllm, got %+v", win)
+		t.Fatalf("windows host should keep llama_cpp-tagged rows, got %+v", win)
 	}
 	linux := filterEntriesForHost(all, "", "linux")
 	if len(linux) != 2 {
 		t.Fatalf("linux should keep untagged vllm + tagged vllm, got %+v", linux)
 	}
-	ft := filterEntriesForHost(all, "freetoken", "linux")
+	ft := filterEntriesForHost(all, "llama_cpp", "linux")
 	if len(ft) != 1 || ft[0].Alias != "d" {
-		t.Fatalf("freetoken-tagged rows, got %+v", ft)
+		t.Fatalf("llama_cpp-tagged rows, got %+v", ft)
 	}
 	winVLLM := filterEntriesForHost(all, "vllm", "windows")
 	if len(winVLLM) != 1 || winVLLM[0].Alias != "d" {
-		t.Fatalf("windows --engine vllm should remap to freetoken and hide untagged, got %+v", winVLLM)
+		t.Fatalf("windows --engine vllm should remap to llama_cpp and hide untagged, got %+v", winVLLM)
 	}
 	linuxVLLM := filterEntriesForHost(all, "vllm", "linux")
 	if len(linuxVLLM) != 2 {

@@ -90,12 +90,12 @@ func TestApplyContextGateFreeTokenCache(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/cache/status" {
+		if r.URL.Path != "/props" {
 			http.NotFound(w, r)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"geometry": map[string]any{"num_pages": 4, "page_size": 2048},
+			"default_generation_settings": map[string]any{"n_ctx": 8192},
 		})
 	}))
 	t.Cleanup(srv.Close)

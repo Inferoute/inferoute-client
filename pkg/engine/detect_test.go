@@ -26,7 +26,7 @@ func TestRunnableBinBrokenShebang(t *testing.T) {
 	if !strings.Contains(got, "missing-python") || !strings.Contains(got, "broken venv") {
 		t.Fatalf("brokenBinReason = %q", got)
 	}
-	if usableEngineBin(KindVLLMMetal, script) {
+	if usableEngineBin(script) {
 		t.Fatal("usableEngineBin must reject broken shebang")
 	}
 }

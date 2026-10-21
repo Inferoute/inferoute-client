@@ -10,7 +10,19 @@
       "hf_ref": "main",
       "min_size_bytes": 1000000,
       "is_active": true,
-      "engines": ["vllm", "vllm-metal", "freetoken"]
+      "engines": ["vllm", "vllm-metal"]
+    },
+    {
+      "id": "4",
+      "alias": "Qwen/Qwen3-0.6B",
+      "service_type": "llama_cpp",
+      "display_name": "Qwen3 0.6B",
+      "hf_repo": "Qwen/Qwen3-0.6B-GGUF",
+      "gguf_file": "qwen3-0.6b-q4_k_m.gguf",
+      "hf_ref": "main",
+      "min_size_bytes": 1000000,
+      "is_active": true,
+      "engines": ["llama_cpp"]
     },
     {
       "id": "3",

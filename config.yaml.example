@@ -13,7 +13,7 @@ provider:
   # URL of the central Inferoute system.
   url: "https://core.inferoute.com"
   provider_type: "vllm"
-  # Local engine: vllm, vllm-metal, or freetoken.
+  # Local engine: vllm, vllm-metal, or llama_cpp.
   # Empty defaults from provider_type. Re-run `inferoute-client setup` to change this.
   # engine: "vllm"
   # engine_bin: ""  # absolute path when the binary is not on PATH

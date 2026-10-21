@@ -11,7 +11,7 @@ type Kind string
 const (
 	KindVLLM      Kind = "vllm"
 	KindVLLMMetal Kind = "vllm-metal"
-	KindFreeToken Kind = "freetoken"
+	KindLlamaCpp  Kind = "llama_cpp"
 )
 
 // Label is the human-readable engine name for prompts and spinners.
@@ -19,8 +19,8 @@ func Label(k Kind) string {
 	switch k {
 	case KindVLLMMetal:
 		return "vLLM Metal"
-	case KindFreeToken:
-		return "FreeToken"
+	case KindLlamaCpp:
+		return "llama.cpp"
 	case KindVLLM:
 		return "vLLM"
 	default:
@@ -35,8 +35,8 @@ func ParseKind(s string) (Kind, bool) {
 		return KindVLLM, true
 	case KindVLLMMetal:
 		return KindVLLMMetal, true
-	case KindFreeToken:
-		return KindFreeToken, true
+	case KindLlamaCpp:
+		return KindLlamaCpp, true
 	default:
 		return "", false
 	}
@@ -44,6 +44,9 @@ func ParseKind(s string) (Kind, bool) {
 
 // PlatformType is the Inferoute provider_type for this engine.
 func PlatformType(k Kind) string {
+	if k == KindLlamaCpp {
+		return "llama_cpp"
+	}
 	return "vllm"
 }
 
@@ -57,8 +60,11 @@ func CatalogType(k Kind) string {
 func CompatKind(goos, providerType string) Kind {
 	switch goos {
 	case "windows":
-		return KindFreeToken
+		return KindLlamaCpp
 	case "darwin":
+		if providerType == string(KindLlamaCpp) {
+			return KindLlamaCpp
+		}
 		return KindVLLMMetal
 	default:
 		return KindVLLM
@@ -67,7 +73,7 @@ func CompatKind(goos, providerType string) Kind {
 
 // RuntimeKind maps a requested engine (including the service-type alias "vllm")
 // onto the runtime this OS actually installs and filters.
-// Explicit freetoken / vllm-metal stay as given.
+// Explicit llama_cpp / vllm-metal stay as given.
 func RuntimeKind(goos string, requested Kind) Kind {
 	if requested == KindVLLM {
 		return CompatKind(goos, string(KindVLLM))
@@ -78,8 +84,8 @@ func RuntimeKind(goos string, requested Kind) Kind {
 // DefaultURL is the loopback URL the client should probe.
 func DefaultURL(k Kind) string {
 	switch k {
-	case KindFreeToken:
-		return "http://127.0.0.1:1919"
+	case KindLlamaCpp:
+		return "http://127.0.0.1:8081"
 	default:
 		return "http://127.0.0.1:8000"
 	}
@@ -92,7 +98,8 @@ type Option struct {
 	Unavailable string // non-empty = show but not selectable
 }
 
-// OptionsFor returns engines for this OS/arch. NVIDIA is required for vLLM and FreeToken.
+// OptionsFor returns engines for this OS/arch.
+// Linux is vLLM only. llama.cpp is Windows (NVIDIA) and Apple Silicon.
 func OptionsFor(goos, goarch string, hasNVIDIA bool) []Option {
 	switch goos {
 	case "linux":
@@ -106,13 +113,17 @@ func OptionsFor(goos, goarch string, hasNVIDIA bool) []Option {
 		if goarch != "arm64" {
 			metal.Unavailable = "requires Apple Silicon"
 		}
-		return []Option{metal}
-	case "windows":
-		ft := Option{Kind: KindFreeToken, Label: "FreeToken"}
-		if !hasNVIDIA {
-			ft.Unavailable = "needs an NVIDIA GPU (nvidia-smi not found)"
+		llama := Option{Kind: KindLlamaCpp, Label: "llama.cpp"}
+		if goarch != "arm64" {
+			llama.Unavailable = "requires Apple Silicon"
 		}
-		return []Option{ft}
+		return []Option{metal, llama}
+	case "windows":
+		llama := Option{Kind: KindLlamaCpp, Label: "llama.cpp"}
+		if !hasNVIDIA {
+			llama.Unavailable = "needs an NVIDIA GPU (nvidia-smi not found)"
+		}
+		return []Option{llama}
 	default:
 		return []Option{{Kind: KindVLLM, Label: "vLLM"}}
 	}

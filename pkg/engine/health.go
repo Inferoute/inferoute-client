@@ -18,8 +18,7 @@ const probeTimeout = 3 * time.Second
 //
 // vLLM / vLLM Metal: /v1/models with at least one id. An empty 200 is not
 // ready — vLLM lists models while weights are still downloading.
-// FreeToken: GET /health with status "ok". /v1/models 200s while weights
-// load and chat 503s until then. /health stays 200 with status "loading".
+// llama.cpp: GET /health with status "ok". The server returns 503 while loading.
 func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 	llmURL = strings.TrimRight(strings.TrimSpace(llmURL), "/")
 	if llmURL == "" {
@@ -45,7 +44,7 @@ func Healthy(ctx context.Context, kind Kind, llmURL string) bool {
 
 func probePath(kind Kind) string {
 	switch kind {
-	case KindFreeToken:
+	case KindLlamaCpp:
 		return "/health"
 	default:
 		return "/v1/models"
@@ -53,13 +52,13 @@ func probePath(kind Kind) string {
 }
 
 func bodyReady(kind Kind, body []byte) bool {
-	if kind == KindFreeToken {
-		return freeTokenReady(body)
+	if kind == KindLlamaCpp {
+		return statusOK(body)
 	}
 	return hasLoadedModel(body)
 }
 
-func freeTokenReady(body []byte) bool {
+func statusOK(body []byte) bool {
 	var h struct {
 		Status string `json:"status"`
 	}

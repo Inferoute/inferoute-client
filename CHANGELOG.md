@@ -4,5 +4,5 @@
 
 ### Removed
 
-- Ollama. Setup, install scripts, and the client only run vLLM, vLLM Metal, or FreeToken.
+- Ollama and FreeToken. Setup, install scripts, and the client run vLLM, vLLM Metal, or llama.cpp.
 

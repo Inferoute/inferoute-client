@@ -61,10 +61,15 @@ func lookup(kind Kind) string {
 			}
 		}
 		return lookPath("vllm")
-	case KindFreeToken:
-		return lookupFreeToken(home)
+	case KindLlamaCpp:
+		return lookupLlamaCpp()
 	}
 	return ""
+}
+
+func fileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
 }
 
 func lookPath(name string) string {
@@ -87,30 +92,22 @@ func firstExisting(paths ...string) string {
 	return ""
 }
 
-func findFreeTokenWindows() string {
-	return lookupFreeToken("")
+func lookupLlamaCpp() string {
+	name := "llama-server"
+	if runtime.GOOS == "windows" {
+		name = "llama-server.exe"
+	}
+	if dir, err := llamaInstallDir(); err == nil {
+		if p := firstExisting(filepath.Join(dir, name)); p != "" {
+			return p
+		}
+	}
+	return lookPath("llama-server")
 }
 
-func lookupFreeToken(home string) string {
-	if p := freeTokenCLIBin(); p != "" && fileExists(p) {
-		return p
-	}
-	if p := lookPath("ft"); p != "" && !isFreeTokenDesktopBin(p) {
-		return p
-	}
-	if runtime.GOOS == "windows" || home == "" {
-		return ""
-	}
-	return firstExisting(
-		filepath.Join(home, ".local", "bin", "ft"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "inferoute", "venv-freetoken", "bin", "ft"),
-	)
-}
-
-// ResolveBin picks the engine binary. Configured paths that are missing or
-// FreeToken Desktop's bundled ft.exe are ignored.
+// ResolveBin picks the engine binary. Missing configured paths are ignored.
 func ResolveBin(kind Kind, configured string) string {
-	if usableEngineBin(kind, configured) {
+	if usableEngineBin(configured) {
 		return configured
 	}
 	d := Detect(kind)
@@ -120,11 +117,8 @@ func ResolveBin(kind Kind, configured string) string {
 	return ""
 }
 
-func usableEngineBin(kind Kind, path string) bool {
-	if path == "" || !runnableBin(path) {
-		return false
-	}
-	return kind != KindFreeToken || !isFreeTokenDesktopBin(path)
+func usableEngineBin(path string) bool {
+	return path != "" && runnableBin(path)
 }
 
 // runnableBin reports whether path is a regular file we can actually exec.
@@ -203,7 +197,3 @@ func brokenBinReason(path string) string {
 	return fmt.Sprintf("interpreter %s is missing (broken venv)", target)
 }
 
-func isFreeTokenDesktopBin(path string) bool {
-	p := strings.ToLower(filepath.ToSlash(path))
-	return strings.Contains(p, "freetoken desktop") || strings.Contains(p, "freetoken-desktop")
-}

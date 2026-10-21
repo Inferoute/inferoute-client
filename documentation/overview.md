@@ -4,7 +4,7 @@ This document is for **non-technical managers**. It explains what the provider c
 
 ## What it is
 
-The Inferoute Provider Client is a small program that runs on a provider’s GPU machine, next to **vLLM**, **vLLM Metal**, or **FreeToken**. It is how a cluster joins the Inferoute network.
+The Inferoute Provider Client is a small program that runs on a provider’s GPU machine, next to **vLLM**, **vLLM Metal**, or **llama.cpp**. It is how a cluster joins the Inferoute network.
 
 It does not replace the inference engine. The engine still loads weights and generates tokens. The client is the **front door**: health, pricing, model checks, and a locked-down proxy that only Inferoute is allowed to call.
 
@@ -19,7 +19,7 @@ Providers install it with a one-liner (Linux/macOS) or a PowerShell script (Wind
 5. **Runs inference only for real Inferoute traffic.** Incoming chat/completion requests must carry a one-time request token. The client checks it with the platform, then forwards the body to the local engine. Random internet callers cannot use the GPU.
 6. **Keeps one job on the GPU at a time (by default).** A second *different* conversation is rejected so the platform can try another cluster. A *follow-up turn of the same conversation* waits (up to ~90 seconds) so the chat can reuse memory already on that GPU.
 
-There is also a **compatibility** command that does not start the service. It looks at local RAM/VRAM and the public model catalog and says which approved models will fit (`runs_well` / `fits` / `tight` / `too_large`). On Windows it also hides vLLM models that are not tagged for FreeToken. Useful before buying or downloading a model. No API key required.
+There is also a **compatibility** command that does not start the service. It looks at local RAM/VRAM and the public model catalog and says which approved models will fit (`runs_well` / `fits` / `tight` / `too_large`). On Windows it lists GGUF (`llama_cpp`) rows. Useful before buying or downloading a model. No API key required.
 
 ## What the operator sees
 
@@ -33,7 +33,7 @@ Logs rotate under `~/.local/state/inferoute/log` (Windows: under the user’s st
 | Platform | Typical engine | GPU picture |
 |----------|----------------|-------------|
 | Linux + NVIDIA | vLLM | Full `nvidia-smi` (utilization, VRAM) |
-| Windows amd64 | FreeToken | `nvidia-smi` when the NVIDIA driver is present |
+| Windows amd64 | llama.cpp | `nvidia-smi` when the NVIDIA driver is present |
 | macOS (Apple Silicon) | vLLM Metal | Basic GPU identity; busy = “a request is already running” |
 
 Hardware bar for a useful cluster: **32 GB** of system memory and an NVIDIA GPU with **24 GB+** VRAM on Linux; on Windows **32 GB** of RAM plus a **fixed 64 GB page file** (or **64 GB** of RAM) and **24 GB+** VRAM; or Apple Silicon with **48 GB+** unified memory. The compatibility command scores that conservatively.
@@ -59,4 +59,4 @@ If this machine is busy with someone else’s chat, rejecting quickly is the cor
 
 ## In summary
 
-The provider client is the software that turns a GPU box into an Inferoute cluster: tunnel in, health out, models verified, inference proxied to vLLM, vLLM Metal, or FreeToken, one conversation at a time unless you raise the cap. Install it, keep the engine running, set prices in the dashboard.
+The provider client is the software that turns a GPU box into an Inferoute cluster: tunnel in, health out, models verified, inference proxied to vLLM, vLLM Metal, or llama.cpp, one conversation at a time unless you raise the cap. Install it, keep the engine running, set prices in the dashboard.

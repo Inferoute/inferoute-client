@@ -123,16 +123,15 @@ func WriteTable(w io.Writer, report Report) error {
 
 	var raw strings.Builder
 	tw := tabwriter.NewWriter(&raw, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tSTATUS\tSERVICE\tMODEL\tSIZE\tREQUIRED\tMOE")
+	fmt.Fprintln(tw, "#\tSTATUS\tSERVICE\tMODEL\tSIZE\tREQUIRED")
 	for i, m := range report.Models {
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n",
 			i+1,
 			m.Status,
 			m.ServiceType,
 			shortAlias(m.Alias),
 			formatBytes(m.MinSizeBytes),
 			formatBytes(m.RequiredBytes),
-			emptyDash(m.MoeStrategy),
 		)
 	}
 	if err := tw.Flush(); err != nil {
@@ -167,6 +166,13 @@ func colorFitLine(s FitStatus, line string) string {
 	}
 }
 
+func emptyDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
+}
+
 func shortAlias(alias string) string {
 	if len(alias) <= 48 {
 		return alias
@@ -174,9 +180,3 @@ func shortAlias(alias string) string {
 	return alias[:45] + "..."
 }
 
-func emptyDash(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return "-"
-	}
-	return s
-}

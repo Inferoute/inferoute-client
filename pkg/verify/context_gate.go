@@ -21,7 +21,7 @@ func applyContextGate(ctx context.Context, llmClient llm.Client, model *llm.Mode
 		live = readLiveMaxModelLen(ctx, llmClient, model.ID)
 	}
 	if live <= 0 {
-		live = readFreeTokenCacheCapacity(ctx, llmClient)
+		live = readLlamaServerContext(ctx, llmClient)
 	}
 	if live <= 0 {
 		logger.Warn("model context unreadable; failing verification against catalog max_model_len",
@@ -58,12 +58,12 @@ func readLiveMaxModelLen(ctx context.Context, llmClient llm.Client, modelID stri
 	return 0
 }
 
-func readFreeTokenCacheCapacity(ctx context.Context, llmClient llm.Client) int64 {
+func readLlamaServerContext(ctx context.Context, llmClient llm.Client) int64 {
 	vc, ok := llmClient.(*llm.VLLMClient)
 	if !ok {
 		return 0
 	}
-	n, err := vc.FreeTokenCacheCapacity(ctx)
+	n, err := vc.LlamaServerContext(ctx)
 	if err != nil || n <= 0 {
 		return 0
 	}

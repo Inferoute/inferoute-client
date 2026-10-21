@@ -16,7 +16,9 @@ import (
 func RegisterLocalModels(ctx context.Context, llmClient llm.Client, pricingClient *Client, serviceType string, verifier *verify.Verifier) ([]string, error) {
 	// Normalize service type to match API expectations
 	normalizedServiceType := strings.ToLower(serviceType)
-	if normalizedServiceType != "vllm" {
+	switch normalizedServiceType {
+	case "vllm", "llama_cpp":
+	default:
 		logger.Warn("Invalid service type, defaulting to vllm",
 			zap.String("original_service_type", serviceType),
 			zap.String("normalized_service_type", "vllm"))

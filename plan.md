@@ -64,7 +64,7 @@ Create the following structure in the inferoute-docs repo. Each file is Markdown
 |------------------------|------------------|
 | **README.md** or **overview.md** | **What is Inferoute** – New: 1–2 paragraphs (orchestrator, provider network, OpenAI-compatible API, core.inferoute.com). Derive from inferoute-node README and orchestrator role. |
 | **provider-client/introduction.md** | inferoute-client/README.md: purpose, requirements, Cloudflare tunnel summary (Exposing your machine via Cloudflare). |
-| **provider-client/how-it-works.md** | Condensed from inferoute-client/documentation/technical.md: components (config, GPU, health, server, logger); health monitoring and reporting (5 min cycle, nvidia-smi / system_profiler, /health, /busy); model pricing init and automatic model registration; inference request handling (GPU busy check, HMAC validation, proxy to vLLM, vLLM Metal, or FreeToken); Cloudflare tunnel lifecycle (request token, run cloudflared, refresh). |
+| **provider-client/how-it-works.md** | Condensed from inferoute-client/documentation/technical.md: components (config, GPU, health, server, logger); health monitoring and reporting (5 min cycle, nvidia-smi / system_profiler, /health, /busy); model pricing init and automatic model registration; inference request handling (GPU busy check, HMAC validation, proxy to vLLM, vLLM Metal, or llama.cpp); Cloudflare tunnel lifecycle (request token, run cloudflared, refresh). |
 | **provider-client/installation.md** | inferoute-client/README.md: Quick Start (install script, env vars), Docker (run, Compose, build from source), launch command and config path. |
 | **provider-client/configuration.md** | inferoute-client/README.md: Configuration section (server, provider, cloudflare, logging; log file locations). Plus inferoute-client/docs/override.md: override defaults (PROVIDER_TYPE, LLM_URL, SERVER_PORT) for install script and Docker. |
 | **provider-client/setup-vllm.md** | inferoute-client/docs/vllm.md (vLLM setup for provider). |
@@ -82,7 +82,7 @@ Create the following structure in the inferoute-docs repo. Each file is Markdown
   - How it works
   - Installation
   - Configuration
-  - Setup: vLLM / vLLM Metal / FreeToken / Linux (or link to these as sub-pages)
+  - Setup: vLLM / vLLM Metal / llama.cpp / Linux (or link to these as sub-pages)
   - FAQ
   - Local REST API
 - API Reference (OpenAPI Reference block from spec)

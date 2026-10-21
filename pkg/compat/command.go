@@ -20,12 +20,11 @@ const compatibilityHelp = `Usage:
 Detect local hardware and list which approved Inferoute models can run on this machine.
 Does not start the provider daemon. Does not require an API key.
 
-On Windows, vLLM catalog rows are filtered to FreeToken-tagged models. On macOS they
-are filtered to vLLM Metal. See ` + verify.FreeTokenModelsDoc + `
+On Windows the catalog is llama.cpp (GGUF). On macOS the default is vLLM Metal.
 
 Flags:
-  --provider-type string   Filter catalog: vllm, or empty for the vLLM catalog
-  --engine string          Filter by engine: vllm, vllm-metal, freetoken (default: from OS)
+  --provider-type string   Filter catalog: vllm, llama_cpp, or empty for this OS
+  --engine string          Filter by engine: vllm, vllm-metal, llama_cpp (default: from OS)
   --catalog-url string     Inferoute API base URL (default: https://core.inferoute.com, or INFEROUTE_URL)
   --offline-catalog path   Load catalog JSON from a local file instead of the network
   --json                   Emit machine-readable JSON
@@ -51,8 +50,8 @@ func Run(args []string) error {
 	opts := Options{
 		ShowTooLarge: true,
 	}
-	fs.StringVar(&opts.ProviderType, "provider-type", "", "Filter by provider type: vllm, or empty for the vLLM catalog")
-	fs.StringVar(&opts.Engine, "engine", "", "Filter by engine: vllm, vllm-metal, freetoken")
+	fs.StringVar(&opts.ProviderType, "provider-type", "", "Filter by provider type: vllm, llama_cpp, or empty for this OS")
+	fs.StringVar(&opts.Engine, "engine", "", "Filter by engine: vllm, vllm-metal, llama_cpp")
 	fs.StringVar(&opts.CatalogURL, "catalog-url", "", "Inferoute catalog base URL")
 	fs.StringVar(&opts.OfflineCatalog, "offline-catalog", "", "Path to offline approved-builds JSON")
 	fs.BoolVar(&opts.JSON, "json", false, "Emit JSON output")
@@ -79,13 +78,13 @@ func Run(args []string) error {
 	}
 
 	pt := strings.ToLower(strings.TrimSpace(opts.ProviderType))
-	if pt != "" && pt != "vllm" {
-		return fmt.Errorf("--provider-type must be vllm or empty")
+	if pt != "" && pt != "vllm" && pt != "llama_cpp" {
+		return fmt.Errorf("--provider-type must be vllm, llama_cpp, or empty")
 	}
 	opts.ProviderType = pt
 	eng := strings.ToLower(strings.TrimSpace(opts.Engine))
-	if eng != "" && eng != "vllm" && eng != "vllm-metal" && eng != "freetoken" {
-		return fmt.Errorf("--engine must be vllm, vllm-metal, freetoken, or empty")
+	if eng != "" && eng != "vllm" && eng != "vllm-metal" && eng != "llama_cpp" {
+		return fmt.Errorf("--engine must be vllm, vllm-metal, llama_cpp, or empty")
 	}
 	opts.Engine = eng
 	if opts.CatalogURL == "" {

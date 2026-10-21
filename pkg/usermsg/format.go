@@ -14,6 +14,8 @@ func ProviderName(providerType string) string {
 	switch strings.ToLower(providerType) {
 	case "vllm":
 		return "vLLM"
+	case "llama_cpp":
+		return "llama.cpp"
 	default:
 		return providerType
 	}
