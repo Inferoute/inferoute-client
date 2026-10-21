@@ -39,9 +39,9 @@ func TestExecuteYesWritesConfig(t *testing.T) {
 	if cfg.Provider.APIKey != "test-key-123" {
 		t.Errorf("api_key = %q", cfg.Provider.APIKey)
 	}
-	wantEngine := string(engine.RuntimeKind(runtime.GOOS, engine.KindVLLM))
-	if cfg.Provider.Engine != wantEngine || cfg.Provider.ProviderType != "vllm" {
-		t.Errorf("engine/type = %q/%q, want %s/vllm", cfg.Provider.Engine, cfg.Provider.ProviderType, wantEngine)
+	want := engine.RuntimeKind(runtime.GOOS, engine.KindVLLM)
+	if cfg.Provider.Engine != string(want) || cfg.Provider.ProviderType != engine.PlatformType(want) {
+		t.Errorf("engine/type = %q/%q, want %s/%s", cfg.Provider.Engine, cfg.Provider.ProviderType, want, engine.PlatformType(want))
 	}
 	if cfg.Provider.Model != "Qwen/Qwen3-0.6B" {
 		t.Errorf("model = %q", cfg.Provider.Model)
@@ -75,8 +75,8 @@ func TestExecuteYesVLLM(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := engine.RuntimeKind(runtime.GOOS, engine.KindVLLM)
-	if cfg.Provider.Engine != string(want) || cfg.Provider.ProviderType != "vllm" {
-		t.Errorf("engine/type = %q/%q, want %s/vllm", cfg.Provider.Engine, cfg.Provider.ProviderType, want)
+	if cfg.Provider.Engine != string(want) || cfg.Provider.ProviderType != engine.PlatformType(want) {
+		t.Errorf("engine/type = %q/%q, want %s/%s", cfg.Provider.Engine, cfg.Provider.ProviderType, want, engine.PlatformType(want))
 	}
 	if cfg.Provider.LLMURL != engine.DefaultURL(want) {
 		t.Errorf("llm_url = %q, want %s", cfg.Provider.LLMURL, engine.DefaultURL(want))
