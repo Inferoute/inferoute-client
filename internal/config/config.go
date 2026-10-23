@@ -65,6 +65,13 @@ type Config struct {
 		HFRepo string `yaml:"hf_repo,omitempty"`
 		// GGUFFile is the HuggingFace filename llama.cpp serves.
 		GGUFFile string `yaml:"gguf_file,omitempty"`
+		// ClusterMode is single, master, or worker. Empty means single.
+		ClusterMode string `yaml:"cluster_mode,omitempty"`
+		// NodeToken is the worker (or master) credential for tailnet routes.
+		NodeToken string `yaml:"node_token,omitempty"`
+		// EngineArgs and EngineEnv are the last server-built serve command.
+		EngineArgs []string `yaml:"engine_args,omitempty"`
+		EngineEnv  []string `yaml:"engine_env,omitempty"`
 	} `yaml:"provider"`
 
 	// Logging configuration

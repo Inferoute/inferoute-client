@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
@@ -48,6 +49,8 @@ type StatusSnapshot struct {
 	ClientVersion    string        `json:"client_version"`
 	LatestVersion    string        `json:"latest_version,omitempty"`
 	UpdateStatus     string        `json:"update_status"`
+	TailnetIP        string        `json:"tailnet_ip,omitempty"`
+	Peers            string        `json:"peers,omitempty"`
 }
 
 func (s *Server) snapshot() StatusSnapshot {
@@ -100,6 +103,7 @@ func (s *Server) snapshot() StatusSnapshot {
 	}
 
 	upd := nodeapi.State()
+	tailnetIP, peers := inferscale.LocalStatus()
 	return StatusSnapshot{
 		LastHealthUpdate: lastUpdateStr,
 		SessionStatus:    "online",
@@ -115,6 +119,8 @@ func (s *Server) snapshot() StatusSnapshot {
 		ClientVersion:    version.Version,
 		LatestVersion:    upd.Latest,
 		UpdateStatus:     string(upd.Status),
+		TailnetIP:        tailnetIP,
+		Peers:            peers,
 	}
 }
 

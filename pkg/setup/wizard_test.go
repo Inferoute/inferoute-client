@@ -12,6 +12,49 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 )
 
+func TestMain(m *testing.M) {
+	prepareCluster = func(*config.Config, *engine.Spec) error { return nil }
+	os.Exit(m.Run())
+}
+
+func TestExecuteMultiPreparesCluster(t *testing.T) {
+	called := false
+	prepareCluster = func(cfg *config.Config, spec *engine.Spec) error {
+		called = true
+		cfg.Provider.ClusterMode = "master"
+		return nil
+	}
+	t.Cleanup(func() {
+		prepareCluster = func(*config.Config, *engine.Spec) error { return nil }
+	})
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	var out, errBuf bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		Engine:         "vllm",
+		Model:          "Qwen/Qwen3-0.6B",
+		APIKey:         "sk-test",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		Yes:            true,
+		NoStart:        true,
+	}, Streams{In: strings.NewReader(""), Out: &out, Err: &errBuf})
+	if err != nil {
+		t.Fatalf("Execute: %v\n%s", err, errBuf.String())
+	}
+	if !called {
+		t.Fatal("prepareCluster was not called")
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.ClusterMode != "master" {
+		t.Fatalf("cluster_mode = %q", cfg.Provider.ClusterMode)
+	}
+}
+
 func TestExecuteYesWritesConfig(t *testing.T) {
 	t.Setenv("INFEROUTE_URL", "")
 	dir := t.TempDir()

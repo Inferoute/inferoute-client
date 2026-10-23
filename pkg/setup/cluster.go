@@ -1,0 +1,129 @@
+package setup
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
+)
+
+// prepareCluster is replaced in tests. Production joins the tailnet when the
+// key is a multi-node master key or a join- code, then rewrites the engine spec.
+var prepareCluster = prepareClusterReal
+
+func decideCluster(key, mode string, lookupErr error) string {
+	if strings.HasPrefix(strings.TrimSpace(key), "join-") {
+		return "worker"
+	}
+	if lookupErr != nil || mode != "multi" {
+		return "single"
+	}
+	return "master"
+}
+
+func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
+	key := strings.TrimSpace(cfg.Provider.APIKey)
+	worker := strings.HasPrefix(key, "join-")
+	var login, auth, token, role string
+	if worker {
+		res, err := inferscale.Exchange(cfg.Provider.URL, key)
+		if err != nil {
+			return err
+		}
+		login, auth, token = res.LoginServer, res.AuthKey, res.NodeToken
+		role = "worker"
+	} else {
+		sess, err := inferscale.FetchSession(cfg.Provider.URL, key)
+		role = decideCluster(key, sess.Mode, err)
+		if role == "single" {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "could not read cluster mode (%v); continuing as a single node\n", err)
+			}
+			return nil
+		}
+		if cfg.Provider.NodeToken == "" {
+			res, err := inferscale.Enroll(cfg.Provider.URL, key)
+			if err != nil {
+				return err
+			}
+			login, auth, token = res.LoginServer, res.AuthKey, res.NodeToken
+		}
+		token = firstNonEmpty(token, cfg.Provider.NodeToken)
+	}
+	cfg.Provider.ClusterMode = role
+	if token != "" {
+		cfg.Provider.NodeToken = token
+	}
+	ip, nodeID, err := inferscale.BringUp(context.Background(), login, auth)
+	if err != nil {
+		return err
+	}
+	bearer := key
+	if worker {
+		bearer = cfg.Provider.NodeToken
+	}
+	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID); err != nil {
+		return err
+	}
+	remote, err := inferscale.FetchEngine(cfg.Provider.URL, bearer, worker)
+	if err != nil {
+		return err
+	}
+	next := inferscale.Apply(*spec, remote)
+	*spec = next
+	cfg.Provider.EngineArgs = next.Args
+	cfg.Provider.EngineEnv = next.Env
+	cfg.Provider.LLMURL = next.URL
+	return nil
+}
+
+// refreshClusterEngine reloads the server command before a later start.
+func refreshClusterEngine(ctx context.Context, cfg *config.Config) error {
+	if cfg == nil {
+		return nil
+	}
+	mode := cfg.Provider.ClusterMode
+	if mode != "multi" && mode != "worker" && mode != "master" {
+		return nil
+	}
+	worker := mode == "worker"
+	cli, err := inferscale.CLI()
+	if err != nil {
+		return fmt.Errorf("inferscale is not installed: %w", err)
+	}
+	ip, nodeID, err := inferscale.Inspect(ctx, cli)
+	if err != nil {
+		return fmt.Errorf("inferscale is not up: %w", err)
+	}
+	bearer := cfg.Provider.APIKey
+	if worker {
+		bearer = cfg.Provider.NodeToken
+	}
+	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID); err != nil {
+		return err
+	}
+	remote, err := inferscale.FetchEngine(cfg.Provider.URL, bearer, worker)
+	if err != nil {
+		return err
+	}
+	kind, ok := engine.ParseKind(cfg.Provider.Engine)
+	if !ok {
+		return fmt.Errorf("unknown engine %q", cfg.Provider.Engine)
+	}
+	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, ""), cfg.Provider.Model, firstNonEmpty(cfg.Provider.HFRepo, cfg.Provider.Model), engine.ServeOpts{
+		ToolCallParser:     cfg.Provider.ToolCallParser,
+		MaxModelLen:        cfg.Provider.MaxModelLen,
+		RopeType:           cfg.Provider.RopeType,
+		RopeBaseContextLen: cfg.Provider.RopeBaseContextLen,
+		GGUFFile:           cfg.Provider.GGUFFile,
+	})
+	next := inferscale.Apply(spec, remote)
+	cfg.Provider.EngineArgs = next.Args
+	cfg.Provider.EngineEnv = next.Env
+	cfg.Provider.LLMURL = next.URL
+	return nil
+}

@@ -104,6 +104,12 @@ func Execute(opts Options, io Streams) error {
 	applyServeOpts(cfg, entry, hfRepo)
 	serveOpts := engine.ServeOptsFromCatalog(entry)
 	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo, serveOpts)
+	if err := prepareCluster(cfg, &spec); err != nil {
+		if saveErr := config.Save(path, cfg); saveErr != nil {
+			return saveErr
+		}
+		return err
+	}
 
 	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
@@ -330,9 +336,16 @@ func applyServeOpts(cfg *config.Config, entry verify.CatalogEntry, hfRepo string
 	}
 }
 
+func formatSpec(spec engine.Spec) string {
+	if len(spec.Env) == 0 {
+		return spec.CommandLine()
+	}
+	return strings.Join(spec.Env, " ") + " " + spec.CommandLine()
+}
+
 func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Options, haveBin bool, io Streams) error {
 	if opts.NoStart || !haveBin {
-		fmt.Fprintf(io.Out, "\nTo serve this model later:\n  %s\n", spec.CommandLine())
+		fmt.Fprintf(io.Out, "\nTo serve this model later:\n  %s\n", formatSpec(spec))
 		return nil
 	}
 
@@ -340,7 +353,7 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	defer cancel()
 	if engine.Healthy(ctx, kind, cfg.Provider.LLMURL) {
 		fmt.Fprintf(io.Out, "\n%s is already running at %s.\n", kind, cfg.Provider.LLMURL)
-		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", spec.CommandLine())
+		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", formatSpec(spec))
 		return nil
 	}
 	model := strings.TrimSpace(cfg.Provider.Model)
@@ -403,4 +416,3 @@ func firstNonEmpty(vals ...string) string {
 	}
 	return ""
 }
-

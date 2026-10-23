@@ -124,6 +124,8 @@ function render(s) {
     ${row("Provider API Key", esc(s.provider_api_key))}
     ${row("Provider URL", esc(s.provider_url))}
     ${row("LLM URL", esc(s.llm_url))}
+    ${s.tailnet_ip ? row("Tailnet IP", esc(s.tailnet_ip)) : ""}
+    ${s.peers ? row("Peers", esc(s.peers)) : ""}
     ${tunnel}
     <h2>MODEL STATUS</h2>
     ${modelHtml}

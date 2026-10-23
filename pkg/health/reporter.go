@@ -254,6 +254,14 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		return fmt.Errorf("failed to get health report: %w", err)
 	}
 
+	if r.config.Provider.ClusterMode == "worker" {
+		status := "red"
+		if len(report.Data) > 0 {
+			status = "green"
+		}
+		return r.sendNodeHealth(ctx, status)
+	}
+
 	// Register any new models
 	r.registerNewModels(ctx, report.Data)
 
@@ -310,6 +318,34 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	r.lastUpdateMutex.Unlock()
 
 	logger.Info("Successfully sent health report")
+	return nil
+}
+
+func (r *Reporter) sendNodeHealth(ctx context.Context, status string) error {
+	token := r.config.Provider.NodeToken
+	if token == "" {
+		return fmt.Errorf("worker node token is not set")
+	}
+	body, _ := json.Marshal(map[string]string{"status": status})
+	url := fmt.Sprintf("%s/api/provider/network/node/health", r.config.Provider.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("node health: %s", bytes.TrimSpace(msg))
+	}
+	r.lastUpdateMutex.Lock()
+	r.lastUpdateTime = time.Now()
+	r.lastUpdateMutex.Unlock()
 	return nil
 }
 

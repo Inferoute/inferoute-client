@@ -57,6 +57,13 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 		GGUFFile:           cfg.Provider.GGUFFile,
 	}
 	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo, opts)
+	if len(cfg.Provider.EngineArgs) > 0 {
+		spec.Args = cfg.Provider.EngineArgs
+		spec.Env = cfg.Provider.EngineEnv
+		if cfg.Provider.LLMURL != "" {
+			spec.URL = cfg.Provider.LLMURL
+		}
+	}
 	exited, err := StartDetached(spec, LogPath(logDir))
 	if err != nil {
 		return err

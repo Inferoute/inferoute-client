@@ -13,6 +13,7 @@ import (
 type Spec struct {
 	Bin  string
 	Args []string
+	Env  []string
 	URL  string
 }
 

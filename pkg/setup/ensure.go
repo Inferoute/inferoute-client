@@ -39,6 +39,10 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 		io.In = os.Stdin
 	}
 
+	if err := refreshClusterEngine(ctx, cfg); err != nil {
+		return err
+	}
+
 	kind, ok := engine.ParseKind(cfg.Provider.Engine)
 	if !ok {
 		return nil
