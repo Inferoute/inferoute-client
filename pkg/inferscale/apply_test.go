@@ -16,6 +16,29 @@ func TestStatusAnsweredWithoutIP(t *testing.T) {
 	}
 }
 
+func TestParseStatusOfflineKeepsAddress(t *testing.T) {
+	st, err := parseStatus([]byte(`{"BackendState":"Running","Self":{"ID":"n1","Online":false,"TailscaleIPs":["198.18.0.1"]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Online || st.IP != "198.18.0.1" || st.ID != "n1" {
+		t.Fatalf("state = %+v", st)
+	}
+	st, err = parseStatus([]byte(`{"BackendState":"Running","Self":{"ID":"n1","Online":true,"TailscaleIPs":["198.18.0.1"]}}`))
+	if err != nil || !st.Online {
+		t.Fatalf("online = %+v %v", st, err)
+	}
+}
+
+func TestUpArgsReconnectsWithoutKey(t *testing.T) {
+	if strings.Join(upArgs("http://127.0.0.1:8444", ""), " ") != "up --login-server http://127.0.0.1:8444" {
+		t.Fatal(upArgs("http://127.0.0.1:8444", ""))
+	}
+	if strings.Join(upArgs("http://127.0.0.1:8444", "k"), " ") != "up --login-server http://127.0.0.1:8444 --auth-key k" {
+		t.Fatal(upArgs("http://127.0.0.1:8444", "k"))
+	}
+}
+
 func TestRootArgv(t *testing.T) {
 	bin, argv := rootArgv(0, "/usr/bin/inferscale", "up", "--auth-key", "k")
 	if bin != "/usr/bin/inferscale" || len(argv) != 3 || argv[0] != "up" {

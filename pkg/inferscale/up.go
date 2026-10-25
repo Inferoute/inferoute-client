@@ -28,9 +28,6 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	if runtime.GOOS != "linux" {
 		return "", "", fmt.Errorf("inferscale needs a Linux TUN; this machine is %s", runtime.GOOS)
 	}
-	if err := ensureSudo(ctx); err != nil {
-		return "", "", err
-	}
 	var cli string
 	if err := WithWait("Downloading inferscale", func() error {
 		var derr error
@@ -39,19 +36,28 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	}); err != nil {
 		return "", "", err
 	}
-	if err := WithWait("Starting inferscale", func() error {
-		return ensureDaemon(ctx, cli)
-	}); err != nil {
+	if err := daemonReady(ctx, cli); err != nil {
+		if err := ensureSudo(ctx); err != nil {
+			return "", "", err
+		}
+		if err := WithWait("Starting inferscale", func() error {
+			return ensureDaemon(ctx, cli)
+		}); err != nil {
+			return "", "", err
+		}
+	}
+	// A saved address is not a connection. Offline still has the old IPv4.
+	if st, err := readState(ctx, cli); err == nil && st.Online && st.IP != "" {
+		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", st.IP)
+		return st.IP, st.ID, nil
+	}
+	if loginServer == "" && authKey == "" {
+		return "", "", fmt.Errorf("inferscale is not connected and the one-shot key was already used")
+	}
+	if err := ensureSudo(ctx); err != nil {
 		return "", "", err
 	}
-	if ip, nodeID, err = Inspect(ctx, cli); err == nil && ip != "" {
-		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", ip)
-		return ip, nodeID, nil
-	}
-	if authKey == "" {
-		return "", "", fmt.Errorf("inferscale is not up and the one-shot key was already used")
-	}
-	cmd := commandAsRoot(ctx, cli, "up", "--login-server", loginServer, "--auth-key", authKey)
+	cmd := commandAsRoot(ctx, cli, upArgs(loginServer, authKey)...)
 	if err := WithWait("Joining the tailnet", func() error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("inferscale up: %w", err)
@@ -60,11 +66,22 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	}); err != nil {
 		return "", "", err
 	}
-	ip, nodeID, err = Inspect(ctx, cli)
-	if err == nil && ip != "" {
+	ip, nodeID, err = waitOnline(ctx, cli)
+	if err == nil {
 		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", ip)
 	}
 	return ip, nodeID, err
+}
+
+func upArgs(loginServer, authKey string) []string {
+	args := []string{"up"}
+	if loginServer != "" {
+		args = append(args, "--login-server", loginServer)
+	}
+	if authKey != "" {
+		args = append(args, "--auth-key", authKey)
+	}
+	return args
 }
 
 const TUN = "inferscale0"
@@ -252,31 +269,88 @@ func tailFile(path string, n int) string {
 	return string(b)
 }
 
+type nodeState struct {
+	IP     string
+	ID     string
+	Online bool
+}
+
 // Inspect reads the IPv4 address and the Headscale node id.
 func Inspect(ctx context.Context, cli string) (ip, nodeID string, err error) {
+	st, err := readState(ctx, cli)
+	if err != nil {
+		return "", "", err
+	}
+	if st.IP == "" {
+		return "", st.ID, fmt.Errorf("inferscale has no ipv4")
+	}
+	return st.IP, st.ID, nil
+}
+
+func readState(ctx context.Context, cli string) (nodeState, error) {
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, cli, "status", "--json").Output()
 	if err != nil {
-		ip, err = ipv4(ctx, cli)
-		return ip, "", err
+		ip, ipErr := ipv4(ctx, cli)
+		return nodeState{IP: ip}, ipErr
 	}
+	st, err := parseStatus(out)
+	if err != nil {
+		ip, ipErr := ipv4(ctx, cli)
+		return nodeState{IP: ip}, ipErr
+	}
+	return st, nil
+}
+
+func parseStatus(out []byte) (nodeState, error) {
 	var st struct {
 		Self struct {
 			ID           string   `json:"ID"`
+			Online       bool     `json:"Online"`
 			TailscaleIPs []string `json:"TailscaleIPs"`
 		} `json:"Self"`
 	}
 	if err := json.Unmarshal(out, &st); err != nil {
-		ip, err = ipv4(ctx, cli)
-		return ip, "", err
+		return nodeState{}, err
 	}
+	parsed := nodeState{ID: st.Self.ID, Online: st.Self.Online}
 	for _, addr := range st.Self.TailscaleIPs {
 		if strings.Contains(addr, ".") {
-			return addr, st.Self.ID, nil
+			parsed.IP = addr
+			break
 		}
 	}
-	return "", st.Self.ID, fmt.Errorf("inferscale has no ipv4")
+	return parsed, nil
+}
+
+// waitOnline polls until the daemon is connected to headscale.
+// up can return while Self.Online is still false.
+func waitOnline(ctx context.Context, cli string) (string, string, error) {
+	deadline := time.Now().Add(15 * time.Second)
+	var last error
+	for {
+		st, err := readState(ctx, cli)
+		if err == nil && st.Online && st.IP != "" {
+			return st.IP, st.ID, nil
+		}
+		if err != nil {
+			last = err
+		} else {
+			last = fmt.Errorf("inferscale is offline")
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			if ctx.Err() != nil {
+				return "", "", ctx.Err()
+			}
+			return "", "", last
+		}
+		select {
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // CLI is the inferscale binary on PATH or the one setup downloaded.

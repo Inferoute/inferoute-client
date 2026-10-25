@@ -85,6 +85,7 @@ func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
 			}
 			return nil
 		}
+		login = sess.LoginServer
 		if cfg.Provider.NodeToken == "" {
 			res, err := inferscale.Enroll(cfg.Provider.URL, key)
 			if err != nil {
@@ -133,7 +134,28 @@ func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
 	return nil
 }
 
+// loginServer is the URL the daemon dials. The engine route has it once a
+// tailnet address is stored; otherwise the master session does.
+func loginServer(cfg *config.Config, worker bool) string {
+	bearer := cfg.Provider.APIKey
+	if worker {
+		bearer = cfg.Provider.NodeToken
+	}
+	if remote, err := inferscale.FetchEngine(cfg.Provider.URL, bearer, worker); err == nil && remote.LoginServer != "" {
+		return remote.LoginServer
+	}
+	if worker {
+		return ""
+	}
+	sess, err := inferscale.FetchSession(cfg.Provider.URL, cfg.Provider.APIKey)
+	if err != nil {
+		return ""
+	}
+	return sess.LoginServer
+}
+
 // refreshClusterEngine reloads the server command before a later start.
+// It also reconnects inferscale when the saved address is offline.
 func refreshClusterEngine(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil {
 		return nil
@@ -143,17 +165,13 @@ func refreshClusterEngine(ctx context.Context, cfg *config.Config) error {
 		return nil
 	}
 	worker := mode == "worker"
-	cli, err := inferscale.CLI()
-	if err != nil {
-		return fmt.Errorf("inferscale is not installed: %w", err)
-	}
-	ip, nodeID, err := inferscale.Inspect(ctx, cli)
-	if err != nil {
-		return fmt.Errorf("inferscale is not up: %w", err)
-	}
 	bearer := cfg.Provider.APIKey
 	if worker {
 		bearer = cfg.Provider.NodeToken
+	}
+	ip, nodeID, err := inferscale.BringUp(ctx, loginServer(cfg, worker), "")
+	if err != nil {
+		return err
 	}
 	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID); err != nil {
 		return err

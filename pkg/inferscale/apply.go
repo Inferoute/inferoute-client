@@ -9,12 +9,13 @@ import (
 
 // Remote is the tailnet bind and the distributed flags from the server.
 type Remote struct {
-	Host      string   `json:"host"`
-	Port      int      `json:"port"`
-	ExtraArgs []string `json:"extra_args"`
-	Env       []string `json:"env"`
-	Command   string   `json:"command"`
-	Role      string   `json:"role"`
+	Host        string   `json:"host"`
+	Port        int      `json:"port"`
+	ExtraArgs   []string `json:"extra_args"`
+	Env         []string `json:"env"`
+	Command     string   `json:"command"`
+	Role        string   `json:"role"`
+	LoginServer string   `json:"login_server"`
 }
 
 // Apply merges the server command onto the local serve flags.

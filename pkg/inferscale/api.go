@@ -26,6 +26,7 @@ type sessionResult struct {
 	Model            string `json:"model"`
 	ModelDisplayName string `json:"model_display_name"`
 	ServiceType      string `json:"service_type"`
+	LoginServer      string `json:"login_server"`
 }
 
 func FetchSession(base, apiKey string) (sessionResult, error) {
