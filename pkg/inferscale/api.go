@@ -20,8 +20,12 @@ type enrollResult struct {
 }
 
 type sessionResult struct {
-	Mode string `json:"cluster_mode"`
-	Role string `json:"role"`
+	Mode             string `json:"cluster_mode"`
+	Role             string `json:"role"`
+	Name             string `json:"name"`
+	Model            string `json:"model"`
+	ModelDisplayName string `json:"model_display_name"`
+	ServiceType      string `json:"service_type"`
 }
 
 func FetchSession(base, apiKey string) (sessionResult, error) {
@@ -33,6 +37,12 @@ func FetchSession(base, apiKey string) (sessionResult, error) {
 func Enroll(base, apiKey string) (enrollResult, error) {
 	var out enrollResult
 	err := doJSON(base, http.MethodPost, "/api/provider/network/enroll", apiKey, map[string]string{}, &out)
+	return out, err
+}
+
+func PreviewJoin(base, code string) (sessionResult, error) {
+	var out sessionResult
+	err := doJSON(base, http.MethodPost, "/api/provider/network/join/preview", "", map[string]string{"code": code}, &out)
 	return out, err
 }
 

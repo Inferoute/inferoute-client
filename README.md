@@ -29,7 +29,7 @@ The Inferoute Provider Client is a lightweight Go service that runs next to vLLM
 
 #### Linux / macOS one-liner
 
-Works on Linux (amd64/arm64) and macOS (Apple Silicon). Intel Macs are not supported. The wizard asks for your API key, engine, and model:
+Works on Linux (amd64/arm64) and macOS (Apple Silicon). Intel Macs are not supported. The wizard asks for your API key, then the engine and model. A cluster API key skips that and uses the model chosen for the cluster. A join code installs vLLM and confirms the cluster at the end:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash

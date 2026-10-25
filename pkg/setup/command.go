@@ -14,6 +14,9 @@ const helpText = `Usage:
 Walk through engine, model, and API key setup. Writes ~/.config/inferoute/config.yaml.
 Safe to re-run; existing values are used as defaults.
 
+A cluster API key or join- code uses that cluster's model and vLLM.
+A join- code installs vLLM without asking.
+
 Flags:
   --config string        Config path (default: ~/.config/inferoute/config.yaml)
   --engine string        vllm, vllm-metal, or llama_cpp

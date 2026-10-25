@@ -11,6 +11,46 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 )
 
+// clusterSettings is what setup shows instead of the single-machine model list.
+type clusterSettings struct {
+	Role        string
+	Name        string
+	Model       string
+	DisplayName string
+	ServiceType string
+}
+
+// clusterPlan is replaced in tests. Production reads the cluster the key belongs to.
+var clusterPlan = clusterPlanReal
+
+func clusterPlanReal(cfg *config.Config) (clusterSettings, error) {
+	key := strings.TrimSpace(cfg.Provider.APIKey)
+	if strings.HasPrefix(key, "join-") {
+		info, err := inferscale.PreviewJoin(cfg.Provider.URL, key)
+		if err != nil {
+			return clusterSettings{}, fmt.Errorf("join code: %w", err)
+		}
+		if strings.TrimSpace(info.Model) == "" {
+			return clusterSettings{}, fmt.Errorf("cluster %s has no model set. Choose one in the dashboard, then re-run setup", firstNonEmpty(info.Name, "this cluster"))
+		}
+		return clusterSettings{
+			Role: "worker", Name: info.Name, Model: info.Model,
+			DisplayName: info.ModelDisplayName, ServiceType: info.ServiceType,
+		}, nil
+	}
+	sess, err := inferscale.FetchSession(cfg.Provider.URL, key)
+	if err != nil || sess.Mode != "multi" {
+		return clusterSettings{Role: "single"}, err
+	}
+	if strings.TrimSpace(sess.Model) == "" {
+		return clusterSettings{}, fmt.Errorf("cluster %s has no model set. Choose one in the dashboard, then re-run setup", firstNonEmpty(sess.Name, "this cluster"))
+	}
+	return clusterSettings{
+		Role: "master", Name: sess.Name, Model: sess.Model,
+		DisplayName: sess.ModelDisplayName, ServiceType: sess.ServiceType,
+	}, nil
+}
+
 // prepareCluster is replaced in tests. Production joins the tailnet when the
 // key is a multi-node master key or a join- code, then rewrites the engine spec.
 var prepareCluster = prepareClusterReal

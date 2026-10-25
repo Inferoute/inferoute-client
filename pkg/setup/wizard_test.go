@@ -2,6 +2,8 @@ package setup
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,6 +16,9 @@ import (
 
 func TestMain(m *testing.M) {
 	prepareCluster = func(*config.Config, *engine.Spec) error { return nil }
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{Role: "single"}, nil
+	}
 	os.Exit(m.Run())
 }
 
@@ -52,6 +57,113 @@ func TestExecuteMultiPreparesCluster(t *testing.T) {
 	}
 	if cfg.Provider.ClusterMode != "master" {
 		t.Fatalf("cluster_mode = %q", cfg.Provider.ClusterMode)
+	}
+}
+
+func singlePlan(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		clusterPlan = func(*config.Config) (clusterSettings, error) {
+			return clusterSettings{Role: "single"}, nil
+		}
+		detectEngine = engine.Detect
+		installEngine = engine.Install
+	})
+}
+
+func TestExecuteMasterUsesClusterModel(t *testing.T) {
+	singlePlan(t)
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{
+			Role: "master", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", DisplayName: "Qwen3 0.6B", ServiceType: "vllm",
+		}, nil
+	}
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	var out, errBuf bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		APIKey:         "sk-cluster",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		Yes:            true,
+		NoStart:        true,
+	}, Streams{In: strings.NewReader(""), Out: &out, Err: &errBuf})
+	if err != nil {
+		t.Fatalf("Execute: %v\n%s\n%s", err, out.String(), errBuf.String())
+	}
+	if strings.Contains(out.String(), "Models that should fit") {
+		t.Fatalf("cluster setup showed the single-machine list:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "Cluster inferoute-cluster1") || !strings.Contains(out.String(), "Qwen3 0.6B (Qwen/Qwen3-0.6B)") {
+		t.Fatalf("stdout = %s", out.String())
+	}
+	if !strings.Contains(out.String(), "vllm serve Qwen/Qwen3-0.6B") && !strings.Contains(out.String(), "serve Qwen/Qwen3-0.6B") {
+		t.Fatalf("missing serve command:\n%s", out.String())
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.Model != "Qwen/Qwen3-0.6B" {
+		t.Fatalf("model = %q", cfg.Provider.Model)
+	}
+}
+
+func TestExecuteWorkerInstallsAndConfirms(t *testing.T) {
+	singlePlan(t)
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{
+			Role: "worker", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", DisplayName: "Qwen3 0.6B", ServiceType: "vllm",
+		}, nil
+	}
+	calls := 0
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		calls++
+		if calls == 1 {
+			return engine.Detected{Kind: kind}
+		}
+		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
+	}
+	installed := false
+	installEngine = func(_ context.Context, kind engine.Kind, _ io.Writer) error {
+		installed = true
+		if kind != engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) {
+			t.Errorf("installed %s", kind)
+		}
+		return nil
+	}
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	var out, errBuf bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		APIKey:         "join-abc",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+	}, Streams{In: strings.NewReader("n\n"), Out: &out, Err: &errBuf})
+	if err != nil {
+		t.Fatalf("Execute: %v\n%s\n%s", err, out.String(), errBuf.String())
+	}
+	if !installed {
+		t.Fatal("vLLM was not installed")
+	}
+	text := out.String()
+	if strings.Contains(text, "Models that should fit") || strings.Contains(text, "Inference engine:") || strings.Contains(text, "Install it now?") {
+		t.Fatalf("worker was prompted:\n%s", text)
+	}
+	if !strings.Contains(text, "Joining cluster inferoute-cluster1") || !strings.Contains(text, "Qwen3 0.6B (Qwen/Qwen3-0.6B)") {
+		t.Fatalf("stdout = %s", text)
+	}
+	if !strings.Contains(text, "Start "+string(engine.RuntimeKind(runtime.GOOS, engine.KindVLLM))+" with this model now?") {
+		t.Fatalf("did not offer to start:\n%s", text)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.Model != "Qwen/Qwen3-0.6B" {
+		t.Fatalf("model = %q", cfg.Provider.Model)
 	}
 }
 
