@@ -259,7 +259,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		if len(report.Data) > 0 {
 			status = "green"
 		}
-		return r.sendNodeHealth(ctx, status)
+		return r.sendNodeHealth(ctx, status, report.GPU)
 	}
 
 	// Register any new models
@@ -321,12 +321,15 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	return nil
 }
 
-func (r *Reporter) sendNodeHealth(ctx context.Context, status string) error {
+func (r *Reporter) sendNodeHealth(ctx context.Context, status string, gpuInfo *gpu.GPUInfo) error {
 	token := r.config.Provider.NodeToken
 	if token == "" {
 		return fmt.Errorf("worker node token is not set")
 	}
-	body, _ := json.Marshal(map[string]string{"status": status})
+	body, _ := json.Marshal(struct {
+		Status string       `json:"status"`
+		GPU    *gpu.GPUInfo `json:"gpu,omitempty"`
+	}{Status: status, GPU: gpuInfo})
 	url := fmt.Sprintf("%s/api/provider/network/node/health", r.config.Provider.URL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
