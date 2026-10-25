@@ -20,7 +20,7 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	if runtime.GOOS != "linux" {
 		return "", "", fmt.Errorf("inferscale needs a Linux TUN; this machine is %s", runtime.GOOS)
 	}
-	if err := requireRoot(); err != nil {
+	if err := ensureSudo(ctx); err != nil {
 		return "", "", err
 	}
 	cli, err := ensureBins(ctx)
@@ -36,9 +36,7 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	if authKey == "" {
 		return "", "", fmt.Errorf("inferscale is not up and the one-shot key was already used")
 	}
-	cmd := exec.CommandContext(ctx, cli, "up", "--login-server", loginServer, "--auth-key", authKey)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd := commandAsRoot(ctx, cli, "up", "--login-server", loginServer, "--auth-key", authKey)
 	if err := cmd.Run(); err != nil {
 		return "", "", fmt.Errorf("inferscale up: %w", err)
 	}
@@ -46,6 +44,38 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 }
 
 const TUN = "inferscale0"
+
+// rootArgv is the argv that runs name as root. euid 0 runs it directly.
+// Otherwise sudo -n, which uses the credential from ensureSudo.
+func rootArgv(euid int, name string, args ...string) (string, []string) {
+	if euid == 0 {
+		return name, args
+	}
+	return "sudo", append([]string{"-n", "--", name}, args...)
+}
+
+func commandAsRoot(ctx context.Context, name string, args ...string) *exec.Cmd {
+	bin, argv := rootArgv(euid(), name, args...)
+	cmd := exec.CommandContext(ctx, bin, argv...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
+func startDaemon(ctx context.Context, daemon string) error {
+	if euid() == 0 {
+		cmd := exec.Command(daemon)
+		detach(cmd)
+		return cmd.Start()
+	}
+	// -b asks for nothing (sudo -n) and backgrounds inferscaled after auth.
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "-b", "--", daemon)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
 
 func binDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -113,9 +143,7 @@ func ensureDaemon(ctx context.Context, cli string) error {
 		return nil
 	}
 	daemon := filepath.Join(filepath.Dir(cli), "inferscaled")
-	cmd := exec.Command(daemon)
-	detach(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := startDaemon(ctx, daemon); err != nil {
 		return fmt.Errorf("start inferscaled: %w", err)
 	}
 	deadline := time.Now().Add(10 * time.Second)

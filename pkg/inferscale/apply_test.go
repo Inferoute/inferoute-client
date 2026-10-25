@@ -7,6 +7,17 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 )
 
+func TestRootArgv(t *testing.T) {
+	bin, argv := rootArgv(0, "/usr/bin/inferscale", "up", "--auth-key", "k")
+	if bin != "/usr/bin/inferscale" || len(argv) != 3 || argv[0] != "up" {
+		t.Fatalf("root argv = %s %v", bin, argv)
+	}
+	bin, argv = rootArgv(1000, "/home/ubuntu/.local/share/inferoute/inferscale/inferscaled")
+	if bin != "sudo" || strings.Join(argv, " ") != "-n -- /home/ubuntu/.local/share/inferoute/inferscale/inferscaled" {
+		t.Fatalf("user argv = %s %v", bin, argv)
+	}
+}
+
 func TestApplyKeepsLoopbackOnEmptyRemote(t *testing.T) {
 	spec := engine.ServeSpec(engine.KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "", engine.ServeOpts{})
 	got := Apply(spec, Remote{})

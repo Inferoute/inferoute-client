@@ -2,8 +2,13 @@
 
 package inferscale
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
-func requireRoot() error {
+func euid() int { return 0 }
+
+func ensureSudo(context.Context) error {
 	return fmt.Errorf("inferscale needs a Linux TUN")
 }
