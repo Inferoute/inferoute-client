@@ -1,8 +1,10 @@
 package inferscale
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,18 +66,46 @@ func commandAsRoot(ctx context.Context, name string, args ...string) *exec.Cmd {
 }
 
 func startDaemon(ctx context.Context, daemon string) error {
+	logf := openDaemonLog()
+	defer logf.Close()
 	if euid() == 0 {
 		cmd := exec.Command(daemon)
+		cmd.Stdout = logf
+		cmd.Stderr = logf
 		detach(cmd)
 		return cmd.Start()
 	}
 	// -b asks for nothing (sudo -n) and backgrounds inferscaled after auth.
 	cmd := exec.CommandContext(ctx, "sudo", "-n", "-b", "--", daemon)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = logf
+	cmd.Stderr = logf
 	return cmd.Run()
 }
+
+func daemonLogPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "state", "inferoute", "log", "inferscaled.log")
+}
+
+func openDaemonLog() io.WriteCloser {
+	path := daemonLogPath()
+	if path == "" || os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+		return nopWriteCloser{io.Discard}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nopWriteCloser{io.Discard}
+	}
+	return f
+}
+
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
 
 func binDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -139,7 +169,7 @@ func download(ctx context.Context, url, dest string) error {
 }
 
 func ensureDaemon(ctx context.Context, cli string) error {
-	if _, _, err := Inspect(ctx, cli); err == nil {
+	if daemonReady(ctx, cli) == nil {
 		return nil
 	}
 	daemon := filepath.Join(filepath.Dir(cli), "inferscaled")
@@ -147,13 +177,57 @@ func ensureDaemon(ctx context.Context, cli string) error {
 		return fmt.Errorf("start inferscaled: %w", err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
+	var last error
 	for time.Now().Before(deadline) {
-		if _, _, err := Inspect(ctx, cli); err == nil {
+		if err := daemonReady(ctx, cli); err == nil {
 			return nil
+		} else {
+			last = err
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return fmt.Errorf("inferscaled did not answer")
+	msg := "inferscaled did not answer"
+	if tail := tailFile(daemonLogPath(), 800); tail != "" {
+		msg += ": " + tail
+	} else if last != nil {
+		msg += ": " + last.Error()
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// daemonReady is true once status returns JSON. An address shows up only after up.
+func daemonReady(ctx context.Context, cli string) error {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, cli, "status", "--json").Output()
+	if statusAnswered(out) {
+		return nil
+	}
+	if err == nil {
+		return fmt.Errorf("empty status")
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+		return fmt.Errorf("%s", strings.TrimSpace(string(exit.Stderr)))
+	}
+	return err
+}
+
+func statusAnswered(out []byte) bool {
+	out = bytes.TrimSpace(out)
+	return len(out) > 0 && json.Valid(out)
+}
+
+func tailFile(path string, n int) string {
+	b, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(b)) == 0 {
+		return ""
+	}
+	b = bytes.TrimSpace(b)
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	return string(b)
 }
 
 // Inspect reads the IPv4 address and the Headscale node id.

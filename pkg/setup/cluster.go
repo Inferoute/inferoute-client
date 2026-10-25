@@ -99,6 +99,18 @@ func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
 		cfg.Provider.NodeToken = token
 	}
 	ip, nodeID, err := inferscale.BringUp(context.Background(), login, auth)
+	if err != nil && !worker && auth == "" {
+		// The previous attempt saved a node token before inferscale up ran.
+		res, enrollErr := inferscale.Enroll(cfg.Provider.URL, key)
+		if enrollErr != nil {
+			return err
+		}
+		login, auth, token = res.LoginServer, res.AuthKey, res.NodeToken
+		if token != "" {
+			cfg.Provider.NodeToken = token
+		}
+		ip, nodeID, err = inferscale.BringUp(context.Background(), login, auth)
+	}
 	if err != nil {
 		return err
 	}

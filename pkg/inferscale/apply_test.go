@@ -7,6 +7,15 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 )
 
+func TestStatusAnsweredWithoutIP(t *testing.T) {
+	if !statusAnswered([]byte(`{"BackendState":"NeedsLogin","Self":null}`)) {
+		t.Fatal("logged-out daemon should count as up")
+	}
+	if statusAnswered(nil) || statusAnswered([]byte("Logged out.")) {
+		t.Fatal("non-json must not count as up")
+	}
+}
+
 func TestRootArgv(t *testing.T) {
 	bin, argv := rootArgv(0, "/usr/bin/inferscale", "up", "--auth-key", "k")
 	if bin != "/usr/bin/inferscale" || len(argv) != 3 || argv[0] != "up" {
