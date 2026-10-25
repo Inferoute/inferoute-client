@@ -16,6 +16,12 @@ import (
 	"time"
 )
 
+// WithWait shows progress around a slow step. Setup replaces it with the spinner.
+var WithWait = func(msg string, fn func() error) error {
+	fmt.Fprintf(os.Stdout, "%s...\n", msg)
+	return fn()
+}
+
 // BringUp installs the pinned binaries, starts inferscaled, and joins the tailnet.
 // authKey is empty when this machine already joined.
 func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID string, err error) {
@@ -25,24 +31,40 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	if err := ensureSudo(ctx); err != nil {
 		return "", "", err
 	}
-	cli, err := ensureBins(ctx)
-	if err != nil {
+	var cli string
+	if err := WithWait("Downloading inferscale", func() error {
+		var derr error
+		cli, derr = ensureBins(ctx)
+		return derr
+	}); err != nil {
 		return "", "", err
 	}
-	if err := ensureDaemon(ctx, cli); err != nil {
+	if err := WithWait("Starting inferscale", func() error {
+		return ensureDaemon(ctx, cli)
+	}); err != nil {
 		return "", "", err
 	}
 	if ip, nodeID, err = Inspect(ctx, cli); err == nil && ip != "" {
+		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", ip)
 		return ip, nodeID, nil
 	}
 	if authKey == "" {
 		return "", "", fmt.Errorf("inferscale is not up and the one-shot key was already used")
 	}
 	cmd := commandAsRoot(ctx, cli, "up", "--login-server", loginServer, "--auth-key", authKey)
-	if err := cmd.Run(); err != nil {
-		return "", "", fmt.Errorf("inferscale up: %w", err)
+	if err := WithWait("Joining the tailnet", func() error {
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("inferscale up: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", "", err
 	}
-	return Inspect(ctx, cli)
+	ip, nodeID, err = Inspect(ctx, cli)
+	if err == nil && ip != "" {
+		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", ip)
+	}
+	return ip, nodeID, err
 }
 
 const TUN = "inferscale0"

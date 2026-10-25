@@ -12,6 +12,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
@@ -50,6 +51,9 @@ func Execute(opts Options, io Streams) error {
 	platformURL := config.ResolvePlatformURL(opts.CatalogURL, cfg.Provider.URL)
 	cfg.Provider.URL = platformURL
 
+	inferscale.WithWait = func(msg string, fn func() error) error {
+		return SpinWhile(io.Out, msg, fn)
+	}
 	fmt.Fprintln(io.Out, "=== Inferoute Client Setup ===")
 	fmt.Fprintf(io.Out, "Config: %s\n", path)
 	fmt.Fprintf(io.Out, "API:    %s\n\n", platformURL)
@@ -57,7 +61,14 @@ func Execute(opts Options, io Streams) error {
 	if err := applyAPIKey(cfg, opts, io); err != nil {
 		return err
 	}
-	plan, planErr := clusterPlan(cfg)
+	var plan clusterSettings
+	var planErr error
+	if err := SpinWhile(io.Out, "Reading cluster settings", func() error {
+		plan, planErr = clusterPlan(cfg)
+		return nil
+	}); err != nil {
+		return err
+	}
 	if planErr != nil && plan.Role != "single" {
 		return planErr
 	}
@@ -288,7 +299,11 @@ func clusterEntry(opts Options, kind engine.Kind, platformURL string, plan clust
 	if opts.OfflineCatalog != "" {
 		entries, err = compat.LoadOfflineCatalog(opts.OfflineCatalog, engine.CatalogType(kind))
 	} else {
-		entries, err = compat.FetchCatalog(ctx, platformURL, engine.CatalogType(kind))
+		err = SpinWhile(io.Out, "Loading the cluster model", func() error {
+			var fetchErr error
+			entries, fetchErr = compat.FetchCatalog(ctx, platformURL, engine.CatalogType(kind))
+			return fetchErr
+		})
 	}
 	if err != nil {
 		fmt.Fprintf(io.Err, "catalog unavailable (%v); serving %s without catalog flags\n", err, plan.Model)

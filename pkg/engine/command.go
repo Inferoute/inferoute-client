@@ -84,6 +84,9 @@ func ServeSpec(kind Kind, bin, modelAlias, hfRepo string, opts ServeOpts) Spec {
 			spec.Args = append(spec.Args, "--served-model-name", modelAlias)
 		}
 		spec.Args = append(spec.Args, vllmServeFlags(opts)...)
+		if strings.TrimSpace(opts.RopeType) != "" && opts.MaxModelLen > opts.RopeBaseContextLen && opts.RopeBaseContextLen > 0 {
+			spec.Env = append(spec.Env, "VLLM_ALLOW_LONG_MAX_MODEL_LEN=1")
+		}
 	case KindLlamaCpp:
 		repo := firstNonEmpty(hfRepo, modelAlias)
 		name := firstNonEmpty(modelAlias, repo)

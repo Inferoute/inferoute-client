@@ -30,7 +30,9 @@ func Apply(spec engine.Spec, remote Remote) engine.Spec {
 	if len(remote.ExtraArgs) > 0 {
 		spec.Args = append(spec.Args, remote.ExtraArgs...)
 	}
-	spec.Env = remote.Env
+	if len(remote.Env) > 0 {
+		spec.Env = append(append([]string{}, spec.Env...), remote.Env...)
+	}
 	return spec
 }
 

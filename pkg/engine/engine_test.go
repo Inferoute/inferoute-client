@@ -92,6 +92,9 @@ func TestServeSpecWithOpts(t *testing.T) {
 			t.Fatalf("missing %q in args %v", s, yarn.Args)
 		}
 	}
+	if !strings.Contains(strings.Join(yarn.Env, " "), "VLLM_ALLOW_LONG_MAX_MODEL_LEN=1") {
+		t.Fatalf("yarn context missing long-len override: %v", yarn.Env)
+	}
 
 	gemma := ServeSpec(KindVLLM, "vllm", "google/gemma-3-4b-it", "google/gemma-3-4b-it", ServeOpts{
 		MaxModelLen: 131072,
