@@ -79,9 +79,7 @@ func Execute(opts Options, io Streams) error {
 		if err != nil {
 			return err
 		}
-		if plan.Role == "master" {
-			printCluster(io.Out, plan)
-		}
+		printCluster(io.Out, plan)
 	} else {
 		kind, err = applyEngine(cfg, opts, io)
 		if err != nil {
@@ -151,9 +149,6 @@ func Execute(opts Options, io Streams) error {
 		return err
 	}
 
-	if plan.Role == "worker" {
-		printCluster(io.Out, plan)
-	}
 	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
 			return saveErr
@@ -196,32 +191,39 @@ func loadOrFresh(path string) (*config.Config, error) {
 }
 
 func applyAPIKey(cfg *config.Config, opts Options, io Streams) error {
-	key := strings.TrimSpace(opts.APIKey)
+	explicit := credential(opts.APIKey)
+	key := explicit
 	if key == "" {
-		key = cfg.Provider.APIKey
+		key = credential(os.Getenv("PROVIDER_API_KEY"))
 	}
+	if key == "" {
+		key = credential(cfg.Provider.APIKey)
+	}
+	// --api-key and --yes skip the prompt. An env key is only the default,
+	// so a worker can paste a join code over a provider key already in the shell.
 	if opts.Yes || strings.TrimSpace(opts.APIKey) != "" {
-		if strings.TrimSpace(key) == "" || key == "your_api_key_here" {
+		if key == "" || key == "your_api_key_here" {
 			return fmt.Errorf("--api-key is required with --yes")
 		}
 		cfg.Provider.APIKey = key
 		return nil
 	}
 	def := ""
-	if cfg.HasAPIKey() {
+	if key != "" && key != "your_api_key_here" {
 		def = "keep current"
 	}
-	got, err := promptLine(io.In, io.Out, "Provider API key (from cluster Settings)", def)
+	got, err := promptLine(io.In, io.Out, "Provider API key or join code", def)
 	if err != nil && got == "" {
 		return fmt.Errorf("API key is required")
 	}
 	if got == "" || got == "keep current" {
-		if !cfg.HasAPIKey() {
+		if key == "" || key == "your_api_key_here" {
 			return fmt.Errorf("API key is required")
 		}
+		cfg.Provider.APIKey = key
 		return nil
 	}
-	cfg.Provider.APIKey = got
+	cfg.Provider.APIKey = credential(got)
 	return nil
 }
 
@@ -448,8 +450,7 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	}
 	join := engine.MasterJoinAddr(spec.Args)
 	if join != "" && !engine.PortOpen(ctx, cfg.Provider.LLMURL) && engine.PortOpen(ctx, "http://"+join) {
-		fmt.Fprint(io.Out, "\n"+masterReadyText(join))
-		return nil
+		return watchWorkers(io.Out, kind, cfg.Provider.LLMURL, join, engine.NNodes(spec.Args), nil)
 	}
 	model := strings.TrimSpace(cfg.Provider.Model)
 	if model == "" {
@@ -485,9 +486,6 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	}
 
 	fmt.Fprintf(io.Out, "Starting %s...\n", kind)
-	if join != "" {
-		waitMsg = fmt.Sprintf("Waiting for the master to accept other nodes at tcp://%s", join)
-	}
 	logPath := engine.LogPath(cfg.Logging.LogDir)
 	exited, err := engine.StartDetached(spec, logPath)
 	if err != nil {
@@ -495,17 +493,16 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	}
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 	defer waitCancel()
-	if err := SpinWhile(io.Out, waitMsg, func() error {
-		if join != "" {
-			return engine.WaitListen(waitCtx, join, 2*time.Second, exited)
+	if join != "" {
+		if err := watchWorkers(io.Out, kind, cfg.Provider.LLMURL, join, engine.NNodes(spec.Args), exited); err != nil {
+			return fmt.Errorf("%w (see %s)", err, logPath)
 		}
+		return nil
+	}
+	if err := SpinWhile(io.Out, waitMsg, func() error {
 		return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second, exited)
 	}); err != nil {
 		return fmt.Errorf("%w (see %s)", err, logPath)
-	}
-	if join != "" {
-		fmt.Fprint(io.Out, masterReadyText(join))
-		return nil
 	}
 	fmt.Fprintf(io.Out, "Engine is ready at %s.\n", cfg.Provider.LLMURL)
 	return nil

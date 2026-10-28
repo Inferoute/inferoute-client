@@ -460,3 +460,37 @@ func TestExecuteCatalogURLFlagBeatsEnv(t *testing.T) {
 		t.Errorf("url = %q, want flag", cfg.Provider.URL)
 	}
 }
+
+func TestPastedJoinCodeSkipsEngineAndModel(t *testing.T) {
+	singlePlan(t)
+	t.Setenv("PROVIDER_API_KEY", "sk-already-set")
+	clusterPlan = func(cfg *config.Config) (clusterSettings, error) {
+		if cfg.Provider.APIKey != "join-abc" {
+			t.Fatalf("api key = %q", cfg.Provider.APIKey)
+		}
+		return clusterSettings{
+			Role: "worker", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", DisplayName: "Qwen3 0.6B", ServiceType: "vllm",
+		}, nil
+	}
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
+	}
+	dir := t.TempDir()
+	var out, errBuf bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     filepath.Join(dir, "config.yaml"),
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		NoStart:        true,
+	}, Streams{In: strings.NewReader("shown once: join-abc\n"), Out: &out, Err: &errBuf})
+	if err != nil {
+		t.Fatalf("Execute: %v\n%s\n%s", err, out.String(), errBuf.String())
+	}
+	text := out.String()
+	if strings.Contains(text, "Models that should fit") || strings.Contains(text, "Inference engine:") {
+		t.Fatalf("join code still asked for engine or model:\n%s", text)
+	}
+	if !strings.Contains(text, "Joining cluster inferoute-cluster1") || !strings.Contains(text, "Provider API key or join code") {
+		t.Fatalf("stdout = %s", text)
+	}
+}

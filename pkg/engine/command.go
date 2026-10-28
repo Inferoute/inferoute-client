@@ -169,6 +169,31 @@ func MasterJoinAddr(args []string) string {
 	return net.JoinHostPort(host, port)
 }
 
+// NNodes is the --nnodes value. Zero when this serve is not multi-node.
+func NNodes(args []string) int {
+	n, err := strconv.Atoi(flagVal(args, "--nnodes"))
+	if err != nil || n < 2 {
+		return 0
+	}
+	return n
+}
+
+// WorkerSlots is how many other nodes are online, out of how many the serve expects.
+func WorkerSlots(onlinePeers, nnodes int) (joined, need int) {
+	need = nnodes - 1
+	if need < 1 {
+		return 0, 0
+	}
+	joined = onlinePeers
+	if joined > need {
+		joined = need
+	}
+	if joined < 0 {
+		joined = 0
+	}
+	return joined, need
+}
+
 func flagVal(args []string, name string) string {
 	for i := 0; i < len(args)-1; i++ {
 		if args[i] == name {

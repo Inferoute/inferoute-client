@@ -206,7 +206,7 @@ func (s *Server) redrawConsole() {
 	}
 	buf.WriteString(fmt.Sprintf("\033[1;35mPlatform connection           \033[0m%s\n", state))
 
-	s.writeModelStatus(&buf, snap.Models)
+	s.writeClusterStatus(&buf, snap)
 
 	gpuInfo := snap.GPU
 	if gpuInfo == nil {
@@ -253,24 +253,37 @@ func formatRequestLine(req RequestLog) string {
 		req.Time, req.Method, req.Path, statusColor, req.Status, req.Duration)
 }
 
-func (s *Server) writeModelStatus(buf *bytes.Buffer, models []StatusModel) {
+func (s *Server) writeClusterStatus(buf *bytes.Buffer, snap StatusSnapshot) {
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
-	buf.WriteString("║                           MODEL STATUS                           ║\n")
+	buf.WriteString("║                          CLUSTER STATUS                          ║\n")
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
 
+	cluster := snap.Cluster
+	if cluster == "" {
+		cluster = "single"
+	}
+	buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Cluster", cluster))
+	if snap.Workers != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Workers", snap.Workers))
+	}
+	if snap.TailnetIP != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Tailnet IP", snap.TailnetIP))
+	}
+
+	models := snap.Models
 	if len(models) == 0 {
-		buf.WriteString("\033[1;35mModel                         \033[0m\033[1;33m(awaiting health sync)\033[0m\n")
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m\033[1;33m(awaiting health sync)\033[0m\n", "Model"))
 		return
 	}
 
 	for i, m := range models {
-		prefix := "Model                         "
+		prefix := "Model"
 		if i > 0 {
-			prefix = "                                "
+			prefix = ""
 		}
 		_, color := usermsg.ApprovalConsole(m.VerificationStatus)
-		buf.WriteString(fmt.Sprintf("\033[1;35m%s\033[0m%s\n", prefix, m.ID))
-		buf.WriteString(fmt.Sprintf("\033[1;35mMarketplace approval          \033[0m%s%s\033[0m\n", color, m.MarketplaceApproval))
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", prefix, m.ID))
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s%s\033[0m\n", "Marketplace approval", color, m.MarketplaceApproval))
 	}
 }
 

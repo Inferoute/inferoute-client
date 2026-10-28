@@ -23,11 +23,23 @@ func writerIsTTY(w io.Writer) bool {
 // SpinWhile prints msg while fn runs. On a TTY it animates in place and
 // rotates a quote underneath.
 func SpinWhile(out io.Writer, msg string, fn func() error) error {
+	return spinWhile(out, func() string { return msg }, fn)
+}
+
+// SpinWhileLive is SpinWhile with a message that can change while fn runs.
+func SpinWhileLive(out io.Writer, msg func() string, fn func() error) error {
+	if msg == nil {
+		msg = func() string { return "" }
+	}
+	return spinWhile(out, msg, fn)
+}
+
+func spinWhile(out io.Writer, msg func() string, fn func() error) error {
 	if out == nil {
 		out = os.Stdout
 	}
 	if !writerIsTTY(out) {
-		fmt.Fprintln(out, msg+"...")
+		fmt.Fprintln(out, msg()+"...")
 		return fn()
 	}
 
@@ -42,7 +54,7 @@ func SpinWhile(out io.Writer, msg string, fn func() error) error {
 		quoteAt := time.Now()
 		tick := time.NewTicker(80 * time.Millisecond)
 		defer tick.Stop()
-		fmt.Fprintf(out, "%c %s\n  %s", frames[0], msg, fitQuote(waitQuotes[qi]))
+		fmt.Fprintf(out, "%c %s\n  %s", frames[0], msg(), fitQuote(waitQuotes[qi]))
 		for {
 			select {
 			case <-stop:
@@ -54,7 +66,7 @@ func SpinWhile(out io.Writer, msg string, fn func() error) error {
 					qi = pickQuote(qi)
 					quoteAt = time.Now()
 				}
-				fmt.Fprintf(out, "\033[1A\r\033[K%c %s\n\033[K  %s", frames[i%len(frames)], msg, fitQuote(waitQuotes[qi]))
+				fmt.Fprintf(out, "\033[1A\r\033[K%c %s\n\033[K  %s", frames[i%len(frames)], msg(), fitQuote(waitQuotes[qi]))
 			}
 		}
 	}()

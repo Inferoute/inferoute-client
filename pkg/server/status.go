@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
@@ -51,6 +52,8 @@ type StatusSnapshot struct {
 	UpdateStatus     string        `json:"update_status"`
 	TailnetIP        string        `json:"tailnet_ip,omitempty"`
 	Peers            string        `json:"peers,omitempty"`
+	Cluster          string        `json:"cluster,omitempty"`
+	Workers          string        `json:"workers,omitempty"`
 }
 
 func (s *Server) snapshot() StatusSnapshot {
@@ -103,7 +106,25 @@ func (s *Server) snapshot() StatusSnapshot {
 	}
 
 	upd := nodeapi.State()
-	tailnetIP, peers := inferscale.LocalStatus()
+	tailnetIP, online := inferscale.Tailnet()
+	peers := ""
+	if online > 0 {
+		peers = fmt.Sprintf("%d online", online)
+	}
+	cluster := "single"
+	workers := ""
+	if s.config != nil {
+		switch s.config.Provider.ClusterMode {
+		case "master", "worker":
+			cluster = s.config.Provider.ClusterMode
+		}
+		if joined, need := engine.WorkerSlots(online, engine.NNodes(s.config.Provider.EngineArgs)); need > 0 {
+			workers = fmt.Sprintf("%d/%d", joined, need)
+			if cluster == "single" {
+				cluster = "master"
+			}
+		}
+	}
 	return StatusSnapshot{
 		LastHealthUpdate: lastUpdateStr,
 		SessionStatus:    "online",
@@ -121,6 +142,8 @@ func (s *Server) snapshot() StatusSnapshot {
 		UpdateStatus:     string(upd.Status),
 		TailnetIP:        tailnetIP,
 		Peers:            peers,
+		Cluster:          cluster,
+		Workers:          workers,
 	}
 }
 

@@ -383,9 +383,18 @@ func ipv4(ctx context.Context, cli string) (string, error) {
 	return ip, nil
 }
 
-// LocalStatus is the tailnet address and online peer count for the dashboard.
+// LocalStatus is the tailnet address and a "N online" peer summary.
 // A missing binary is an empty result.
 func LocalStatus() (ip, peers string) {
+	ip, n := Tailnet()
+	if n > 0 {
+		peers = fmt.Sprintf("%d online", n)
+	}
+	return ip, peers
+}
+
+// Tailnet is this machine's tailnet IPv4 and how many other nodes are online.
+func Tailnet() (ip string, onlinePeers int) {
 	cli, err := exec.LookPath("inferscale")
 	if err != nil {
 		if dir, derr := binDir(); derr == nil {
@@ -396,14 +405,14 @@ func LocalStatus() (ip, peers string) {
 		}
 	}
 	if cli == "" {
-		return "", ""
+		return "", 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, cli, "status", "--json").Output()
 	if err != nil {
 		ip, _ = ipv4(ctx, cli)
-		return ip, ""
+		return ip, 0
 	}
 	var st struct {
 		Self struct {
@@ -415,7 +424,7 @@ func LocalStatus() (ip, peers string) {
 	}
 	if json.Unmarshal(out, &st) != nil {
 		ip, _ = ipv4(ctx, cli)
-		return ip, ""
+		return ip, 0
 	}
 	for _, addr := range st.Self.TailscaleIPs {
 		if strings.Contains(addr, ".") {
@@ -423,14 +432,10 @@ func LocalStatus() (ip, peers string) {
 			break
 		}
 	}
-	online := 0
 	for _, p := range st.Peer {
 		if p.Online {
-			online++
+			onlinePeers++
 		}
 	}
-	if online > 0 {
-		peers = fmt.Sprintf("%d online", online)
-	}
-	return ip, peers
+	return ip, onlinePeers
 }

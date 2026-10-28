@@ -127,7 +127,9 @@ function render(s) {
     ${s.tailnet_ip ? row("Tailnet IP", esc(s.tailnet_ip)) : ""}
     ${s.peers ? row("Peers", esc(s.peers)) : ""}
     ${tunnel}
-    <h2>MODEL STATUS</h2>
+    <h2>CLUSTER STATUS</h2>
+    ${row("Cluster", esc(s.cluster || "single"))}
+    ${s.workers ? row("Workers", esc(s.workers)) : ""}
     ${modelHtml}
     <h2>GPU INFORMATION</h2>
     ${row("GPU", esc(gpu.product_name || "Unknown"))}

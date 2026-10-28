@@ -3,16 +3,96 @@ package setup
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 )
 
-func masterReadyText(join string) string {
-	return fmt.Sprintf("Master is ready for other nodes at tcp://%s.\nStart the workers. This node loads the model after they connect.\n", join)
+// credential keeps a join code pasted with a label or quotes.
+func credential(s string) string {
+	s = strings.TrimSpace(s)
+	for _, f := range strings.Fields(s) {
+		f = strings.Trim(f, "`\"'.,:;")
+		if strings.HasPrefix(f, "join-") {
+			return f
+		}
+	}
+	return strings.Trim(s, "`\"'")
+}
+
+func workerWaitText(joined, need int) string {
+	j, n := engine.WorkerSlots(joined, need+1)
+	if n < 1 {
+		return "Waiting for workers to join"
+	}
+	if j >= n {
+		return fmt.Sprintf("Waiting for the model to load (%d/%d workers joined)", j, n)
+	}
+	return fmt.Sprintf("Waiting for workers to join (%d/%d)", j, n)
+}
+
+func waitForWorkers(ctx context.Context, kind engine.Kind, llmURL, join string, nnodes int, exited <-chan error, set func(string)) error {
+	if !engine.PortOpen(ctx, "http://"+join) {
+		set("Waiting for the master to accept workers")
+		if err := engine.WaitListen(ctx, join, 2*time.Second, exited); err != nil {
+			return err
+		}
+	}
+	need := nnodes - 1
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	for {
+		_, joined := inferscale.Tailnet()
+		set(workerWaitText(joined, need))
+		if engine.Healthy(ctx, kind, llmURL) {
+			return nil
+		}
+		select {
+		case err := <-exited:
+			if err != nil {
+				return fmt.Errorf("process exited: %w", err)
+			}
+			return fmt.Errorf("process exited before workers joined")
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for workers to join: %w", ctx.Err())
+		case <-tick.C:
+		}
+	}
+}
+
+func onlinePeers() int {
+	_, n := inferscale.Tailnet()
+	return n
+}
+
+func watchWorkers(out io.Writer, kind engine.Kind, llmURL, join string, nnodes int, exited <-chan error) error {
+	var mu sync.Mutex
+	msg := workerWaitText(0, nnodes-1)
+	set := func(s string) {
+		mu.Lock()
+		msg = s
+		mu.Unlock()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
+	defer cancel()
+	err := SpinWhileLive(out, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return msg
+	}, func() error {
+		return waitForWorkers(ctx, kind, llmURL, join, nnodes, exited, set)
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Engine is ready at %s.\n", llmURL)
+	return nil
 }
 
 // clusterSettings is what setup shows instead of the single-machine model list.
@@ -28,7 +108,7 @@ type clusterSettings struct {
 var clusterPlan = clusterPlanReal
 
 func clusterPlanReal(cfg *config.Config) (clusterSettings, error) {
-	key := strings.TrimSpace(cfg.Provider.APIKey)
+	key := credential(cfg.Provider.APIKey)
 	if strings.HasPrefix(key, "join-") {
 		info, err := inferscale.PreviewJoin(cfg.Provider.URL, key)
 		if err != nil {
@@ -60,7 +140,7 @@ func clusterPlanReal(cfg *config.Config) (clusterSettings, error) {
 var prepareCluster = prepareClusterReal
 
 func decideCluster(key, mode string, lookupErr error) string {
-	if strings.HasPrefix(strings.TrimSpace(key), "join-") {
+	if strings.HasPrefix(credential(key), "join-") {
 		return "worker"
 	}
 	if lookupErr != nil || mode != "multi" {
@@ -70,7 +150,8 @@ func decideCluster(key, mode string, lookupErr error) string {
 }
 
 func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
-	key := strings.TrimSpace(cfg.Provider.APIKey)
+	key := credential(cfg.Provider.APIKey)
+	cfg.Provider.APIKey = key
 	worker := strings.HasPrefix(key, "join-")
 	var login, auth, token, role string
 	if worker {

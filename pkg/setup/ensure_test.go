@@ -128,7 +128,7 @@ func TestEnsureOnStartMasterJoinOpen(t *testing.T) {
 	if err := ensureOnStart(ctx, cfg, Streams{In: strings.NewReader(""), Out: &out}, true); err != nil {
 		t.Fatalf("ensureOnStart: %v", err)
 	}
-	if !strings.Contains(out.String(), "tcp://127.0.0.1:"+strconv.Itoa(port)) {
+	if !strings.Contains(out.String(), "Waiting for workers to join") {
 		t.Fatalf("stdout = %q", out.String())
 	}
 }

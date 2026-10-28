@@ -255,6 +255,21 @@ func TestMasterJoinAddr(t *testing.T) {
 	}
 }
 
+func TestWorkerSlots(t *testing.T) {
+	t.Parallel()
+	joined, need := WorkerSlots(0, 2)
+	if joined != 0 || need != 1 {
+		t.Fatalf("WorkerSlots(0, 2) = %d/%d", joined, need)
+	}
+	joined, need = WorkerSlots(3, 2)
+	if joined != 1 || need != 1 {
+		t.Fatalf("WorkerSlots(3, 2) = %d/%d", joined, need)
+	}
+	if _, need = WorkerSlots(1, 1); need != 0 {
+		t.Fatalf("single node need = %d", need)
+	}
+}
+
 func TestWaitListen(t *testing.T) {
 	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

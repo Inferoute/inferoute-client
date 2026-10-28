@@ -3,10 +3,29 @@ package setup
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 )
+
+func TestCredentialKeepsJoinCode(t *testing.T) {
+	if got := credential("Join code, shown once: join-abc."); got != "join-abc" {
+		t.Fatalf("credential = %q", got)
+	}
+	if got := credential("sk-test"); got != "sk-test" {
+		t.Fatalf("credential = %q", got)
+	}
+}
+
+func TestWorkerWaitText(t *testing.T) {
+	if got := workerWaitText(0, 1); got != "Waiting for workers to join (0/1)" {
+		t.Fatalf("got %q", got)
+	}
+	if got := workerWaitText(1, 1); !strings.Contains(got, "1/1 workers joined") {
+		t.Fatalf("got %q", got)
+	}
+}
 
 func TestLoginServerFromEngine(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

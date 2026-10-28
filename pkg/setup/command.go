@@ -82,9 +82,6 @@ func Run(args []string) error {
 		}
 		return fmt.Errorf("unexpected argument: %s", arg)
 	}
-	if env := strings.TrimSpace(os.Getenv("PROVIDER_API_KEY")); opts.APIKey == "" && env != "" {
-		opts.APIKey = env
-	}
 	if env := strings.TrimSpace(os.Getenv("PROVIDER_TYPE")); opts.Engine == "" && env != "" {
 		opts.Engine = env
 	}

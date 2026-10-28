@@ -60,7 +60,8 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 
 	join := engine.MasterJoinAddr(cfg.Provider.EngineArgs)
 	if join != "" && !engine.PortOpen(ctx, url) && engine.PortOpen(ctx, "http://"+join) {
-		fmt.Fprint(io.Out, masterReadyText(join))
+		joined, need := engine.WorkerSlots(onlinePeers(), engine.NNodes(cfg.Provider.EngineArgs))
+		fmt.Fprintf(io.Out, "Waiting for workers to join (%d/%d).\n", joined, need)
 		return nil
 	}
 
@@ -113,7 +114,8 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 		return fmt.Errorf("%w (see %s)", err, engine.LogPath(cfg.Logging.LogDir))
 	}
 	if join != "" && !engine.PortOpen(ctx, url) {
-		fmt.Fprint(io.Out, masterReadyText(join))
+		joined, need := engine.WorkerSlots(onlinePeers(), engine.NNodes(cfg.Provider.EngineArgs))
+		fmt.Fprintf(io.Out, "Waiting for workers to join (%d/%d).\n", joined, need)
 		return nil
 	}
 	fmt.Fprintf(io.Out, "%s is ready at %s.\n", label, url)
