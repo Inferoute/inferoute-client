@@ -268,8 +268,8 @@ func (s *Server) writeClusterStatus(buf *bytes.Buffer, snap StatusSnapshot) {
 		cluster = "single"
 	}
 	buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Cluster", cluster))
-	if snap.Workers != "" {
-		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Workers", snap.Workers))
+	if snap.Nodes != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Nodes", snap.Nodes))
 	}
 	if snap.TailnetIP != "" {
 		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Tailnet IP", snap.TailnetIP))

@@ -259,6 +259,25 @@ func TestMasterJoinAddr(t *testing.T) {
 	}
 }
 
+func TestNodeSlots(t *testing.T) {
+	t.Parallel()
+	online, need := NodeSlots(true, 1, 2)
+	if online != 2 || need != 2 {
+		t.Fatalf("self+peer = %d/%d", online, need)
+	}
+	online, need = NodeSlots(true, 0, 2)
+	if online != 1 || need != 2 {
+		t.Fatalf("self only = %d/%d", online, need)
+	}
+	online, need = NodeSlots(true, 5, 2)
+	if online != 2 || need != 2 {
+		t.Fatalf("capped = %d/%d", online, need)
+	}
+	if _, need = NodeSlots(true, 0, 1); need != 0 {
+		t.Fatalf("single node need = %d", need)
+	}
+}
+
 func TestWorkerSlots(t *testing.T) {
 	t.Parallel()
 	joined, need := WorkerSlots(0, 2)

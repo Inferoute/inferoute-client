@@ -53,7 +53,7 @@ type StatusSnapshot struct {
 	TailnetIP        string        `json:"tailnet_ip,omitempty"`
 	Peers            string        `json:"peers,omitempty"`
 	Cluster          string        `json:"cluster,omitempty"`
-	Workers          string        `json:"workers,omitempty"`
+	Nodes            string        `json:"nodes,omitempty"`
 }
 
 func (s *Server) snapshot() StatusSnapshot {
@@ -112,14 +112,14 @@ func (s *Server) snapshot() StatusSnapshot {
 		peers = fmt.Sprintf("%d online", online)
 	}
 	cluster := "single"
-	workers := ""
+	nodes := ""
 	if s.config != nil {
 		switch s.config.Provider.ClusterMode {
 		case "master", "worker":
 			cluster = s.config.Provider.ClusterMode
 		}
-		if joined, need := engine.WorkerSlots(online, engine.NNodes(s.config.Provider.EngineArgs)); need > 0 {
-			workers = fmt.Sprintf("%d/%d", joined, need)
+		if joined, need := engine.NodeSlots(tailnetIP != "", online, engine.NNodes(s.config.Provider.EngineArgs)); need > 0 {
+			nodes = fmt.Sprintf("%d/%d", joined, need)
 			if cluster == "single" {
 				cluster = "master"
 			}
@@ -143,7 +143,7 @@ func (s *Server) snapshot() StatusSnapshot {
 		TailnetIP:        tailnetIP,
 		Peers:            peers,
 		Cluster:          cluster,
-		Workers:          workers,
+		Nodes:            nodes,
 	}
 }
 

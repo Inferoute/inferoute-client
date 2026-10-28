@@ -178,6 +178,26 @@ func NNodes(args []string) int {
 	return n
 }
 
+// NodeSlots counts this machine plus online peers, out of --nnodes.
+// self is true when this process has a tailnet address.
+func NodeSlots(self bool, onlinePeers, nnodes int) (online, need int) {
+	if nnodes < 2 {
+		return 0, 0
+	}
+	need = nnodes
+	online = onlinePeers
+	if self {
+		online++
+	}
+	if online > need {
+		online = need
+	}
+	if online < 0 {
+		online = 0
+	}
+	return online, need
+}
+
 // WorkerSlots is how many other nodes are online, out of how many the serve expects.
 func WorkerSlots(onlinePeers, nnodes int) (joined, need int) {
 	need = nnodes - 1

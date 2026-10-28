@@ -129,7 +129,7 @@ function render(s) {
     ${tunnel}
     <h2>CLUSTER STATUS</h2>
     ${row("Cluster", esc(s.cluster || "single"))}
-    ${s.workers ? row("Workers", esc(s.workers)) : ""}
+    ${s.nodes ? row("Nodes", esc(s.nodes)) : ""}
     ${modelHtml}
     <h2>GPU INFORMATION</h2>
     ${row("GPU", esc(gpu.product_name || "Unknown"))}
