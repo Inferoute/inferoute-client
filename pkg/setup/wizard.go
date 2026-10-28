@@ -446,6 +446,11 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", formatSpec(spec))
 		return nil
 	}
+	join := engine.MasterJoinAddr(spec.Args)
+	if join != "" && !engine.PortOpen(ctx, cfg.Provider.LLMURL) && engine.PortOpen(ctx, "http://"+join) {
+		fmt.Fprint(io.Out, "\n"+masterReadyText(join))
+		return nil
+	}
 	model := strings.TrimSpace(cfg.Provider.Model)
 	if model == "" {
 		model = "the model"
@@ -480,6 +485,9 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	}
 
 	fmt.Fprintf(io.Out, "Starting %s...\n", kind)
+	if join != "" {
+		waitMsg = fmt.Sprintf("Waiting for the master to accept other nodes at tcp://%s", join)
+	}
 	logPath := engine.LogPath(cfg.Logging.LogDir)
 	exited, err := engine.StartDetached(spec, logPath)
 	if err != nil {
@@ -488,9 +496,16 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 	defer waitCancel()
 	if err := SpinWhile(io.Out, waitMsg, func() error {
+		if join != "" {
+			return engine.WaitListen(waitCtx, join, 2*time.Second, exited)
+		}
 		return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second, exited)
 	}); err != nil {
 		return fmt.Errorf("%w (see %s)", err, logPath)
+	}
+	if join != "" {
+		fmt.Fprint(io.Out, masterReadyText(join))
+		return nil
 	}
 	fmt.Fprintf(io.Out, "Engine is ready at %s.\n", cfg.Provider.LLMURL)
 	return nil

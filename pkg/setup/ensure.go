@@ -58,7 +58,16 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 		return nil
 	}
 
+	join := engine.MasterJoinAddr(cfg.Provider.EngineArgs)
+	if join != "" && !engine.PortOpen(ctx, url) && engine.PortOpen(ctx, "http://"+join) {
+		fmt.Fprint(io.Out, masterReadyText(join))
+		return nil
+	}
+
 	waitMsg := fmt.Sprintf("Waiting for %s to start serving at %s", label, url)
+	if join != "" && !engine.PortOpen(ctx, url) {
+		waitMsg = fmt.Sprintf("Waiting for the master to accept other nodes at tcp://%s", join)
+	}
 	if engine.PortOpen(ctx, url) {
 		fmt.Fprintf(io.Out, "%s is already starting at %s.\n", label, url)
 		err := SpinWhile(io.Out, waitMsg, func() error {
@@ -102,6 +111,10 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 	})
 	if err != nil {
 		return fmt.Errorf("%w (see %s)", err, engine.LogPath(cfg.Logging.LogDir))
+	}
+	if join != "" && !engine.PortOpen(ctx, url) {
+		fmt.Fprint(io.Out, masterReadyText(join))
+		return nil
 	}
 	fmt.Fprintf(io.Out, "%s is ready at %s.\n", label, url)
 	return nil

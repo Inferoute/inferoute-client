@@ -11,6 +11,10 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 )
 
+func masterReadyText(join string) string {
+	return fmt.Sprintf("Master is ready for other nodes at tcp://%s.\nStart the workers. This node loads the model after they connect.\n", join)
+}
+
 // clusterSettings is what setup shows instead of the single-machine model list.
 type clusterSettings struct {
 	Role        string

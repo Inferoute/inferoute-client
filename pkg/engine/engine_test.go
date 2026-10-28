@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +228,45 @@ func TestHealthyFreeTokenHealth(t *testing.T) {
 				t.Fatalf("Healthy(llama_cpp, %s) = %v, want %v", tt.name, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMasterJoinAddr(t *testing.T) {
+	t.Parallel()
+	master := []string{
+		"serve", "Qwen/Qwen2.5-Coder-32B-Instruct",
+		"--nnodes", "2", "--node-rank", "0",
+		"--master-addr", "198.18.0.1", "--master-port", "29501",
+	}
+	if got := MasterJoinAddr(master); got != "198.18.0.1:29501" {
+		t.Fatalf("MasterJoinAddr = %q", got)
+	}
+	if got := MasterJoinAddr(append(master, "--headless")); got != "" {
+		t.Fatalf("headless MasterJoinAddr = %q", got)
+	}
+	worker := append([]string{}, master...)
+	for i := 0; i < len(worker)-1; i++ {
+		if worker[i] == "--node-rank" {
+			worker[i+1] = "1"
+		}
+	}
+	if got := MasterJoinAddr(worker); got != "" {
+		t.Fatalf("worker MasterJoinAddr = %q", got)
+	}
+}
+
+func TestWaitListen(t *testing.T) {
+	t.Parallel()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	addr := ln.Addr().(*net.TCPAddr)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := WaitListen(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(addr.Port)), 20*time.Millisecond, nil); err != nil {
+		t.Fatal(err)
 	}
 }
 

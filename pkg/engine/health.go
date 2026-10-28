@@ -111,13 +111,27 @@ func listenAddr(llmURL string) string {
 	return net.JoinHostPort(host, port)
 }
 
+// WaitListen polls until addr accepts TCP, the engine process exits, or ctx is done.
+// addr is host:port. exited may be nil.
+func WaitListen(ctx context.Context, addr string, interval time.Duration, exited <-chan error) error {
+	return waitUntil(ctx, "tcp://"+addr, interval, exited, func() bool {
+		return PortOpen(ctx, "http://"+addr)
+	})
+}
+
 // WaitHealthy polls until Healthy, the engine process exits, or ctx is done.
 // exited may be nil.
 func WaitHealthy(ctx context.Context, kind Kind, llmURL string, interval time.Duration, exited <-chan error) error {
+	return waitUntil(ctx, llmURL, interval, exited, func() bool {
+		return Healthy(ctx, kind, llmURL)
+	})
+}
+
+func waitUntil(ctx context.Context, what string, interval time.Duration, exited <-chan error, ready func() bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
-	if Healthy(ctx, kind, llmURL) {
+	if ready() {
 		return nil
 	}
 	t := time.NewTicker(interval)
@@ -126,13 +140,13 @@ func WaitHealthy(ctx context.Context, kind Kind, llmURL string, interval time.Du
 		select {
 		case err := <-exited:
 			if err != nil {
-				return fmt.Errorf("%s process exited: %w", kind, err)
+				return fmt.Errorf("process exited: %w", err)
 			}
-			return fmt.Errorf("%s process exited before it became ready", kind)
+			return fmt.Errorf("process exited before %s was ready", what)
 		case <-ctx.Done():
-			return fmt.Errorf("timed out waiting for %s at %s: %w", kind, llmURL, ctx.Err())
+			return fmt.Errorf("timed out waiting for %s: %w", what, ctx.Err())
 		case <-t.C:
-			if Healthy(ctx, kind, llmURL) {
+			if ready() {
 				return nil
 			}
 		}

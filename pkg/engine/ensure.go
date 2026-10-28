@@ -19,6 +19,7 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 }
 
 // StartAndWait starts the configured engine if llm_url is down and waits until it is serving.
+// A multi-node master returns once its torch store is accepting other ranks.
 func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -36,6 +37,12 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 			fmt.Fprintf(os.Stderr, "engine already bound at %s but not ready yet; check %s\n", url, LogPath(logDir))
 			return err
 		}
+		return nil
+	}
+	// Rank 0 binds the torch store and blocks until the other nodes connect.
+	// /v1/models does not come up before that, so an open store is the ready signal.
+	join := MasterJoinAddr(cfg.Provider.EngineArgs)
+	if join != "" && PortOpen(ctx, "http://"+join) {
 		return nil
 	}
 
@@ -73,9 +80,15 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 	if probeURL == "" {
 		probeURL = spec.URL
 	}
-	if err := WaitHealthy(ctx, kind, probeURL, 2*time.Second, exited); err != nil {
+	var errWait error
+	if join != "" {
+		errWait = WaitListen(ctx, join, 2*time.Second, exited)
+	} else {
+		errWait = WaitHealthy(ctx, kind, probeURL, 2*time.Second, exited)
+	}
+	if errWait != nil {
 		fmt.Fprintf(os.Stderr, "engine started but not ready yet; check %s\n", LogPath(logDir))
-		return err
+		return errWait
 	}
 	return nil
 }

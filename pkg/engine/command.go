@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -146,6 +147,44 @@ func HFRepo(entry verify.CatalogEntry) string {
 		return strings.TrimSpace(*entry.HFRepo)
 	}
 	return entry.Alias
+}
+
+// MasterJoinAddr is the torch store rank 0 binds.
+// vLLM logs distributed_init_method and then blocks in init_process_group;
+// /v1/models stays down until the other ranks connect. Empty for workers
+// (--headless) and single-node serves.
+func MasterJoinAddr(args []string) string {
+	if hasArg(args, "--headless") || flagVal(args, "--node-rank") != "0" {
+		return ""
+	}
+	n, err := strconv.Atoi(flagVal(args, "--nnodes"))
+	if err != nil || n < 2 {
+		return ""
+	}
+	host := flagVal(args, "--master-addr")
+	port := flagVal(args, "--master-port")
+	if host == "" || port == "" {
+		return ""
+	}
+	return net.JoinHostPort(host, port)
+}
+
+func flagVal(args []string, name string) string {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == name {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func hasArg(args []string, name string) bool {
+	for _, a := range args {
+		if a == name {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(vals ...string) string {

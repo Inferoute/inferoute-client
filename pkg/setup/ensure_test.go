@@ -3,10 +3,12 @@ package setup
 import (
 	"bytes"
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +102,34 @@ func TestEnsureOnStartUnknownEngine(t *testing.T) {
 func TestEnsureOnStartNilConfig(t *testing.T) {
 	if err := ensureOnStart(context.Background(), nil, Streams{}, false); err != nil {
 		t.Fatalf("ensureOnStart: %v", err)
+	}
+}
+
+func TestEnsureOnStartMasterJoinOpen(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "vllm"
+	cfg.Provider.LLMURL = "http://127.0.0.1:1"
+	cfg.Provider.EngineArgs = []string{
+		"serve", "Qwen/Qwen2.5-Coder-32B-Instruct",
+		"--nnodes", "2", "--node-rank", "0",
+		"--master-addr", "127.0.0.1", "--master-port", strconv.Itoa(port),
+	}
+
+	var out bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := ensureOnStart(ctx, cfg, Streams{In: strings.NewReader(""), Out: &out}, true); err != nil {
+		t.Fatalf("ensureOnStart: %v", err)
+	}
+	if !strings.Contains(out.String(), "tcp://127.0.0.1:"+strconv.Itoa(port)) {
+		t.Fatalf("stdout = %q", out.String())
 	}
 }
 
