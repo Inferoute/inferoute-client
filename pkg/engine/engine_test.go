@@ -241,8 +241,12 @@ func TestMasterJoinAddr(t *testing.T) {
 	if got := MasterJoinAddr(master); got != "198.18.0.1:29501" {
 		t.Fatalf("MasterJoinAddr = %q", got)
 	}
-	if got := MasterJoinAddr(append(master, "--headless")); got != "" {
+	headless := append(master, "--headless")
+	if got := MasterJoinAddr(headless); got != "" {
 		t.Fatalf("headless MasterJoinAddr = %q", got)
+	}
+	if !Headless(headless) || Headless(master) {
+		t.Fatal("Headless")
 	}
 	worker := append([]string{}, master...)
 	for i := 0; i < len(worker)-1; i++ {

@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -492,5 +493,90 @@ func TestPastedJoinCodeSkipsEngineAndModel(t *testing.T) {
 	}
 	if !strings.Contains(text, "Joining cluster inferoute-cluster1") || !strings.Contains(text, "Provider API key or join code") {
 		t.Fatalf("stdout = %s", text)
+	}
+}
+
+func TestEnrolledWorkerSkipsKeyPrompt(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := &config.Config{}
+	cfg.Provider.APIKey = "join-spent"
+	cfg.Provider.ClusterMode = "worker"
+	cfg.Provider.NodeToken = "node-abc"
+	cfg.Provider.Model = "Qwen/Qwen3-0.6B"
+	cfg.Provider.Engine = "vllm"
+	cfg.Provider.URL = "https://example.test"
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	prev := clusterPlan
+	t.Cleanup(func() { clusterPlan = prev })
+	clusterPlan = func(cfg *config.Config) (clusterSettings, error) {
+		if cfg.Provider.NodeToken != "node-abc" || cfg.Provider.APIKey != "join-spent" {
+			t.Fatalf("key %q token %q", cfg.Provider.APIKey, cfg.Provider.NodeToken)
+		}
+		return clusterSettings{Role: "worker", Model: cfg.Provider.Model, ServiceType: "vllm"}, nil
+	}
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
+	}
+	var out bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		Engine:         "vllm",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		NoStart:        true,
+	}, Streams{In: strings.NewReader(""), Out: &out, Err: &out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(text, "Provider API key or join code") || !strings.Contains(text, "already in the cluster") {
+		t.Fatalf("stdout = %s", text)
+	}
+}
+
+func TestDifferentJoinCodeClearsSavedToken(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := &config.Config{}
+	cfg.Provider.APIKey = "join-spent"
+	cfg.Provider.ClusterMode = "worker"
+	cfg.Provider.NodeToken = "node-abc"
+	cfg.Provider.Model = "Qwen/Qwen3-0.6B"
+	cfg.Provider.Engine = "vllm"
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	prev := clusterPlan
+	t.Cleanup(func() { clusterPlan = prev })
+	clusterPlan = func(cfg *config.Config) (clusterSettings, error) {
+		if cfg.Provider.APIKey != "join-new" || cfg.Provider.NodeToken != "" {
+			t.Fatalf("key %q token %q", cfg.Provider.APIKey, cfg.Provider.NodeToken)
+		}
+		return clusterSettings{Role: "worker", Name: "inferoute-cluster2", Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm"}, nil
+	}
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
+	}
+	var out bytes.Buffer
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		Engine:         "vllm",
+		APIKey:         "join-new",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+		NoStart:        true,
+	}, Streams{In: strings.NewReader(""), Out: &out, Err: &out})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSettleHeadlessReportsExit(t *testing.T) {
+	exited := make(chan error, 1)
+	exited <- fmt.Errorf("boom")
+	err := settleHeadless(&bytes.Buffer{}, exited, "/tmp/engine.log")
+	if err == nil || !strings.Contains(err.Error(), "engine.log") {
+		t.Fatal(err)
 	}
 }

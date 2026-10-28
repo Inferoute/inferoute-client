@@ -212,6 +212,11 @@ func hasArg(args []string, name string) bool {
 	return false
 }
 
+// Headless is a cluster worker. It never opens an HTTP port.
+func Headless(args []string) bool {
+	return hasArg(args, "--headless")
+}
+
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if strings.TrimSpace(v) != "" {

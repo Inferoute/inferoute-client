@@ -172,6 +172,14 @@ func (c *Config) HasAPIKey() bool {
 	return k != "" && k != "your_api_key_here"
 }
 
+// EnrolledWorker is a machine that already traded a join code for a node token.
+func (c *Config) EnrolledWorker() bool {
+	if c == nil {
+		return false
+	}
+	return c.Provider.ClusterMode == "worker" && strings.TrimSpace(c.Provider.NodeToken) != ""
+}
+
 // Save writes cfg to path, creating the parent directory.
 func Save(path string, cfg *Config) error {
 	if cfg == nil {

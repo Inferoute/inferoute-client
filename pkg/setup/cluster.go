@@ -108,6 +108,15 @@ type clusterSettings struct {
 var clusterPlan = clusterPlanReal
 
 func clusterPlanReal(cfg *config.Config) (clusterSettings, error) {
+	if cfg.EnrolledWorker() {
+		model := strings.TrimSpace(cfg.Provider.Model)
+		if model == "" {
+			return clusterSettings{}, fmt.Errorf("this machine is in a cluster but has no saved model. Re-run setup with a new join code")
+		}
+		return clusterSettings{
+			Role: "worker", Model: model, ServiceType: firstNonEmpty(cfg.Provider.Engine, "vllm"),
+		}, nil
+	}
 	key := credential(cfg.Provider.APIKey)
 	if strings.HasPrefix(key, "join-") {
 		info, err := inferscale.PreviewJoin(cfg.Provider.URL, key)
@@ -149,9 +158,52 @@ func decideCluster(key, mode string, lookupErr error) string {
 	return "master"
 }
 
+// NodeRemoved is the node API rejecting a token after the owner removed the machine.
+func NodeRemoved(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "invalid node token")
+}
+
+func removedErr(err error) error {
+	return fmt.Errorf("the owner removed this machine from the cluster. Re-run setup and paste a new join code: %w", err)
+}
+
+func dropIfRemoved(cfg *config.Config, err error) error {
+	if !NodeRemoved(err) {
+		return err
+	}
+	cfg.Provider.NodeToken = ""
+	cfg.Provider.ClusterMode = ""
+	return removedErr(err)
+}
+
+func resumeWorker(cfg *config.Config, spec *engine.Spec) error {
+	token := cfg.Provider.NodeToken
+	remote, err := inferscale.FetchEngine(cfg.Provider.URL, token, true)
+	if err != nil {
+		return dropIfRemoved(cfg, err)
+	}
+	ip, nodeID, err := inferscale.BringUp(context.Background(), remote.LoginServer, "")
+	if err != nil {
+		return err
+	}
+	if err := inferscale.ReportIP(cfg.Provider.URL, token, true, ip, nodeID); err != nil {
+		return dropIfRemoved(cfg, err)
+	}
+	next := inferscale.Apply(*spec, remote)
+	*spec = next
+	cfg.Provider.EngineArgs = next.Args
+	cfg.Provider.EngineEnv = next.Env
+	cfg.Provider.LLMURL = next.URL
+	cfg.Provider.ClusterMode = "worker"
+	return nil
+}
+
 func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
 	key := credential(cfg.Provider.APIKey)
 	cfg.Provider.APIKey = key
+	if cfg.EnrolledWorker() {
+		return resumeWorker(cfg, spec)
+	}
 	worker := strings.HasPrefix(key, "join-")
 	var login, auth, token, role string
 	if worker {
@@ -253,16 +305,25 @@ func refreshClusterEngine(ctx context.Context, cfg *config.Config) error {
 	bearer := cfg.Provider.APIKey
 	if worker {
 		bearer = cfg.Provider.NodeToken
+		if _, err := inferscale.FetchEngine(cfg.Provider.URL, bearer, true); NodeRemoved(err) {
+			return removedErr(err)
+		}
 	}
 	ip, nodeID, err := inferscale.BringUp(ctx, loginServer(cfg, worker), "")
 	if err != nil {
 		return err
 	}
 	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID); err != nil {
+		if NodeRemoved(err) {
+			return removedErr(err)
+		}
 		return err
 	}
 	remote, err := inferscale.FetchEngine(cfg.Provider.URL, bearer, worker)
 	if err != nil {
+		if NodeRemoved(err) {
+			return removedErr(err)
+		}
 		return err
 	}
 	kind, ok := engine.ParseKind(cfg.Provider.Engine)

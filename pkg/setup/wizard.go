@@ -148,12 +148,21 @@ func Execute(opts Options, io Streams) error {
 		}
 		return err
 	}
+	// The node token has to be on disk before the engine starts. A crash
+	// while weights download must not spend the join code with nothing saved.
+	if err := config.Save(path, cfg); err != nil {
+		return err
+	}
 
 	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
 			return saveErr
 		}
 		fmt.Fprintf(io.Out, "\nWrote %s\n", path)
+		if engine.Headless(spec.Args) {
+			fmt.Fprintf(io.Err, "Setup did not finish. The worker stopped (see %s).\n", engine.LogPath(cfg.Logging.LogDir))
+			return err
+		}
 		fmt.Fprintf(io.Err, "Setup did not finish: %s is not serving yet (see %s).\n", engine.Label(kind), engine.LogPath(cfg.Logging.LogDir))
 		fmt.Fprintf(io.Err, "Leave the engine running, then re-run: inferoute-client setup\n")
 		return err
@@ -191,7 +200,15 @@ func loadOrFresh(path string) (*config.Config, error) {
 }
 
 func applyAPIKey(cfg *config.Config, opts Options, io Streams) error {
+	saved := credential(cfg.Provider.APIKey)
 	explicit := credential(opts.APIKey)
+	if cfg.EnrolledWorker() && explicit != "" && explicit != saved {
+		cfg.Provider.NodeToken = ""
+		cfg.Provider.ClusterMode = ""
+	} else if cfg.EnrolledWorker() {
+		fmt.Fprintln(io.Out, "This machine is already in the cluster.")
+		return nil
+	}
 	key := explicit
 	if key == "" {
 		key = credential(os.Getenv("PROVIDER_API_KEY"))
@@ -491,6 +508,9 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	if err != nil {
 		return err
 	}
+	if engine.Headless(spec.Args) {
+		return settleHeadless(io.Out, exited, logPath)
+	}
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 	defer waitCancel()
 	if join != "" {
@@ -506,6 +526,23 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	}
 	fmt.Fprintf(io.Out, "Engine is ready at %s.\n", cfg.Provider.LLMURL)
 	return nil
+}
+
+const headlessSettle = 3 * time.Second
+
+func settleHeadless(out io.Writer, exited <-chan error, logPath string) error {
+	timer := time.NewTimer(headlessSettle)
+	defer timer.Stop()
+	select {
+	case err := <-exited:
+		if err != nil {
+			return fmt.Errorf("process exited: %w (see %s)", err, logPath)
+		}
+		return fmt.Errorf("process exited before it joined the cluster (see %s)", logPath)
+	case <-timer.C:
+		fmt.Fprintln(out, "Worker is running. It joins the master and does not serve HTTP.")
+		return nil
+	}
 }
 
 func firstNonEmpty(vals ...string) string {

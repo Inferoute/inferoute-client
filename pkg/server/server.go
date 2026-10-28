@@ -70,21 +70,24 @@ func (s *Server) SetConsoleUI(enabled bool) {
 }
 
 // Start starts the local dashboard and the outbound provider connection.
+// An enrolled worker has no provider API key that the gateway will accept.
 func (s *Server) Start() error {
 	connectCtx, connectCancel := context.WithCancel(context.Background())
 	s.connectCancel = connectCancel
-	s.connector = connect.New(s.config.Provider.URL, s.config.Provider.APIKey, s.inferenceMux(), s.onConnect)
-	go func() {
-		if err := s.connector.Run(connectCtx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("provider connection stopped", zap.Error(err))
+	if !s.config.EnrolledWorker() {
+		s.connector = connect.New(s.config.Provider.URL, s.config.Provider.APIKey, s.inferenceMux(), s.onConnect)
+		go func() {
+			if err := s.connector.Run(connectCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("provider connection stopped", zap.Error(err))
+			}
+		}()
+		readyCtx, readyCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		err := s.connector.Ready(readyCtx)
+		readyCancel()
+		if errors.Is(err, connect.ErrInvalidAPIKey) {
+			connectCancel()
+			return fmt.Errorf("failed to connect: %w", err)
 		}
-	}()
-	readyCtx, readyCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	err := s.connector.Ready(readyCtx)
-	readyCancel()
-	if errors.Is(err, connect.ErrInvalidAPIKey) {
-		connectCancel()
-		return fmt.Errorf("failed to connect: %w", err)
 	}
 
 	// Create router
@@ -201,7 +204,9 @@ func (s *Server) redrawConsole() {
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", snap.ProviderURL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", snap.LLMURL))
 	state := "connecting"
-	if snap.Connected {
+	if s.config.EnrolledWorker() {
+		state = "worker"
+	} else if snap.Connected {
 		state = "connected"
 	}
 	buf.WriteString(fmt.Sprintf("\033[1;35mPlatform connection           \033[0m%s\n", state))

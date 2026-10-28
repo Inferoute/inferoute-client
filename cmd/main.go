@@ -137,7 +137,7 @@ func main() {
 	config.ApplyEnvOverrides(cfg)
 	update.RemoveStaleBackup()
 	checkClientVersion(cfg.Provider.URL)
-	if !cfg.HasAPIKey() {
+	if !cfg.HasAPIKey() && !cfg.EnrolledWorker() {
 		fatal("%s\nOr run: inferoute-client setup", usermsg.InvalidAPIKey)
 	}
 
@@ -234,8 +234,12 @@ func main() {
 		defer ticker.Stop()
 		upgradeLogged := false
 
-		report := func(msg string) {
+		report := func(msg string) bool {
 			err := healthReporter.SendHealthReport(ctx)
+			if setup.NodeRemoved(err) {
+				logger.Error("The owner removed this machine from the cluster. Re-run setup and paste a new join code.", zap.Error(err))
+				return false
+			}
 			next := nodeapi.HealthInterval(err, health.ReportInterval)
 			if next != interval {
 				interval = next
@@ -243,31 +247,38 @@ func main() {
 			}
 			if err == nil {
 				upgradeLogged = false
-				return
+				return true
 			}
 			if nodeapi.IsUpgradeRequired(err) {
 				if !upgradeLogged {
 					logger.Error(msg, zap.Error(err))
 					upgradeLogged = true
 				}
-				return
+				return true
 			}
 			logger.Error(msg, zap.Error(err))
+			return true
 		}
 
 		if ctx.Err() != nil {
 			return
 		}
-		report("Failed to send initial health report")
+		if !report("Failed to send initial health report") {
+			return
+		}
 
 		for {
 			select {
 			case <-ticker.C:
-				report("Failed to send health report")
+				if !report("Failed to send health report") {
+					return
+				}
 			case <-healthReporter.BusyChanges():
 				// Busy-state transition: push immediately so the central
 				// provider_busy flag is seconds, not minutes, stale.
-				report("Failed to send busy-transition health report")
+				if !report("Failed to send busy-transition health report") {
+					return
+				}
 				// Cool down so rapid request bursts don't flood the platform.
 				// A transition during the cooldown leaves a pending signal
 				// (buffered channel), which sends a fresh report right after.
@@ -482,7 +493,7 @@ func maybeFirstRunSetup(configPath string) error {
 		if err != nil {
 			return err
 		}
-		needs = !cfg.HasAPIKey()
+		needs = !cfg.HasAPIKey() && !cfg.EnrolledWorker()
 	}
 	if !needs {
 		return nil
