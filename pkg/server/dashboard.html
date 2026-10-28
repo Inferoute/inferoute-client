@@ -50,7 +50,6 @@
   .bad { color: var(--red); font-weight: 700; }
   .warn { color: var(--yellow); font-weight: 700; }
   .section-title { color: var(--yellow); margin: 22px 0 8px; font-weight: 700; }
-  .err-title { color: var(--red); margin: 22px 0 8px; font-weight: 700; }
   .empty { color: var(--muted); }
   footer { margin-top: 36px; color: var(--muted); font-size: 12px; }
   .fail { color: var(--red); }
@@ -95,7 +94,6 @@ function render(s) {
   }
   const gpu = s.gpu || {};
   const reqs = Array.isArray(s.recent_requests) ? s.recent_requests : [];
-  const errs = Array.isArray(s.errors) ? s.errors : [];
   let reqHtml;
   if (reqs.length === 0) {
     reqHtml = `<div class="empty">No requests yet</div>`;
@@ -103,10 +101,6 @@ function render(s) {
     reqHtml = reqs.map(r =>
       `<div>${esc(r.time)} UTC ${esc(r.method)} ${esc(r.path)} <span class="${statusCls(r.status)}">${esc(r.status)}</span> ${esc(r.duration)}</div>`
     ).join("");
-  }
-  let errHtml = "";
-  if (errs.length > 0) {
-    errHtml = `<div class="err-title">Errors:</div>` + errs.map(e => `<div class="fail">${esc(e)}</div>`).join("");
   }
   const tunnel = s.cloudflare_tunnel_url
     ? row("Cloudflare Tunnel URL", esc(s.cloudflare_tunnel_url))
@@ -138,7 +132,6 @@ function render(s) {
     ${row("GPU Count", esc(gpu.gpu_count ?? 0))}
     <div class="section-title">Recent Requests:</div>
     ${reqHtml}
-    ${errHtml}
   `;
 }
 async function load() {

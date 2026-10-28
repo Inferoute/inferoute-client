@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
@@ -24,8 +25,12 @@ func TestHandleDashboard(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Fatalf("content-type = %q", ct)
 	}
-	if !strings.Contains(rec.Body.String(), "/api/status") {
+	body := rec.Body.String()
+	if !strings.Contains(body, "/api/status") {
 		t.Fatal("dashboard html should poll /api/status")
+	}
+	if strings.Contains(body, "Errors:") {
+		t.Fatal("dashboard still renders an Errors section")
 	}
 }
 
@@ -58,6 +63,32 @@ func TestHandleStatusMasksAPIKey(t *testing.T) {
 	}
 	if snap.LastHealthUpdate != "Never" {
 		t.Fatalf("last_health_update = %q", snap.LastHealthUpdate)
+	}
+}
+
+func TestRecentRequestsAreInferenceOnly(t *testing.T) {
+	s := newTestServer("http://unused", &fakeLLM{})
+	rec := httptest.NewRecorder()
+	s.handleBusy(rec, httptest.NewRequest(http.MethodGet, "/api/busy", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("busy status = %d", rec.Code)
+	}
+	if len(s.snapshot().RecentRequests) != 0 {
+		t.Fatalf("busy request logged: %+v", s.snapshot().RecentRequests)
+	}
+
+	s.logRequest(http.MethodPost, "/v1/chat/completions", http.StatusOK, time.Now())
+	st := httptest.NewRecorder()
+	s.handleStatus(st, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	if strings.Contains(st.Body.String(), `"errors"`) {
+		t.Fatalf("status includes errors: %s", st.Body.String())
+	}
+	var snap StatusSnapshot
+	if err := json.Unmarshal(st.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.RecentRequests) != 1 || snap.RecentRequests[0].Path != "/v1/chat/completions" {
+		t.Fatalf("recent = %+v", snap.RecentRequests)
 	}
 }
 

@@ -46,7 +46,6 @@ type StatusSnapshot struct {
 	Models           []StatusModel `json:"models"`
 	GPU              *gpu.GPUInfo  `json:"gpu"`
 	RecentRequests   []RequestLog  `json:"recent_requests"`
-	Errors           []string      `json:"errors"`
 	ClientVersion    string        `json:"client_version"`
 	LatestVersion    string        `json:"latest_version,omitempty"`
 	UpdateStatus     string        `json:"update_status"`
@@ -88,11 +87,6 @@ func (s *Server) snapshot() StatusSnapshot {
 	reqs := make([]RequestLog, len(s.requestStats.LastRequests))
 	copy(reqs, s.requestStats.LastRequests)
 	s.requestStats.mutex.Unlock()
-
-	s.errorLogMutex.Lock()
-	errs := make([]string, len(s.errorLog))
-	copy(errs, s.errorLog)
-	s.errorLogMutex.Unlock()
 
 	providerType := ""
 	apiKey := ""
@@ -136,7 +130,6 @@ func (s *Server) snapshot() StatusSnapshot {
 		Models:           models,
 		GPU:              gpuInfo,
 		RecentRequests:   reqs,
-		Errors:           errs,
 		ClientVersion:    version.Version,
 		LatestVersion:    upd.Latest,
 		UpdateStatus:     string(upd.Status),

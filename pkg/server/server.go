@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"errors"
@@ -51,7 +50,6 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		consoleUI:        true,
 		maxInflight:      int32(cfg.Server.MaxConcurrentInference),
 		sessionQueueWait: cfg.SessionQueueWait(),
-		errorLog:         make([]string, 0, 100),
 	}
 
 	// Health reports include the inflight-slot state in is_busy so the
@@ -168,14 +166,6 @@ func (s *Server) consoleUpdater() {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
-	// Create a debug log file
-	debugFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		logger.Error("Failed to open debug log file", zap.Error(err))
-	} else {
-		defer debugFile.Close()
-	}
-
 	for range ticker.C {
 		s.redrawConsole()
 	}
@@ -231,13 +221,6 @@ func (s *Server) redrawConsole() {
 	} else {
 		for _, req := range snap.RecentRequests {
 			buf.WriteString(formatRequestLine(req) + "\n")
-		}
-	}
-
-	if len(snap.Errors) > 0 {
-		buf.WriteString("\n\033[1;31mErrors:\033[0m\n")
-		for _, err := range snap.Errors {
-			buf.WriteString(err + "\n")
 		}
 	}
 
@@ -343,20 +326,8 @@ func (s *Server) logRequest(method, path string, statusCode int, startTime time.
 		zap.Duration("duration", duration))
 }
 
-// logError logs an error to the error log
+// logError writes a request failure to error.log. The terminal and dashboard do not show it.
 func (s *Server) logError(errMsg string) {
-	timestamp := time.Now().Format("15:04:05.000")
-	logEntry := fmt.Sprintf("%s ERROR: %s", timestamp, errMsg)
-
-	// Add to error log
-	s.errorLogMutex.Lock()
-	s.errorLog = append(s.errorLog, logEntry)
-	if len(s.errorLog) > 10 {
-		s.errorLog = s.errorLog[1:]
-	}
-	s.errorLogMutex.Unlock()
-
-	// Log to zap logger
 	logger.Error(errMsg)
 }
 

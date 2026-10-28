@@ -88,7 +88,7 @@ The Provider Client implements a comprehensive logging system using Zap:
 - Structured logging with multiple fields for better filtering
 - Multiple log levels (debug, info, warn, error)
 - Automatic log rotation based on file size, number of backups, and age
-- Multiple output destinations (console and JSON-formatted files)
+- JSON-formatted log files
 
 ### How can I configure logging?
 Logging can be configured in the `config.yaml` file with options for:
@@ -110,7 +110,8 @@ If GPU monitoring is not available, the Provider Client:
 The Provider Client features a real-time console interface that displays:
 - System information (last health update, session status, configuration details)
 - GPU information (model, driver version, CUDA version, count)
-- Request monitoring (recent requests with timestamp, method, path, status code)
-- Error logs
+- Request monitoring (recent inference requests with timestamp, method, path, status code)
+
+Failures are written to `error.log`, not shown on the console.
 
 The console interface refreshes every 3 seconds to provide up-to-date information. 
