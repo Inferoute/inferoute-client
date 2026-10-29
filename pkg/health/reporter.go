@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -242,6 +243,15 @@ func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
 
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
+	if r.config.Provider.ClusterMode == "worker" {
+		status := "red"
+		kind, _ := engine.ParseKind(r.config.Provider.Engine)
+		if engine.WorkerAlive(kind, r.config.Provider.EngineArgs) {
+			status = "green"
+		}
+		return r.sendNodeHealth(ctx, status, r.gpuInfo())
+	}
+
 	if r.verifier != nil {
 		if err := r.verifier.RefreshCatalog(ctx); err != nil {
 			logger.Warn("Failed to refresh approved model catalog", zap.Error(err))
@@ -252,14 +262,6 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	report, err := r.GetHealthReport(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get health report: %w", err)
-	}
-
-	if r.config.Provider.ClusterMode == "worker" {
-		status := "red"
-		if len(report.Data) > 0 {
-			status = "green"
-		}
-		return r.sendNodeHealth(ctx, status, report.GPU)
 	}
 
 	// Register any new models
@@ -363,34 +365,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	enriched := r.enrichModels(ctx, models.Models)
 	r.setDisplayedModels(enriched)
 
-	// Get GPU info if available
-	var gpuInfo *gpu.GPUInfo
-	if r.gpuMonitor != nil {
-		gpuInfo, err = r.gpuMonitor.GetGPUInfo()
-		if err != nil {
-			logger.Error("Failed to get GPU information", zap.Error(err))
-			gpuInfo = &gpu.GPUInfo{
-				ProductName:   "Unknown",
-				DriverVersion: "Unknown",
-				CUDAVersion:   "Unknown",
-				GPUCount:      0,
-			}
-		}
-	} else {
-		// No GPU monitor available
-		gpuInfo = &gpu.GPUInfo{
-			ProductName:   "Unknown",
-			DriverVersion: "Unknown",
-			CUDAVersion:   "Unknown",
-			GPUCount:      0,
-		}
-	}
-
-	// Busy means "cannot take a fresh request right now": either the GPU is
-	// under load or every inference slot is taken.
-	if r.slotBusyFn != nil && r.slotBusyFn() {
-		gpuInfo.IsBusy = true
-	}
+	gpuInfo := r.gpuInfo()
 
 	report := &HealthReport{
 		Object:       "list",
@@ -400,6 +375,26 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	}
 
 	return report, nil
+}
+
+func (r *Reporter) gpuInfo() *gpu.GPUInfo {
+	info := &gpu.GPUInfo{
+		ProductName:   "Unknown",
+		DriverVersion: "Unknown",
+		CUDAVersion:   "Unknown",
+	}
+	if r.gpuMonitor != nil {
+		got, err := r.gpuMonitor.GetGPUInfo()
+		if err != nil {
+			logger.Error("Failed to get GPU information", zap.Error(err))
+		} else if got != nil {
+			info = got
+		}
+	}
+	if r.slotBusyFn != nil && r.slotBusyFn() {
+		info.IsBusy = true
+	}
+	return info
 }
 
 // GetLastUpdateTime gets the time of the last successful health update

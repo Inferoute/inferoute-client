@@ -344,6 +344,70 @@ func TestEnsureReadySkipsWithoutAutoStart(t *testing.T) {
 	}
 }
 
+func TestMasterState(t *testing.T) {
+	if got := MasterState(context.Background(), KindVLLM, "http://127.0.0.1:1", nil, 0); got != "not started" {
+		t.Fatalf("not started = %q", got)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+	args := []string{
+		"serve", "m", "--nnodes", "2", "--node-rank", "0",
+		"--master-addr", "127.0.0.1", "--master-port", strconv.Itoa(port),
+	}
+	if got := MasterState(context.Background(), KindVLLM, "http://127.0.0.1:1", args, 0); got != "waiting for workers (0/1)" {
+		t.Fatalf("waiting = %q", got)
+	}
+	if got := MasterState(context.Background(), KindVLLM, "http://127.0.0.1:1", args, 1); got != "loading" {
+		t.Fatalf("loading = %q", got)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"m"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	if got := MasterState(context.Background(), KindVLLM, srv.URL, args, 0); got != "ready" {
+		t.Fatalf("ready = %q", got)
+	}
+}
+
+func TestWorkerAlive(t *testing.T) {
+	old := processAlive
+	processAlive = func([]string) bool { return true }
+	t.Cleanup(func() { processAlive = old })
+	if !WorkerAlive(KindVLLM, []string{"serve", "--headless"}) {
+		t.Fatal("vllm headless")
+	}
+	if WorkerAlive(KindVLLM, []string{"serve"}) {
+		t.Fatal("not headless")
+	}
+	if WorkerAlive(KindLlamaCpp, []string{"--headless"}) {
+		t.Fatal("llama.cpp has no worker command yet")
+	}
+}
+
+func TestSpecFromConfigUsesSavedCommand(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "vllm"
+	cfg.Provider.Model = "Qwen/Qwen3-0.6B"
+	cfg.Provider.EngineArgs = []string{"serve", "Qwen/Qwen3-0.6B", "--host", "198.18.0.2", "--headless"}
+	cfg.Provider.EngineEnv = []string{"VLLM_HOST_IP=198.18.0.2"}
+	cfg.Provider.LLMURL = "http://198.18.0.2:8000"
+	spec, err := SpecFromConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := spec.Display()
+	if !strings.Contains(line, "VLLM_HOST_IP=198.18.0.2") || !strings.Contains(line, "--headless") {
+		t.Fatalf("display = %q", line)
+	}
+	if spec.URL != "http://198.18.0.2:8000" {
+		t.Fatalf("url = %q", spec.URL)
+	}
+}
+
 func TestStartAndWaitAlreadyHealthy(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -19,15 +19,6 @@ func TestCredentialKeepsJoinCode(t *testing.T) {
 	}
 }
 
-func TestWorkerWaitText(t *testing.T) {
-	if got := workerWaitText(0, 1); got != "Waiting for workers to join (0/1)" {
-		t.Fatalf("got %q", got)
-	}
-	if got := workerWaitText(1, 1); !strings.Contains(got, "1/1 workers joined") {
-		t.Fatalf("got %q", got)
-	}
-}
-
 func TestLoginServerFromEngine(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/provider/network/engine" {

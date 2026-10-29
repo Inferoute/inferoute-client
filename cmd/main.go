@@ -198,20 +198,22 @@ func main() {
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	catalog := verify.NewCatalog(cfg.Provider.URL, cfg.Provider.ProviderType)
-	if err := catalog.Refresh(ctx); err != nil {
-		logger.Warn("Failed to fetch approved model catalog; verification may be limited", zap.Error(err))
-	} else {
-		logger.Info("Loaded approved model catalog",
-			zap.Strings("aliases", catalog.Aliases()))
-	}
-	serverClient := verify.NewServerClient(cfg.Provider.URL, cfg.Provider.APIKey)
-	modelVerifier := verify.NewVerifier(catalog, serverClient, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
-
 	var registeredModelIDs []string
-	if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier); err != nil {
-		logger.Error("Failed to register local models", zap.Error(err))
-	} else {
-		registeredModelIDs = ids
+	var modelVerifier *verify.Verifier
+	if !cfg.EnrolledWorker() {
+		if err := catalog.Refresh(ctx); err != nil {
+			logger.Warn("Failed to fetch approved model catalog; verification may be limited", zap.Error(err))
+		} else {
+			logger.Info("Loaded approved model catalog",
+				zap.Strings("aliases", catalog.Aliases()))
+		}
+		serverClient := verify.NewServerClient(cfg.Provider.URL, cfg.Provider.APIKey)
+		modelVerifier = verify.NewVerifier(catalog, serverClient, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
+		if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier); err != nil {
+			logger.Error("Failed to register local models", zap.Error(err))
+		} else {
+			registeredModelIDs = ids
+		}
 	}
 
 	healthReporter := health.NewReporter(cfg, gpuMonitor, llmClient)

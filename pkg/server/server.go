@@ -14,8 +14,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/connect"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
@@ -241,6 +243,27 @@ func formatRequestLine(req RequestLog) string {
 		req.Time, req.Method, req.Path, statusColor, req.Status, req.Duration)
 }
 
+func (s *Server) engineStatus() string {
+	if s.config == nil {
+		return ""
+	}
+	kind, _ := engine.ParseKind(s.config.Provider.Engine)
+	switch s.config.Provider.ClusterMode {
+	case "worker":
+		if engine.WorkerAlive(kind, s.config.Provider.EngineArgs) {
+			return "running"
+		}
+		return "not started"
+	case "master":
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, peers := inferscale.Tailnet()
+		return engine.MasterState(ctx, kind, s.config.Provider.LLMURL, s.config.Provider.EngineArgs, peers)
+	default:
+		return ""
+	}
+}
+
 func (s *Server) writeClusterStatus(buf *bytes.Buffer, snap StatusSnapshot) {
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
 	buf.WriteString("║                          CLUSTER STATUS                          ║\n")
@@ -251,6 +274,9 @@ func (s *Server) writeClusterStatus(buf *bytes.Buffer, snap StatusSnapshot) {
 		cluster = "single"
 	}
 	buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Cluster", cluster))
+	if line := s.engineStatus(); line != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Engine", line))
+	}
 	if snap.Nodes != "" {
 		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Nodes", snap.Nodes))
 	}

@@ -3,11 +3,8 @@ package setup
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
@@ -26,73 +23,9 @@ func credential(s string) string {
 	return strings.Trim(s, "`\"'")
 }
 
-func workerWaitText(joined, need int) string {
-	j, n := engine.WorkerSlots(joined, need+1)
-	if n < 1 {
-		return "Waiting for workers to join"
-	}
-	if j >= n {
-		return fmt.Sprintf("Waiting for the model to load (%d/%d workers joined)", j, n)
-	}
-	return fmt.Sprintf("Waiting for workers to join (%d/%d)", j, n)
-}
-
-func waitForWorkers(ctx context.Context, kind engine.Kind, llmURL, join string, nnodes int, exited <-chan error, set func(string)) error {
-	if !engine.PortOpen(ctx, "http://"+join) {
-		set("Waiting for the master to accept workers")
-		if err := engine.WaitListen(ctx, join, 2*time.Second, exited); err != nil {
-			return err
-		}
-	}
-	need := nnodes - 1
-	tick := time.NewTicker(2 * time.Second)
-	defer tick.Stop()
-	for {
-		_, joined := inferscale.Tailnet()
-		set(workerWaitText(joined, need))
-		if engine.Healthy(ctx, kind, llmURL) {
-			return nil
-		}
-		select {
-		case err := <-exited:
-			if err != nil {
-				return fmt.Errorf("process exited: %w", err)
-			}
-			return fmt.Errorf("process exited before workers joined")
-		case <-ctx.Done():
-			return fmt.Errorf("timed out waiting for workers to join: %w", ctx.Err())
-		case <-tick.C:
-		}
-	}
-}
-
 func onlinePeers() int {
 	_, n := inferscale.Tailnet()
 	return n
-}
-
-func watchWorkers(out io.Writer, kind engine.Kind, llmURL, join string, nnodes int, exited <-chan error) error {
-	var mu sync.Mutex
-	msg := workerWaitText(0, nnodes-1)
-	set := func(s string) {
-		mu.Lock()
-		msg = s
-		mu.Unlock()
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
-	defer cancel()
-	err := SpinWhileLive(out, func() string {
-		mu.Lock()
-		defer mu.Unlock()
-		return msg
-	}, func() error {
-		return waitForWorkers(ctx, kind, llmURL, join, nnodes, exited, set)
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "Engine is ready at %s.\n", llmURL)
-	return nil
 }
 
 // clusterSettings is what setup shows instead of the single-machine model list.
@@ -290,6 +223,9 @@ func loginServer(cfg *config.Config, worker bool) string {
 	}
 	return sess.LoginServer
 }
+
+// refreshCluster is replaced in tests.
+var refreshCluster = refreshClusterEngine
 
 // refreshClusterEngine reloads the server command before a later start.
 // It also reconnects inferscale when the saved address is offline.

@@ -136,7 +136,7 @@ func Execute(opts Options, io Streams) error {
 	cfg.Provider.Engine = string(kind)
 	cfg.Provider.ProviderType = engine.PlatformType(kind)
 	cfg.Provider.LLMURL = engine.DefaultURL(kind)
-	cfg.Provider.AutoStart = autoStart && detected.Found
+	cfg.Provider.AutoStart = autoStart && detected.Found && plan.Role != "master" && plan.Role != "worker"
 
 	hfRepo := engine.HFRepo(entry)
 	applyServeOpts(cfg, entry, hfRepo)
@@ -154,15 +154,13 @@ func Execute(opts Options, io Streams) error {
 		return err
 	}
 
-	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
+	if plan.Role == "master" || plan.Role == "worker" {
+		printClusterStart(io.Out, plan.Role, spec)
+	} else if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
 			return saveErr
 		}
 		fmt.Fprintf(io.Out, "\nWrote %s\n", path)
-		if engine.Headless(spec.Args) {
-			fmt.Fprintf(io.Err, "Setup did not finish. The worker stopped (see %s).\n", engine.LogPath(cfg.Logging.LogDir))
-			return err
-		}
 		fmt.Fprintf(io.Err, "Setup did not finish: %s is not serving yet (see %s).\n", engine.Label(kind), engine.LogPath(cfg.Logging.LogDir))
 		fmt.Fprintf(io.Err, "Leave the engine running, then re-run: inferoute-client setup\n")
 		return err
@@ -446,10 +444,23 @@ func applyServeOpts(cfg *config.Config, entry verify.CatalogEntry, hfRepo string
 }
 
 func formatSpec(spec engine.Spec) string {
-	if len(spec.Env) == 0 {
-		return spec.CommandLine()
+	return spec.Display()
+}
+
+const (
+	docsClusterMaster = "https://docs.inferoute.com/provider/multi-node-clusters#start-every-machine-together"
+	docsClusterWorker = "https://docs.inferoute.com/provider/joining-a-cluster#start-when-the-owner-says"
+)
+
+func printClusterStart(out io.Writer, role string, spec engine.Spec) {
+	fmt.Fprintf(out, "\n%s\n", formatSpec(spec))
+	if role == "worker" {
+		fmt.Fprintln(out, "Run this after the master is up. Then start inferoute-client.")
+		fmt.Fprintln(out, docsClusterWorker)
+		return
 	}
-	return strings.Join(spec.Env, " ") + " " + spec.CommandLine()
+	fmt.Fprintln(out, "Run this first. Workers join once it is waiting. Then start inferoute-client.")
+	fmt.Fprintln(out, docsClusterMaster)
 }
 
 func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Options, haveBin bool, io Streams) error {
@@ -464,10 +475,6 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		fmt.Fprintf(io.Out, "\n%s is already running at %s.\n", kind, cfg.Provider.LLMURL)
 		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", formatSpec(spec))
 		return nil
-	}
-	join := engine.MasterJoinAddr(spec.Args)
-	if join != "" && !engine.PortOpen(ctx, cfg.Provider.LLMURL) && engine.PortOpen(ctx, "http://"+join) {
-		return watchWorkers(io.Out, kind, cfg.Provider.LLMURL, join, engine.NNodes(spec.Args), nil)
 	}
 	model := strings.TrimSpace(cfg.Provider.Model)
 	if model == "" {
@@ -508,17 +515,8 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	if err != nil {
 		return err
 	}
-	if engine.Headless(spec.Args) {
-		return settleHeadless(io.Out, exited, logPath)
-	}
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), engine.DefaultDownloadTimeout)
 	defer waitCancel()
-	if join != "" {
-		if err := watchWorkers(io.Out, kind, cfg.Provider.LLMURL, join, engine.NNodes(spec.Args), exited); err != nil {
-			return fmt.Errorf("%w (see %s)", err, logPath)
-		}
-		return nil
-	}
 	if err := SpinWhile(io.Out, waitMsg, func() error {
 		return engine.WaitHealthy(waitCtx, kind, cfg.Provider.LLMURL, 2*time.Second, exited)
 	}); err != nil {
@@ -526,23 +524,6 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	}
 	fmt.Fprintf(io.Out, "Engine is ready at %s.\n", cfg.Provider.LLMURL)
 	return nil
-}
-
-const headlessSettle = 3 * time.Second
-
-func settleHeadless(out io.Writer, exited <-chan error, logPath string) error {
-	timer := time.NewTimer(headlessSettle)
-	defer timer.Stop()
-	select {
-	case err := <-exited:
-		if err != nil {
-			return fmt.Errorf("process exited: %w (see %s)", err, logPath)
-		}
-		return fmt.Errorf("process exited before it joined the cluster (see %s)", logPath)
-	case <-timer.C:
-		fmt.Fprintln(out, "Worker is running. It joins the master and does not serve HTTP.")
-		return nil
-	}
 }
 
 func firstNonEmpty(vals ...string) string {

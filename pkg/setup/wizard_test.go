@@ -3,7 +3,6 @@ package setup
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -156,8 +155,8 @@ func TestExecuteWorkerInstallsAndConfirms(t *testing.T) {
 	if !strings.Contains(text, "Joining cluster inferoute-cluster1") || !strings.Contains(text, "Qwen3 0.6B (Qwen/Qwen3-0.6B)") {
 		t.Fatalf("stdout = %s", text)
 	}
-	if !strings.Contains(text, "Start "+string(engine.RuntimeKind(runtime.GOOS, engine.KindVLLM))+" with this model now?") {
-		t.Fatalf("did not offer to start:\n%s", text)
+	if !strings.Contains(text, "Run this after the master is up") || !strings.Contains(text, docsClusterWorker) {
+		t.Fatalf("did not print the worker command:\n%s", text)
 	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -568,15 +567,6 @@ func TestDifferentJoinCodeClearsSavedToken(t *testing.T) {
 		NoStart:        true,
 	}, Streams{In: strings.NewReader(""), Out: &out, Err: &out})
 	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestSettleHeadlessReportsExit(t *testing.T) {
-	exited := make(chan error, 1)
-	exited <- fmt.Errorf("boom")
-	err := settleHeadless(&bytes.Buffer{}, exited, "/tmp/engine.log")
-	if err == nil || !strings.Contains(err.Error(), "engine.log") {
 		t.Fatal(err)
 	}
 }

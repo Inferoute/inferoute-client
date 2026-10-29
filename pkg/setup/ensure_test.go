@@ -154,3 +154,75 @@ func TestEnsureOnStartWaitsWhenPortOpen(t *testing.T) {
 		t.Errorf("stdout = %q, want already starting", out.String())
 	}
 }
+
+func stubClusterRefresh(t *testing.T) {
+	t.Helper()
+	old := refreshCluster
+	refreshCluster = func(context.Context, *config.Config) error { return nil }
+	t.Cleanup(func() { refreshCluster = old })
+}
+
+func TestEnsureOnStartWorkerPrintsCommand(t *testing.T) {
+	stubClusterRefresh(t)
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "vllm"
+	cfg.Provider.ClusterMode = "worker"
+	cfg.Provider.LLMURL = "http://127.0.0.1:1"
+	cfg.Provider.EngineArgs = []string{"serve", "Qwen/Qwen3-0.6B", "--headless", "--master-addr", "198.18.0.2"}
+	cfg.Provider.Model = "Qwen/Qwen3-0.6B"
+
+	var out bytes.Buffer
+	if err := ensureOnStart(context.Background(), cfg, Streams{In: strings.NewReader(""), Out: &out}, true); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(text, "Start it now") {
+		t.Fatalf("prompted to start:\n%s", text)
+	}
+	if !strings.Contains(text, "--headless") || !strings.Contains(text, docsClusterWorker) || !strings.Contains(text, "keeps running") {
+		t.Fatalf("stdout = %q", text)
+	}
+}
+
+func TestEnsureOnStartMasterNotStarted(t *testing.T) {
+	stubClusterRefresh(t)
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "vllm"
+	cfg.Provider.ClusterMode = "master"
+	cfg.Provider.LLMURL = "http://127.0.0.1:1"
+	cfg.Provider.EngineArgs = []string{
+		"serve", "Qwen/Qwen3-0.6B", "--nnodes", "2", "--node-rank", "0",
+		"--master-addr", "127.0.0.1", "--master-port", "1",
+	}
+	cfg.Provider.Model = "Qwen/Qwen3-0.6B"
+
+	var out bytes.Buffer
+	if err := ensureOnStart(context.Background(), cfg, Streams{In: strings.NewReader(""), Out: &out}, true); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(text, "Start it now") || !strings.Contains(text, docsClusterMaster) || !strings.Contains(text, "keeps running") {
+		t.Fatalf("stdout = %q", text)
+	}
+}
+
+func TestEnsureOnStartMasterReady(t *testing.T) {
+	stubClusterRefresh(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3-0.6B"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "vllm"
+	cfg.Provider.ClusterMode = "master"
+	cfg.Provider.LLMURL = srv.URL
+
+	var out bytes.Buffer
+	if err := ensureOnStart(context.Background(), cfg, Streams{Out: &out}, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "is ready at") {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}

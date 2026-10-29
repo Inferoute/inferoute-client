@@ -127,6 +127,23 @@ func WaitHealthy(ctx context.Context, kind Kind, llmURL string, interval time.Du
 	})
 }
 
+// MasterState is what a multi-node master is doing right now.
+// peers is the count of other tailnet nodes that are online.
+func MasterState(ctx context.Context, kind Kind, llmURL string, args []string, peers int) string {
+	if Healthy(ctx, kind, llmURL) {
+		return "ready"
+	}
+	join := MasterJoinAddr(args)
+	if join == "" || !PortOpen(ctx, "http://"+join) {
+		return "not started"
+	}
+	joined, need := WorkerSlots(peers, NNodes(args))
+	if need > 0 && joined >= need {
+		return "loading"
+	}
+	return fmt.Sprintf("waiting for workers (%d/%d)", joined, need)
+}
+
 func waitUntil(ctx context.Context, what string, interval time.Duration, exited <-chan error, ready func() bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second

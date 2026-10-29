@@ -39,7 +39,7 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 		io.In = os.Stdin
 	}
 
-	if err := refreshClusterEngine(ctx, cfg); err != nil {
+	if err := refreshCluster(ctx, cfg); err != nil {
 		return err
 	}
 
@@ -51,6 +51,13 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 	url := cfg.Provider.LLMURL
 	if url == "" {
 		url = engine.DefaultURL(kind)
+	}
+
+	switch cfg.Provider.ClusterMode {
+	case "worker":
+		return observeWorker(io, kind, cfg)
+	case "master":
+		return observeMaster(ctx, io, kind, label, url, cfg)
 	}
 
 	if engine.Healthy(ctx, kind, url) {
@@ -120,4 +127,37 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 	}
 	fmt.Fprintf(io.Out, "%s is ready at %s.\n", label, url)
 	return nil
+}
+
+func observeWorker(io Streams, kind engine.Kind, cfg *config.Config) error {
+	if engine.WorkerAlive(kind, cfg.Provider.EngineArgs) {
+		fmt.Fprintln(io.Out, "Worker is running. It joins the master and does not serve HTTP.")
+		return nil
+	}
+	printSavedCommand(io.Out, cfg, docsClusterWorker)
+	fmt.Fprintln(io.Out, "Start it in another terminal. This client keeps running.")
+	return nil
+}
+
+func observeMaster(ctx context.Context, io Streams, kind engine.Kind, label, url string, cfg *config.Config) error {
+	switch state := engine.MasterState(ctx, kind, url, cfg.Provider.EngineArgs, onlinePeers()); state {
+	case "ready":
+		fmt.Fprintf(io.Out, "%s is ready at %s.\n", label, url)
+	case "not started":
+		printSavedCommand(io.Out, cfg, docsClusterMaster)
+		fmt.Fprintln(io.Out, "Start it in another terminal. This client keeps running.")
+	default:
+		fmt.Fprintln(io.Out, state)
+	}
+	return nil
+}
+
+func printSavedCommand(out io.Writer, cfg *config.Config, docs string) {
+	spec, err := engine.SpecFromConfig(cfg)
+	if err != nil {
+		fmt.Fprintln(out, docs)
+		return
+	}
+	fmt.Fprintln(out, spec.Display())
+	fmt.Fprintln(out, docs)
 }

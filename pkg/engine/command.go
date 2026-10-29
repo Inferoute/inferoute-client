@@ -48,6 +48,14 @@ func ServeOptsFromCatalog(entry verify.CatalogEntry) ServeOpts {
 	return opts
 }
 
+// Display is CommandLine with Env prefixed, ready to paste into a shell.
+func (s Spec) Display() string {
+	if len(s.Env) == 0 {
+		return s.CommandLine()
+	}
+	return strings.Join(s.Env, " ") + " " + s.CommandLine()
+}
+
 // CommandLine is a copy-pasteable shell form of Spec.
 func (s Spec) CommandLine() string {
 	parts := make([]string, 0, 1+len(s.Args))
