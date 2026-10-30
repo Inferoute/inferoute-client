@@ -15,6 +15,7 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
@@ -194,7 +195,13 @@ func main() {
 		logger.Warn("Continuing without GPU monitoring")
 	}
 
-	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL, cfg.LLMTimeout())
+	llmURL := cfg.Provider.LLMURL
+	if cfg.EnrolledWorker() {
+		if u := engine.MasterURL(cfg.Provider.EngineArgs); u != "" {
+			llmURL = u
+		}
+	}
+	llmClient := llm.NewClient(cfg.Provider.ProviderType, llmURL, cfg.LLMTimeout())
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	catalog := verify.NewCatalog(cfg.Provider.URL, cfg.Provider.ProviderType)

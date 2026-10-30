@@ -448,7 +448,7 @@ func formatSpec(spec engine.Spec) string {
 }
 
 const (
-	docsClusterMaster = "https://docs.inferoute.com/provider/multi-node-clusters#start-every-machine-together"
+	docsClusterMaster = "https://docs.inferoute.com/provider/multi-node-clusters#start-the-master-first"
 	docsClusterWorker = "https://docs.inferoute.com/provider/joining-a-cluster#start-when-the-owner-says"
 )
 
@@ -459,7 +459,7 @@ func printClusterStart(out io.Writer, role string, spec engine.Spec) {
 		fmt.Fprintln(out, docsClusterWorker)
 		return
 	}
-	fmt.Fprintln(out, "Run this first. Workers join once it is waiting. Then start inferoute-client.")
+	fmt.Fprintln(out, "Start vLLM first using the command above. Workers join once the master is running and waiting. Then start inferoute-client.")
 	fmt.Fprintln(out, docsClusterMaster)
 }
 

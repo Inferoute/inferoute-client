@@ -97,6 +97,11 @@ func (s *Server) snapshot() StatusSnapshot {
 		apiKey = maskStringHelper(s.config.Provider.APIKey)
 		providerURL = s.config.Provider.URL
 		llmURL = s.config.Provider.LLMURL
+		if s.config.EnrolledWorker() {
+			if u := engine.MasterURL(s.config.Provider.EngineArgs); u != "" {
+				llmURL = u
+			}
+		}
 	}
 
 	upd := nodeapi.State()

@@ -259,6 +259,26 @@ func TestMasterJoinAddr(t *testing.T) {
 	}
 }
 
+func TestMasterURL(t *testing.T) {
+	t.Parallel()
+	worker := []string{
+		"serve", "Qwen/Qwen2.5-7B-Instruct",
+		"--host", "198.18.0.2", "--port", "8000",
+		"--master-addr", "198.18.0.1", "--master-port", "29501",
+		"--headless",
+	}
+	if got := MasterURL(worker); got != "http://198.18.0.1:8000" {
+		t.Fatalf("MasterURL = %q", got)
+	}
+	master := []string{
+		"serve", "Qwen/Qwen2.5-7B-Instruct",
+		"--port", "8000", "--master-addr", "198.18.0.1",
+	}
+	if got := MasterURL(master); got != "" {
+		t.Fatalf("master MasterURL = %q", got)
+	}
+}
+
 func TestNodeSlots(t *testing.T) {
 	t.Parallel()
 	online, need := NodeSlots(true, 1, 2)

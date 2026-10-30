@@ -177,6 +177,20 @@ func MasterJoinAddr(args []string) string {
 	return net.JoinHostPort(host, port)
 }
 
+// MasterURL is the master's HTTP API as seen from a headless worker.
+// Empty for the master and single-node serves.
+func MasterURL(args []string) string {
+	if !Headless(args) {
+		return ""
+	}
+	host := flagVal(args, "--master-addr")
+	port := flagVal(args, "--port")
+	if host == "" || port == "" {
+		return ""
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
 // NNodes is the --nnodes value. Zero when this serve is not multi-node.
 func NNodes(args []string) int {
 	n, err := strconv.Atoi(flagVal(args, "--nnodes"))

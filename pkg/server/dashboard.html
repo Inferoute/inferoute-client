@@ -87,9 +87,13 @@ function render(s) {
     modelHtml = row("Model", "(awaiting health sync)", "warn");
   } else {
     modelHtml = models.map((m, i) => {
-      const label = m.marketplace_approval || "unknown";
       const name = i === 0 ? "Model" : "";
-      return row(name, esc(m.id)) + row("Marketplace approval", esc(label), cls(label));
+      let html = row(name, esc(m.id));
+      if (m.verification_status) {
+        const label = m.marketplace_approval || "unknown";
+        html += row("Marketplace approval", esc(label), cls(label));
+      }
+      return html;
     }).join("");
   }
   const gpu = s.gpu || {};

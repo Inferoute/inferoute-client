@@ -244,6 +244,11 @@ func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	if r.config.Provider.ClusterMode == "worker" {
+		if models, err := r.llmClient.ListModels(ctx); err != nil || models == nil {
+			r.setDisplayedModels(nil)
+		} else {
+			r.setDisplayedModels(models.Models)
+		}
 		status := "red"
 		kind, _ := engine.ParseKind(r.config.Provider.Engine)
 		if engine.WorkerAlive(kind, r.config.Provider.EngineArgs) {

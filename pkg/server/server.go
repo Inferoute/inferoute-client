@@ -295,9 +295,11 @@ func (s *Server) writeClusterStatus(buf *bytes.Buffer, snap StatusSnapshot) {
 		if i > 0 {
 			prefix = ""
 		}
-		_, color := usermsg.ApprovalConsole(m.VerificationStatus)
 		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", prefix, m.ID))
-		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s%s\033[0m\n", "Marketplace approval", color, m.MarketplaceApproval))
+		if m.VerificationStatus != "" {
+			_, color := usermsg.ApprovalConsole(m.VerificationStatus)
+			buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s%s\033[0m\n", "Marketplace approval", color, m.MarketplaceApproval))
+		}
 	}
 }
 
