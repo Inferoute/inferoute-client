@@ -45,6 +45,9 @@ func StartDetached(spec Spec, logPath string) (<-chan error, error) {
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	if len(spec.Env) > 0 {
+		cmd.Env = append(os.Environ(), spec.Env...)
+	}
 	detach(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
@@ -68,5 +71,8 @@ func Run(ctx context.Context, spec Spec, w io.Writer) error {
 	cmd := exec.CommandContext(ctx, spec.Bin, spec.Args...)
 	cmd.Stdout = w
 	cmd.Stderr = w
+	if len(spec.Env) > 0 {
+		cmd.Env = append(os.Environ(), spec.Env...)
+	}
 	return cmd.Run()
 }

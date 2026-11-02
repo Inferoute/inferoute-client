@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -242,6 +243,20 @@ func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
 
 // SendHealthReport sends a health report to the central system
 func (r *Reporter) SendHealthReport(ctx context.Context) error {
+	if r.config.Provider.ClusterMode == "worker" {
+		if models, err := r.llmClient.ListModels(ctx); err != nil || models == nil {
+			r.setDisplayedModels(nil)
+		} else {
+			r.setDisplayedModels(models.Models)
+		}
+		status := "red"
+		kind, _ := engine.ParseKind(r.config.Provider.Engine)
+		if engine.WorkerAlive(kind, r.config.Provider.EngineArgs) {
+			status = "green"
+		}
+		return r.sendNodeHealth(ctx, status, r.gpuInfo())
+	}
+
 	if r.verifier != nil {
 		if err := r.verifier.RefreshCatalog(ctx); err != nil {
 			logger.Warn("Failed to refresh approved model catalog", zap.Error(err))
@@ -313,6 +328,37 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 	return nil
 }
 
+func (r *Reporter) sendNodeHealth(ctx context.Context, status string, gpuInfo *gpu.GPUInfo) error {
+	token := r.config.Provider.NodeToken
+	if token == "" {
+		return fmt.Errorf("worker node token is not set")
+	}
+	body, _ := json.Marshal(struct {
+		Status string       `json:"status"`
+		GPU    *gpu.GPUInfo `json:"gpu,omitempty"`
+	}{Status: status, GPU: gpuInfo})
+	url := fmt.Sprintf("%s/api/provider/network/node/health", r.config.Provider.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("node health: %s", bytes.TrimSpace(msg))
+	}
+	r.lastUpdateMutex.Lock()
+	r.lastUpdateTime = time.Now()
+	r.lastUpdateMutex.Unlock()
+	return nil
+}
+
 // GetHealthReport gets the current health report
 func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	// Get list of models
@@ -324,34 +370,7 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	enriched := r.enrichModels(ctx, models.Models)
 	r.setDisplayedModels(enriched)
 
-	// Get GPU info if available
-	var gpuInfo *gpu.GPUInfo
-	if r.gpuMonitor != nil {
-		gpuInfo, err = r.gpuMonitor.GetGPUInfo()
-		if err != nil {
-			logger.Error("Failed to get GPU information", zap.Error(err))
-			gpuInfo = &gpu.GPUInfo{
-				ProductName:   "Unknown",
-				DriverVersion: "Unknown",
-				CUDAVersion:   "Unknown",
-				GPUCount:      0,
-			}
-		}
-	} else {
-		// No GPU monitor available
-		gpuInfo = &gpu.GPUInfo{
-			ProductName:   "Unknown",
-			DriverVersion: "Unknown",
-			CUDAVersion:   "Unknown",
-			GPUCount:      0,
-		}
-	}
-
-	// Busy means "cannot take a fresh request right now": either the GPU is
-	// under load or every inference slot is taken.
-	if r.slotBusyFn != nil && r.slotBusyFn() {
-		gpuInfo.IsBusy = true
-	}
+	gpuInfo := r.gpuInfo()
 
 	report := &HealthReport{
 		Object:       "list",
@@ -361,6 +380,26 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 	}
 
 	return report, nil
+}
+
+func (r *Reporter) gpuInfo() *gpu.GPUInfo {
+	info := &gpu.GPUInfo{
+		ProductName:   "Unknown",
+		DriverVersion: "Unknown",
+		CUDAVersion:   "Unknown",
+	}
+	if r.gpuMonitor != nil {
+		got, err := r.gpuMonitor.GetGPUInfo()
+		if err != nil {
+			logger.Error("Failed to get GPU information", zap.Error(err))
+		} else if got != nil {
+			info = got
+		}
+	}
+	if r.slotBusyFn != nil && r.slotBusyFn() {
+		info.IsBusy = true
+	}
+	return info
 }
 
 // GetLastUpdateTime gets the time of the last successful health update

@@ -19,6 +19,7 @@ func EnsureReady(ctx context.Context, cfg *config.Config, logDir string) error {
 }
 
 // StartAndWait starts the configured engine if llm_url is down and waits until it is serving.
+// A multi-node master returns once its torch store is accepting other ranks.
 func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -38,25 +39,24 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 		}
 		return nil
 	}
+	// Rank 0 binds the torch store and blocks until the other nodes connect.
+	// /v1/models does not come up before that, so an open store is the ready signal.
+	join := MasterJoinAddr(cfg.Provider.EngineArgs)
+	if join != "" && PortOpen(ctx, "http://"+join) {
+		return nil
+	}
 
-	bin := ResolveBin(kind, cfg.Provider.EngineBin)
-	if bin == "" {
+	spec, err := SpecFromConfig(cfg)
+	if err != nil {
+		return err
+	}
+	if spec.Bin == "" {
 		d := Detect(kind)
 		if d.Unusable != "" {
 			return fmt.Errorf("%s cannot run (%s); re-run inferoute-client setup", Label(kind), d.Unusable)
 		}
 		return fmt.Errorf("%s is not installed and is not running at %s", Label(kind), url)
 	}
-
-	hfRepo := firstNonEmpty(cfg.Provider.HFRepo, cfg.Provider.Model)
-	opts := ServeOpts{
-		ToolCallParser:     cfg.Provider.ToolCallParser,
-		MaxModelLen:        cfg.Provider.MaxModelLen,
-		RopeType:           cfg.Provider.RopeType,
-		RopeBaseContextLen: cfg.Provider.RopeBaseContextLen,
-		GGUFFile:           cfg.Provider.GGUFFile,
-	}
-	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo, opts)
 	exited, err := StartDetached(spec, LogPath(logDir))
 	if err != nil {
 		return err
@@ -66,9 +66,46 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 	if probeURL == "" {
 		probeURL = spec.URL
 	}
-	if err := WaitHealthy(ctx, kind, probeURL, 2*time.Second, exited); err != nil {
+	var errWait error
+	if join != "" {
+		errWait = WaitListen(ctx, join, 2*time.Second, exited)
+	} else {
+		errWait = WaitHealthy(ctx, kind, probeURL, 2*time.Second, exited)
+	}
+	if errWait != nil {
 		fmt.Fprintf(os.Stderr, "engine started but not ready yet; check %s\n", LogPath(logDir))
-		return err
+		return errWait
 	}
 	return nil
+}
+
+// SpecFromConfig rebuilds the last serve command from a saved config.
+func SpecFromConfig(cfg *config.Config) (Spec, error) {
+	if cfg == nil {
+		return Spec{}, fmt.Errorf("config is nil")
+	}
+	kind, ok := ParseKind(cfg.Provider.Engine)
+	if !ok {
+		return Spec{}, fmt.Errorf("unknown engine %q", cfg.Provider.Engine)
+	}
+	bin := ResolveBin(kind, cfg.Provider.EngineBin)
+	hfRepo := firstNonEmpty(cfg.Provider.HFRepo, cfg.Provider.Model)
+	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo, ServeOpts{
+		ToolCallParser:     cfg.Provider.ToolCallParser,
+		MaxModelLen:        cfg.Provider.MaxModelLen,
+		RopeType:           cfg.Provider.RopeType,
+		RopeBaseContextLen: cfg.Provider.RopeBaseContextLen,
+		GGUFFile:           cfg.Provider.GGUFFile,
+	})
+	if len(cfg.Provider.EngineArgs) > 0 {
+		spec.Args = append([]string(nil), cfg.Provider.EngineArgs...)
+		spec.Env = append([]string(nil), cfg.Provider.EngineEnv...)
+		if cfg.Provider.LLMURL != "" {
+			spec.URL = cfg.Provider.LLMURL
+		}
+	}
+	if bin != "" {
+		spec.Bin = bin
+	}
+	return spec, nil
 }

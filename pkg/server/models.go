@@ -35,8 +35,6 @@ type Server struct {
 	sessionMu        sync.Mutex
 	activeSessionKey string
 	server           *http.Server
-	errorLog         []string
-	errorLogMutex    sync.Mutex
 	requestStats     struct {
 		Total        int
 		Success      int

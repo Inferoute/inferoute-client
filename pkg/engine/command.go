@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 type Spec struct {
 	Bin  string
 	Args []string
+	Env  []string
 	URL  string
 }
 
@@ -44,6 +46,14 @@ func ServeOptsFromCatalog(entry verify.CatalogEntry) ServeOpts {
 		opts.GGUFFile = strings.TrimSpace(*entry.GGUFFile)
 	}
 	return opts
+}
+
+// Display is CommandLine with Env prefixed, ready to paste into a shell.
+func (s Spec) Display() string {
+	if len(s.Env) == 0 {
+		return s.CommandLine()
+	}
+	return strings.Join(s.Env, " ") + " " + s.CommandLine()
 }
 
 // CommandLine is a copy-pasteable shell form of Spec.
@@ -83,6 +93,9 @@ func ServeSpec(kind Kind, bin, modelAlias, hfRepo string, opts ServeOpts) Spec {
 			spec.Args = append(spec.Args, "--served-model-name", modelAlias)
 		}
 		spec.Args = append(spec.Args, vllmServeFlags(opts)...)
+		if strings.TrimSpace(opts.RopeType) != "" && opts.MaxModelLen > opts.RopeBaseContextLen && opts.RopeBaseContextLen > 0 {
+			spec.Env = append(spec.Env, "VLLM_ALLOW_LONG_MAX_MODEL_LEN=1")
+		}
 	case KindLlamaCpp:
 		repo := firstNonEmpty(hfRepo, modelAlias)
 		name := firstNonEmpty(modelAlias, repo)
@@ -142,6 +155,108 @@ func HFRepo(entry verify.CatalogEntry) string {
 		return strings.TrimSpace(*entry.HFRepo)
 	}
 	return entry.Alias
+}
+
+// MasterJoinAddr is the torch store rank 0 binds.
+// vLLM logs distributed_init_method and then blocks in init_process_group;
+// /v1/models stays down until the other ranks connect. Empty for workers
+// (--headless) and single-node serves.
+func MasterJoinAddr(args []string) string {
+	if hasArg(args, "--headless") || flagVal(args, "--node-rank") != "0" {
+		return ""
+	}
+	n, err := strconv.Atoi(flagVal(args, "--nnodes"))
+	if err != nil || n < 2 {
+		return ""
+	}
+	host := flagVal(args, "--master-addr")
+	port := flagVal(args, "--master-port")
+	if host == "" || port == "" {
+		return ""
+	}
+	return net.JoinHostPort(host, port)
+}
+
+// MasterURL is the master's HTTP API as seen from a headless worker.
+// Empty for the master and single-node serves.
+func MasterURL(args []string) string {
+	if !Headless(args) {
+		return ""
+	}
+	host := flagVal(args, "--master-addr")
+	port := flagVal(args, "--port")
+	if host == "" || port == "" {
+		return ""
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// NNodes is the --nnodes value. Zero when this serve is not multi-node.
+func NNodes(args []string) int {
+	n, err := strconv.Atoi(flagVal(args, "--nnodes"))
+	if err != nil || n < 2 {
+		return 0
+	}
+	return n
+}
+
+// NodeSlots counts this machine plus online peers, out of --nnodes.
+// self is true when this process has a tailnet address.
+func NodeSlots(self bool, onlinePeers, nnodes int) (online, need int) {
+	if nnodes < 2 {
+		return 0, 0
+	}
+	need = nnodes
+	online = onlinePeers
+	if self {
+		online++
+	}
+	if online > need {
+		online = need
+	}
+	if online < 0 {
+		online = 0
+	}
+	return online, need
+}
+
+// WorkerSlots is how many other nodes are online, out of how many the serve expects.
+func WorkerSlots(onlinePeers, nnodes int) (joined, need int) {
+	need = nnodes - 1
+	if need < 1 {
+		return 0, 0
+	}
+	joined = onlinePeers
+	if joined > need {
+		joined = need
+	}
+	if joined < 0 {
+		joined = 0
+	}
+	return joined, need
+}
+
+func flagVal(args []string, name string) string {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == name {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func hasArg(args []string, name string) bool {
+	for _, a := range args {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Headless is a cluster worker. It never opens an HTTP port.
+func Headless(args []string) bool {
+	return hasArg(args, "--headless")
 }
 
 func firstNonEmpty(vals ...string) string {

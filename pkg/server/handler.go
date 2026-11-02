@@ -16,38 +16,28 @@ const maxRequestIDLength = 256
 
 // handleHealth handles the /api/health endpoint
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-
-	// Get health report
 	report, err := s.healthReporter.GetHealthReport(r.Context())
 	if err != nil {
 		s.logError(fmt.Sprintf("Failed to get health report: %v", err))
 		http.Error(w, usermsg.HTTP(err, s.config.Provider.ProviderType), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
 		return
 	}
 
-	// Write response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(report)
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
 }
 
 // handleBusy handles the /api/busy endpoint
 func (s *Server) handleBusy(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-
 	isBusy, err := s.isBusy()
 	if err != nil {
 		s.logError(fmt.Sprintf("Error checking if GPU is busy: %v", err))
 		http.Error(w, fmt.Sprintf("Failed to check if GPU is busy: %v", err), http.StatusInternalServerError)
-		s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(BusyResponse{Busy: isBusy})
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
 }
 
 func (s *Server) writeBusy(w http.ResponseWriter, r *http.Request, startTime time.Time) {

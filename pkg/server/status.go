@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
@@ -44,10 +46,13 @@ type StatusSnapshot struct {
 	Models           []StatusModel `json:"models"`
 	GPU              *gpu.GPUInfo  `json:"gpu"`
 	RecentRequests   []RequestLog  `json:"recent_requests"`
-	Errors           []string      `json:"errors"`
 	ClientVersion    string        `json:"client_version"`
 	LatestVersion    string        `json:"latest_version,omitempty"`
 	UpdateStatus     string        `json:"update_status"`
+	TailnetIP        string        `json:"tailnet_ip,omitempty"`
+	Peers            string        `json:"peers,omitempty"`
+	Cluster          string        `json:"cluster,omitempty"`
+	Nodes            string        `json:"nodes,omitempty"`
 }
 
 func (s *Server) snapshot() StatusSnapshot {
@@ -83,11 +88,6 @@ func (s *Server) snapshot() StatusSnapshot {
 	copy(reqs, s.requestStats.LastRequests)
 	s.requestStats.mutex.Unlock()
 
-	s.errorLogMutex.Lock()
-	errs := make([]string, len(s.errorLog))
-	copy(errs, s.errorLog)
-	s.errorLogMutex.Unlock()
-
 	providerType := ""
 	apiKey := ""
 	providerURL := ""
@@ -97,9 +97,33 @@ func (s *Server) snapshot() StatusSnapshot {
 		apiKey = maskStringHelper(s.config.Provider.APIKey)
 		providerURL = s.config.Provider.URL
 		llmURL = s.config.Provider.LLMURL
+		if s.config.EnrolledWorker() {
+			if u := engine.MasterURL(s.config.Provider.EngineArgs); u != "" {
+				llmURL = u
+			}
+		}
 	}
 
 	upd := nodeapi.State()
+	tailnetIP, online := inferscale.Tailnet()
+	peers := ""
+	if online > 0 {
+		peers = fmt.Sprintf("%d online", online)
+	}
+	cluster := "single"
+	nodes := ""
+	if s.config != nil {
+		switch s.config.Provider.ClusterMode {
+		case "master", "worker":
+			cluster = s.config.Provider.ClusterMode
+		}
+		if joined, need := engine.NodeSlots(tailnetIP != "", online, engine.NNodes(s.config.Provider.EngineArgs)); need > 0 {
+			nodes = fmt.Sprintf("%d/%d", joined, need)
+			if cluster == "single" {
+				cluster = "master"
+			}
+		}
+	}
 	return StatusSnapshot{
 		LastHealthUpdate: lastUpdateStr,
 		SessionStatus:    "online",
@@ -111,10 +135,13 @@ func (s *Server) snapshot() StatusSnapshot {
 		Models:           models,
 		GPU:              gpuInfo,
 		RecentRequests:   reqs,
-		Errors:           errs,
 		ClientVersion:    version.Version,
 		LatestVersion:    upd.Latest,
 		UpdateStatus:     string(upd.Status),
+		TailnetIP:        tailnetIP,
+		Peers:            peers,
+		Cluster:          cluster,
+		Nodes:            nodes,
 	}
 }
 

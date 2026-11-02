@@ -3,6 +3,7 @@ package setup
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -11,11 +12,18 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
 
 // hostGOOS is runtime.GOOS; tests override it to cover Windows/macOS remap.
 var hostGOOS = runtime.GOOS
+
+// detectEngine and installEngine are replaced in tests.
+var (
+	detectEngine  = engine.Detect
+	installEngine = engine.Install
+)
 
 // Execute runs the setup wizard.
 func Execute(opts Options, io Streams) error {
@@ -43,6 +51,9 @@ func Execute(opts Options, io Streams) error {
 	platformURL := config.ResolvePlatformURL(opts.CatalogURL, cfg.Provider.URL)
 	cfg.Provider.URL = platformURL
 
+	inferscale.WithWait = func(msg string, fn func() error) error {
+		return SpinWhile(io.Out, msg, fn)
+	}
 	fmt.Fprintln(io.Out, "=== Inferoute Client Setup ===")
 	fmt.Fprintf(io.Out, "Config: %s\n", path)
 	fmt.Fprintf(io.Out, "API:    %s\n\n", platformURL)
@@ -50,16 +61,37 @@ func Execute(opts Options, io Streams) error {
 	if err := applyAPIKey(cfg, opts, io); err != nil {
 		return err
 	}
-	kind, err := applyEngine(cfg, opts, io)
-	if err != nil {
+	var plan clusterSettings
+	var planErr error
+	if err := SpinWhile(io.Out, "Reading cluster settings", func() error {
+		plan, planErr = clusterPlan(cfg)
+		return nil
+	}); err != nil {
 		return err
 	}
+	if planErr != nil && plan.Role != "single" {
+		return planErr
+	}
 
-	detected := engine.Detect(kind)
+	var kind engine.Kind
+	if plan.Role == "master" || plan.Role == "worker" {
+		kind, err = resolveEngine(hostGOOS, firstNonEmpty(plan.ServiceType, "vllm"))
+		if err != nil {
+			return err
+		}
+		printCluster(io.Out, plan)
+	} else {
+		kind, err = applyEngine(cfg, opts, io)
+		if err != nil {
+			return err
+		}
+	}
+
+	detected := detectEngine(kind)
 	autoStart := true
 	if !detected.Found {
-		doInstall := opts.Install
-		if !opts.Yes {
+		doInstall := opts.Install || (plan.Role == "worker")
+		if !doInstall && !opts.Yes {
 			q := fmt.Sprintf("%s is not installed. Install it now?", engine.Label(kind))
 			if detected.Unusable != "" {
 				q = fmt.Sprintf("%s at %s cannot run (%s). Reinstall it now?", engine.Label(kind), detected.Bin, detected.Unusable)
@@ -72,11 +104,11 @@ func Execute(opts Options, io Streams) error {
 		}
 		if doInstall {
 			fmt.Fprintf(io.Out, "Installing %s...\n", engine.Label(kind))
-			if err := engine.Install(context.Background(), kind, io.Out); err != nil {
+			if err := installEngine(context.Background(), kind, io.Out); err != nil {
 				fmt.Fprintf(io.Err, "install failed: %v\n", err)
 				autoStart = false
 			} else {
-				detected = engine.Detect(kind)
+				detected = detectEngine(kind)
 			}
 		} else {
 			autoStart = false
@@ -90,22 +122,41 @@ func Execute(opts Options, io Streams) error {
 		cfg.Provider.EngineBin = ""
 	}
 
-	entry, err := applyModel(cfg, opts, kind, platformURL, io)
-	if err != nil {
-		return err
+	var entry verify.CatalogEntry
+	if plan.Role == "master" || plan.Role == "worker" {
+		entry = clusterEntry(opts, kind, platformURL, plan, io)
+		cfg.Provider.Model = entry.Alias
+	} else {
+		entry, err = applyModel(cfg, opts, kind, platformURL, io)
+		if err != nil {
+			return err
+		}
 	}
 
 	cfg.Provider.Engine = string(kind)
 	cfg.Provider.ProviderType = engine.PlatformType(kind)
 	cfg.Provider.LLMURL = engine.DefaultURL(kind)
-	cfg.Provider.AutoStart = autoStart && detected.Found
+	cfg.Provider.AutoStart = autoStart && detected.Found && plan.Role != "master" && plan.Role != "worker"
 
 	hfRepo := engine.HFRepo(entry)
 	applyServeOpts(cfg, entry, hfRepo)
 	serveOpts := engine.ServeOptsFromCatalog(entry)
 	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo, serveOpts)
+	if err := prepareCluster(cfg, &spec); err != nil {
+		if saveErr := config.Save(path, cfg); saveErr != nil {
+			return saveErr
+		}
+		return err
+	}
+	// The node token has to be on disk before the engine starts. A crash
+	// while weights download must not spend the join code with nothing saved.
+	if err := config.Save(path, cfg); err != nil {
+		return err
+	}
 
-	if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
+	if plan.Role == "master" || plan.Role == "worker" {
+		printClusterStart(io.Out, plan.Role, spec)
+	} else if err := maybeStart(kind, spec, cfg, opts, detected.Found, io); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
 			return saveErr
 		}
@@ -147,32 +198,47 @@ func loadOrFresh(path string) (*config.Config, error) {
 }
 
 func applyAPIKey(cfg *config.Config, opts Options, io Streams) error {
-	key := strings.TrimSpace(opts.APIKey)
-	if key == "" {
-		key = cfg.Provider.APIKey
+	saved := credential(cfg.Provider.APIKey)
+	explicit := credential(opts.APIKey)
+	if cfg.EnrolledWorker() && explicit != "" && explicit != saved {
+		cfg.Provider.NodeToken = ""
+		cfg.Provider.ClusterMode = ""
+	} else if cfg.EnrolledWorker() {
+		fmt.Fprintln(io.Out, "This machine is already in the cluster.")
+		return nil
 	}
-	if opts.Yes {
-		if strings.TrimSpace(key) == "" || key == "your_api_key_here" {
+	key := explicit
+	if key == "" {
+		key = credential(os.Getenv("PROVIDER_API_KEY"))
+	}
+	if key == "" {
+		key = credential(cfg.Provider.APIKey)
+	}
+	// --api-key and --yes skip the prompt. An env key is only the default,
+	// so a worker can paste a join code over a provider key already in the shell.
+	if opts.Yes || strings.TrimSpace(opts.APIKey) != "" {
+		if key == "" || key == "your_api_key_here" {
 			return fmt.Errorf("--api-key is required with --yes")
 		}
 		cfg.Provider.APIKey = key
 		return nil
 	}
 	def := ""
-	if cfg.HasAPIKey() {
+	if key != "" && key != "your_api_key_here" {
 		def = "keep current"
 	}
-	got, err := promptLine(io.In, io.Out, "Provider API key (from cluster Settings)", def)
+	got, err := promptLine(io.In, io.Out, "Provider API key or join code", def)
 	if err != nil && got == "" {
 		return fmt.Errorf("API key is required")
 	}
 	if got == "" || got == "keep current" {
-		if !cfg.HasAPIKey() {
+		if key == "" || key == "your_api_key_here" {
 			return fmt.Errorf("API key is required")
 		}
+		cfg.Provider.APIKey = key
 		return nil
 	}
-	cfg.Provider.APIKey = got
+	cfg.Provider.APIKey = credential(got)
 	return nil
 }
 
@@ -220,6 +286,53 @@ func resolveEngine(goos, name string) (engine.Kind, error) {
 		return "", fmt.Errorf("unknown engine %q (vllm, vllm-metal, llama_cpp)", name)
 	}
 	return engine.RuntimeKind(goos, k), nil
+}
+
+func printCluster(out io.Writer, plan clusterSettings) {
+	name := firstNonEmpty(plan.Name, "this cluster")
+	if plan.Role == "worker" {
+		fmt.Fprintf(out, "\nJoining cluster %s\n", name)
+	} else {
+		fmt.Fprintf(out, "\nCluster %s\n", name)
+	}
+	fmt.Fprintf(out, "Model: %s\n", modelLabel(plan))
+}
+
+func modelLabel(plan clusterSettings) string {
+	name := strings.TrimSpace(plan.DisplayName)
+	alias := strings.TrimSpace(plan.Model)
+	if name == "" || strings.EqualFold(name, alias) {
+		return alias
+	}
+	return name + " (" + alias + ")"
+}
+
+func clusterEntry(opts Options, kind engine.Kind, platformURL string, plan clusterSettings, io Streams) verify.CatalogEntry {
+	fallback := verify.CatalogEntry{Alias: plan.Model, ServiceType: "vllm"}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	var entries []verify.CatalogEntry
+	var err error
+	if opts.OfflineCatalog != "" {
+		entries, err = compat.LoadOfflineCatalog(opts.OfflineCatalog, engine.CatalogType(kind))
+	} else {
+		err = SpinWhile(io.Out, "Loading the cluster model", func() error {
+			var fetchErr error
+			entries, fetchErr = compat.FetchCatalog(ctx, platformURL, engine.CatalogType(kind))
+			return fetchErr
+		})
+	}
+	if err != nil {
+		fmt.Fprintf(io.Err, "catalog unavailable (%v); serving %s without catalog flags\n", err, plan.Model)
+		return fallback
+	}
+	entries = verify.FilterByEngine(entries, string(kind))
+	for _, e := range entries {
+		if e.Alias == plan.Model {
+			return e
+		}
+	}
+	return fallback
 }
 
 func applyModel(cfg *config.Config, opts Options, kind engine.Kind, platformURL string, io Streams) (verify.CatalogEntry, error) {
@@ -330,9 +443,29 @@ func applyServeOpts(cfg *config.Config, entry verify.CatalogEntry, hfRepo string
 	}
 }
 
+func formatSpec(spec engine.Spec) string {
+	return spec.Display()
+}
+
+const (
+	docsClusterMaster = "https://docs.inferoute.com/provider/multi-node-clusters#start-the-master-first"
+	docsClusterWorker = "https://docs.inferoute.com/provider/joining-a-cluster#start-when-the-owner-says"
+)
+
+func printClusterStart(out io.Writer, role string, spec engine.Spec) {
+	fmt.Fprintf(out, "\n%s\n", formatSpec(spec))
+	if role == "worker" {
+		fmt.Fprintln(out, "Run this after the master is up. Then start inferoute-client.")
+		fmt.Fprintln(out, docsClusterWorker)
+		return
+	}
+	fmt.Fprintln(out, "Start vLLM first using the command above. Workers join once the master is running and waiting. Then start inferoute-client.")
+	fmt.Fprintln(out, docsClusterMaster)
+}
+
 func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Options, haveBin bool, io Streams) error {
 	if opts.NoStart || !haveBin {
-		fmt.Fprintf(io.Out, "\nTo serve this model later:\n  %s\n", spec.CommandLine())
+		fmt.Fprintf(io.Out, "\nTo serve this model later:\n  %s\n", formatSpec(spec))
 		return nil
 	}
 
@@ -340,7 +473,7 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 	defer cancel()
 	if engine.Healthy(ctx, kind, cfg.Provider.LLMURL) {
 		fmt.Fprintf(io.Out, "\n%s is already running at %s.\n", kind, cfg.Provider.LLMURL)
-		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", spec.CommandLine())
+		fmt.Fprintf(io.Out, "To serve the chosen model, run:\n  %s\n", formatSpec(spec))
 		return nil
 	}
 	model := strings.TrimSpace(cfg.Provider.Model)
@@ -363,18 +496,16 @@ func maybeStart(kind engine.Kind, spec engine.Spec, cfg *config.Config, opts Opt
 		return nil
 	}
 
-	startNow := !opts.Yes
+	fmt.Fprintf(io.Out, "\n%s\n", formatSpec(spec))
+	startNow := opts.Yes
 	if !opts.Yes {
 		ok, err := promptYes(io.In, io.Out, fmt.Sprintf("Start %s with this model now?", kind), true)
 		if err != nil {
 			return err
 		}
 		startNow = ok
-	} else {
-		startNow = true
 	}
 	if !startNow {
-		fmt.Fprintf(io.Out, "\nStart it later with:\n  %s\n", spec.CommandLine())
 		return nil
 	}
 
@@ -403,4 +534,3 @@ func firstNonEmpty(vals ...string) string {
 	}
 	return ""
 }
-

@@ -78,8 +78,6 @@ func New(cfg *Config) (*Logger, error) {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	// Create core
-	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
 	fileEncoder := zapcore.NewJSONEncoder(encoderConfig)
 
 	// Setup log rotation using lumberjack
@@ -99,13 +97,6 @@ func New(cfg *Config) (*Logger, error) {
 		Compress:   true,
 	}
 
-	// Create cores
-	consoleCore := zapcore.NewCore(
-		consoleEncoder,
-		zapcore.AddSync(os.Stdout),
-		level,
-	)
-
 	fileCore := zapcore.NewCore(
 		fileEncoder,
 		zapcore.AddSync(mainLogFile),
@@ -118,8 +109,8 @@ func New(cfg *Config) (*Logger, error) {
 		zapcore.ErrorLevel,
 	)
 
-	// Create logger
-	core := zapcore.NewTee(consoleCore, fileCore, errorCore)
+	// Files only. The terminal UI is status and inference requests; failures stay in the logs.
+	core := zapcore.NewTee(fileCore, errorCore)
 	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
 
 	return &Logger{

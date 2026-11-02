@@ -15,6 +15,7 @@ import (
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
@@ -137,7 +138,7 @@ func main() {
 	config.ApplyEnvOverrides(cfg)
 	update.RemoveStaleBackup()
 	checkClientVersion(cfg.Provider.URL)
-	if !cfg.HasAPIKey() {
+	if !cfg.HasAPIKey() && !cfg.EnrolledWorker() {
 		fatal("%s\nOr run: inferoute-client setup", usermsg.InvalidAPIKey)
 	}
 
@@ -194,24 +195,32 @@ func main() {
 		logger.Warn("Continuing without GPU monitoring")
 	}
 
-	llmClient := llm.NewClient(cfg.Provider.ProviderType, cfg.Provider.LLMURL, cfg.LLMTimeout())
+	llmURL := cfg.Provider.LLMURL
+	if cfg.EnrolledWorker() {
+		if u := engine.MasterURL(cfg.Provider.EngineArgs); u != "" {
+			llmURL = u
+		}
+	}
+	llmClient := llm.NewClient(cfg.Provider.ProviderType, llmURL, cfg.LLMTimeout())
 	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	catalog := verify.NewCatalog(cfg.Provider.URL, cfg.Provider.ProviderType)
-	if err := catalog.Refresh(ctx); err != nil {
-		logger.Warn("Failed to fetch approved model catalog; verification may be limited", zap.Error(err))
-	} else {
-		logger.Info("Loaded approved model catalog",
-			zap.Strings("aliases", catalog.Aliases()))
-	}
-	serverClient := verify.NewServerClient(cfg.Provider.URL, cfg.Provider.APIKey)
-	modelVerifier := verify.NewVerifier(catalog, serverClient, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
-
 	var registeredModelIDs []string
-	if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier); err != nil {
-		logger.Error("Failed to register local models", zap.Error(err))
-	} else {
-		registeredModelIDs = ids
+	var modelVerifier *verify.Verifier
+	if !cfg.EnrolledWorker() {
+		if err := catalog.Refresh(ctx); err != nil {
+			logger.Warn("Failed to fetch approved model catalog; verification may be limited", zap.Error(err))
+		} else {
+			logger.Info("Loaded approved model catalog",
+				zap.Strings("aliases", catalog.Aliases()))
+		}
+		serverClient := verify.NewServerClient(cfg.Provider.URL, cfg.Provider.APIKey)
+		modelVerifier = verify.NewVerifier(catalog, serverClient, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
+		if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier); err != nil {
+			logger.Error("Failed to register local models", zap.Error(err))
+		} else {
+			registeredModelIDs = ids
+		}
 	}
 
 	healthReporter := health.NewReporter(cfg, gpuMonitor, llmClient)
@@ -234,8 +243,12 @@ func main() {
 		defer ticker.Stop()
 		upgradeLogged := false
 
-		report := func(msg string) {
+		report := func(msg string) bool {
 			err := healthReporter.SendHealthReport(ctx)
+			if setup.NodeRemoved(err) {
+				logger.Error("The owner removed this machine from the cluster. Re-run setup and paste a new join code.", zap.Error(err))
+				return false
+			}
 			next := nodeapi.HealthInterval(err, health.ReportInterval)
 			if next != interval {
 				interval = next
@@ -243,31 +256,38 @@ func main() {
 			}
 			if err == nil {
 				upgradeLogged = false
-				return
+				return true
 			}
 			if nodeapi.IsUpgradeRequired(err) {
 				if !upgradeLogged {
 					logger.Error(msg, zap.Error(err))
 					upgradeLogged = true
 				}
-				return
+				return true
 			}
 			logger.Error(msg, zap.Error(err))
+			return true
 		}
 
 		if ctx.Err() != nil {
 			return
 		}
-		report("Failed to send initial health report")
+		if !report("Failed to send initial health report") {
+			return
+		}
 
 		for {
 			select {
 			case <-ticker.C:
-				report("Failed to send health report")
+				if !report("Failed to send health report") {
+					return
+				}
 			case <-healthReporter.BusyChanges():
 				// Busy-state transition: push immediately so the central
 				// provider_busy flag is seconds, not minutes, stale.
-				report("Failed to send busy-transition health report")
+				if !report("Failed to send busy-transition health report") {
+					return
+				}
 				// Cool down so rapid request bursts don't flood the platform.
 				// A transition during the cooldown leaves a pending signal
 				// (buffered channel), which sends a fresh report right after.
@@ -482,7 +502,7 @@ func maybeFirstRunSetup(configPath string) error {
 		if err != nil {
 			return err
 		}
-		needs = !cfg.HasAPIKey()
+		needs = !cfg.HasAPIKey() && !cfg.EnrolledWorker()
 	}
 	if !needs {
 		return nil

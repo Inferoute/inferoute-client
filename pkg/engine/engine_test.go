@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +93,9 @@ func TestServeSpecWithOpts(t *testing.T) {
 		if !strings.Contains(join, s) {
 			t.Fatalf("missing %q in args %v", s, yarn.Args)
 		}
+	}
+	if !strings.Contains(strings.Join(yarn.Env, " "), "VLLM_ALLOW_LONG_MAX_MODEL_LEN=1") {
+		t.Fatalf("yarn context missing long-len override: %v", yarn.Env)
 	}
 
 	gemma := ServeSpec(KindVLLM, "vllm", "google/gemma-3-4b-it", "google/gemma-3-4b-it", ServeOpts{
@@ -226,6 +231,103 @@ func TestHealthyFreeTokenHealth(t *testing.T) {
 	}
 }
 
+func TestMasterJoinAddr(t *testing.T) {
+	t.Parallel()
+	master := []string{
+		"serve", "Qwen/Qwen2.5-Coder-32B-Instruct",
+		"--nnodes", "2", "--node-rank", "0",
+		"--master-addr", "198.18.0.1", "--master-port", "29501",
+	}
+	if got := MasterJoinAddr(master); got != "198.18.0.1:29501" {
+		t.Fatalf("MasterJoinAddr = %q", got)
+	}
+	headless := append(master, "--headless")
+	if got := MasterJoinAddr(headless); got != "" {
+		t.Fatalf("headless MasterJoinAddr = %q", got)
+	}
+	if !Headless(headless) || Headless(master) {
+		t.Fatal("Headless")
+	}
+	worker := append([]string{}, master...)
+	for i := 0; i < len(worker)-1; i++ {
+		if worker[i] == "--node-rank" {
+			worker[i+1] = "1"
+		}
+	}
+	if got := MasterJoinAddr(worker); got != "" {
+		t.Fatalf("worker MasterJoinAddr = %q", got)
+	}
+}
+
+func TestMasterURL(t *testing.T) {
+	t.Parallel()
+	worker := []string{
+		"serve", "Qwen/Qwen2.5-7B-Instruct",
+		"--host", "198.18.0.2", "--port", "8000",
+		"--master-addr", "198.18.0.1", "--master-port", "29501",
+		"--headless",
+	}
+	if got := MasterURL(worker); got != "http://198.18.0.1:8000" {
+		t.Fatalf("MasterURL = %q", got)
+	}
+	master := []string{
+		"serve", "Qwen/Qwen2.5-7B-Instruct",
+		"--port", "8000", "--master-addr", "198.18.0.1",
+	}
+	if got := MasterURL(master); got != "" {
+		t.Fatalf("master MasterURL = %q", got)
+	}
+}
+
+func TestNodeSlots(t *testing.T) {
+	t.Parallel()
+	online, need := NodeSlots(true, 1, 2)
+	if online != 2 || need != 2 {
+		t.Fatalf("self+peer = %d/%d", online, need)
+	}
+	online, need = NodeSlots(true, 0, 2)
+	if online != 1 || need != 2 {
+		t.Fatalf("self only = %d/%d", online, need)
+	}
+	online, need = NodeSlots(true, 5, 2)
+	if online != 2 || need != 2 {
+		t.Fatalf("capped = %d/%d", online, need)
+	}
+	if _, need = NodeSlots(true, 0, 1); need != 0 {
+		t.Fatalf("single node need = %d", need)
+	}
+}
+
+func TestWorkerSlots(t *testing.T) {
+	t.Parallel()
+	joined, need := WorkerSlots(0, 2)
+	if joined != 0 || need != 1 {
+		t.Fatalf("WorkerSlots(0, 2) = %d/%d", joined, need)
+	}
+	joined, need = WorkerSlots(3, 2)
+	if joined != 1 || need != 1 {
+		t.Fatalf("WorkerSlots(3, 2) = %d/%d", joined, need)
+	}
+	if _, need = WorkerSlots(1, 1); need != 0 {
+		t.Fatalf("single node need = %d", need)
+	}
+}
+
+func TestWaitListen(t *testing.T) {
+	t.Parallel()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	addr := ln.Addr().(*net.TCPAddr)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := WaitListen(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(addr.Port)), 20*time.Millisecond, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWaitHealthyProcessExit(t *testing.T) {
 	t.Parallel()
 	exited := make(chan error, 1)
@@ -259,6 +361,70 @@ func TestEnsureReadySkipsWithoutAutoStart(t *testing.T) {
 	cfg.Provider.AutoStart = false
 	if err := EnsureReady(context.Background(), cfg, t.TempDir()); err != nil {
 		t.Fatalf("EnsureReady: %v", err)
+	}
+}
+
+func TestMasterState(t *testing.T) {
+	if got := MasterState(context.Background(), KindVLLM, "http://127.0.0.1:1", nil, 0); got != "not started" {
+		t.Fatalf("not started = %q", got)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+	args := []string{
+		"serve", "m", "--nnodes", "2", "--node-rank", "0",
+		"--master-addr", "127.0.0.1", "--master-port", strconv.Itoa(port),
+	}
+	if got := MasterState(context.Background(), KindVLLM, "http://127.0.0.1:1", args, 0); got != "waiting for workers (0/1)" {
+		t.Fatalf("waiting = %q", got)
+	}
+	if got := MasterState(context.Background(), KindVLLM, "http://127.0.0.1:1", args, 1); got != "loading" {
+		t.Fatalf("loading = %q", got)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"m"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	if got := MasterState(context.Background(), KindVLLM, srv.URL, args, 0); got != "ready" {
+		t.Fatalf("ready = %q", got)
+	}
+}
+
+func TestWorkerAlive(t *testing.T) {
+	old := processAlive
+	processAlive = func([]string) bool { return true }
+	t.Cleanup(func() { processAlive = old })
+	if !WorkerAlive(KindVLLM, []string{"serve", "--headless"}) {
+		t.Fatal("vllm headless")
+	}
+	if WorkerAlive(KindVLLM, []string{"serve"}) {
+		t.Fatal("not headless")
+	}
+	if WorkerAlive(KindLlamaCpp, []string{"--headless"}) {
+		t.Fatal("llama.cpp has no worker command yet")
+	}
+}
+
+func TestSpecFromConfigUsesSavedCommand(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "vllm"
+	cfg.Provider.Model = "Qwen/Qwen3-0.6B"
+	cfg.Provider.EngineArgs = []string{"serve", "Qwen/Qwen3-0.6B", "--host", "198.18.0.2", "--headless"}
+	cfg.Provider.EngineEnv = []string{"VLLM_HOST_IP=198.18.0.2"}
+	cfg.Provider.LLMURL = "http://198.18.0.2:8000"
+	spec, err := SpecFromConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := spec.Display()
+	if !strings.Contains(line, "VLLM_HOST_IP=198.18.0.2") || !strings.Contains(line, "--headless") {
+		t.Fatalf("display = %q", line)
+	}
+	if spec.URL != "http://198.18.0.2:8000" {
+		t.Fatalf("url = %q", spec.URL)
 	}
 }
 

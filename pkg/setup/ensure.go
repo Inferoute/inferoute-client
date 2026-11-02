@@ -39,6 +39,10 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 		io.In = os.Stdin
 	}
 
+	if err := refreshCluster(ctx, cfg); err != nil {
+		return err
+	}
+
 	kind, ok := engine.ParseKind(cfg.Provider.Engine)
 	if !ok {
 		return nil
@@ -49,12 +53,29 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 		url = engine.DefaultURL(kind)
 	}
 
+	switch cfg.Provider.ClusterMode {
+	case "worker":
+		return observeWorker(io, kind, cfg)
+	case "master":
+		return observeMaster(ctx, io, kind, label, url, cfg)
+	}
+
 	if engine.Healthy(ctx, kind, url) {
 		fmt.Fprintf(io.Out, "%s is running at %s.\n", label, url)
 		return nil
 	}
 
+	join := engine.MasterJoinAddr(cfg.Provider.EngineArgs)
+	if join != "" && !engine.PortOpen(ctx, url) && engine.PortOpen(ctx, "http://"+join) {
+		joined, need := engine.WorkerSlots(onlinePeers(), engine.NNodes(cfg.Provider.EngineArgs))
+		fmt.Fprintf(io.Out, "Waiting for workers to join (%d/%d).\n", joined, need)
+		return nil
+	}
+
 	waitMsg := fmt.Sprintf("Waiting for %s to start serving at %s", label, url)
+	if join != "" && !engine.PortOpen(ctx, url) {
+		waitMsg = fmt.Sprintf("Waiting for the master to accept other nodes at tcp://%s", join)
+	}
 	if engine.PortOpen(ctx, url) {
 		fmt.Fprintf(io.Out, "%s is already starting at %s.\n", label, url)
 		err := SpinWhile(io.Out, waitMsg, func() error {
@@ -99,6 +120,44 @@ func ensureOnStart(ctx context.Context, cfg *config.Config, io Streams, interact
 	if err != nil {
 		return fmt.Errorf("%w (see %s)", err, engine.LogPath(cfg.Logging.LogDir))
 	}
+	if join != "" && !engine.PortOpen(ctx, url) {
+		joined, need := engine.WorkerSlots(onlinePeers(), engine.NNodes(cfg.Provider.EngineArgs))
+		fmt.Fprintf(io.Out, "Waiting for workers to join (%d/%d).\n", joined, need)
+		return nil
+	}
 	fmt.Fprintf(io.Out, "%s is ready at %s.\n", label, url)
 	return nil
+}
+
+func observeWorker(io Streams, kind engine.Kind, cfg *config.Config) error {
+	if engine.WorkerAlive(kind, cfg.Provider.EngineArgs) {
+		fmt.Fprintln(io.Out, "Worker is running. It joins the master and does not serve HTTP.")
+		return nil
+	}
+	printSavedCommand(io.Out, cfg, docsClusterWorker)
+	fmt.Fprintln(io.Out, "Start it in another terminal. This client keeps running.")
+	return nil
+}
+
+func observeMaster(ctx context.Context, io Streams, kind engine.Kind, label, url string, cfg *config.Config) error {
+	switch state := engine.MasterState(ctx, kind, url, cfg.Provider.EngineArgs, onlinePeers()); state {
+	case "ready":
+		fmt.Fprintf(io.Out, "%s is ready at %s.\n", label, url)
+	case "not started":
+		printSavedCommand(io.Out, cfg, docsClusterMaster)
+		fmt.Fprintln(io.Out, "Start it in another terminal. This client keeps running.")
+	default:
+		fmt.Fprintln(io.Out, state)
+	}
+	return nil
+}
+
+func printSavedCommand(out io.Writer, cfg *config.Config, docs string) {
+	spec, err := engine.SpecFromConfig(cfg)
+	if err != nil {
+		fmt.Fprintln(out, docs)
+		return
+	}
+	fmt.Fprintln(out, spec.Display())
+	fmt.Fprintln(out, docs)
 }

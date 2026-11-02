@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"errors"
@@ -15,8 +14,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/connect"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
@@ -51,7 +52,6 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		consoleUI:        true,
 		maxInflight:      int32(cfg.Server.MaxConcurrentInference),
 		sessionQueueWait: cfg.SessionQueueWait(),
-		errorLog:         make([]string, 0, 100),
 	}
 
 	// Health reports include the inflight-slot state in is_busy so the
@@ -70,21 +70,24 @@ func (s *Server) SetConsoleUI(enabled bool) {
 }
 
 // Start starts the local dashboard and the outbound provider connection.
+// An enrolled worker has no provider API key that the gateway will accept.
 func (s *Server) Start() error {
 	connectCtx, connectCancel := context.WithCancel(context.Background())
 	s.connectCancel = connectCancel
-	s.connector = connect.New(s.config.Provider.URL, s.config.Provider.APIKey, s.inferenceMux(), s.onConnect)
-	go func() {
-		if err := s.connector.Run(connectCtx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("provider connection stopped", zap.Error(err))
+	if !s.config.EnrolledWorker() {
+		s.connector = connect.New(s.config.Provider.URL, s.config.Provider.APIKey, s.inferenceMux(), s.onConnect)
+		go func() {
+			if err := s.connector.Run(connectCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("provider connection stopped", zap.Error(err))
+			}
+		}()
+		readyCtx, readyCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		err := s.connector.Ready(readyCtx)
+		readyCancel()
+		if errors.Is(err, connect.ErrInvalidAPIKey) {
+			connectCancel()
+			return fmt.Errorf("failed to connect: %w", err)
 		}
-	}()
-	readyCtx, readyCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	err := s.connector.Ready(readyCtx)
-	readyCancel()
-	if errors.Is(err, connect.ErrInvalidAPIKey) {
-		connectCancel()
-		return fmt.Errorf("failed to connect: %w", err)
 	}
 
 	// Create router
@@ -165,14 +168,6 @@ func (s *Server) consoleUpdater() {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
-	// Create a debug log file
-	debugFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		logger.Error("Failed to open debug log file", zap.Error(err))
-	} else {
-		defer debugFile.Close()
-	}
-
 	for range ticker.C {
 		s.redrawConsole()
 	}
@@ -201,12 +196,14 @@ func (s *Server) redrawConsole() {
 	buf.WriteString(fmt.Sprintf("\033[1;35mProvider URL                  \033[0m%s\n", snap.ProviderURL))
 	buf.WriteString(fmt.Sprintf("\033[1;35mLLM URL                       \033[0m%s\n", snap.LLMURL))
 	state := "connecting"
-	if snap.Connected {
+	if s.config.EnrolledWorker() {
+		state = "worker"
+	} else if snap.Connected {
 		state = "connected"
 	}
 	buf.WriteString(fmt.Sprintf("\033[1;35mPlatform connection           \033[0m%s\n", state))
 
-	s.writeModelStatus(&buf, snap.Models)
+	s.writeClusterStatus(&buf, snap)
 
 	gpuInfo := snap.GPU
 	if gpuInfo == nil {
@@ -229,13 +226,6 @@ func (s *Server) redrawConsole() {
 		}
 	}
 
-	if len(snap.Errors) > 0 {
-		buf.WriteString("\n\033[1;31mErrors:\033[0m\n")
-		for _, err := range snap.Errors {
-			buf.WriteString(err + "\n")
-		}
-	}
-
 	fmt.Print(buf.String())
 }
 
@@ -253,24 +243,63 @@ func formatRequestLine(req RequestLog) string {
 		req.Time, req.Method, req.Path, statusColor, req.Status, req.Duration)
 }
 
-func (s *Server) writeModelStatus(buf *bytes.Buffer, models []StatusModel) {
+func (s *Server) engineStatus() string {
+	if s.config == nil {
+		return ""
+	}
+	kind, _ := engine.ParseKind(s.config.Provider.Engine)
+	switch s.config.Provider.ClusterMode {
+	case "worker":
+		if engine.WorkerAlive(kind, s.config.Provider.EngineArgs) {
+			return "running"
+		}
+		return "not started"
+	case "master":
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, peers := inferscale.Tailnet()
+		return engine.MasterState(ctx, kind, s.config.Provider.LLMURL, s.config.Provider.EngineArgs, peers)
+	default:
+		return ""
+	}
+}
+
+func (s *Server) writeClusterStatus(buf *bytes.Buffer, snap StatusSnapshot) {
 	buf.WriteString("\033[1;36m╔════════════════════════════════════════════════════════════════╗\n")
-	buf.WriteString("║                           MODEL STATUS                           ║\n")
+	buf.WriteString("║                          CLUSTER STATUS                          ║\n")
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
 
+	cluster := snap.Cluster
+	if cluster == "" {
+		cluster = "single"
+	}
+	buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Cluster", cluster))
+	if line := s.engineStatus(); line != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Engine", line))
+	}
+	if snap.Nodes != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Nodes", snap.Nodes))
+	}
+	if snap.TailnetIP != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", "Tailnet IP", snap.TailnetIP))
+	}
+
+	models := snap.Models
 	if len(models) == 0 {
-		buf.WriteString("\033[1;35mModel                         \033[0m\033[1;33m(awaiting health sync)\033[0m\n")
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m\033[1;33m(awaiting health sync)\033[0m\n", "Model"))
 		return
 	}
 
 	for i, m := range models {
-		prefix := "Model                         "
+		prefix := "Model"
 		if i > 0 {
-			prefix = "                                "
+			prefix = ""
 		}
-		_, color := usermsg.ApprovalConsole(m.VerificationStatus)
-		buf.WriteString(fmt.Sprintf("\033[1;35m%s\033[0m%s\n", prefix, m.ID))
-		buf.WriteString(fmt.Sprintf("\033[1;35mMarketplace approval          \033[0m%s%s\033[0m\n", color, m.MarketplaceApproval))
+		buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s\n", prefix, m.ID))
+		if m.VerificationStatus != "" {
+			_, color := usermsg.ApprovalConsole(m.VerificationStatus)
+			buf.WriteString(fmt.Sprintf("\033[1;35m%-30s\033[0m%s%s\033[0m\n", "Marketplace approval", color, m.MarketplaceApproval))
+		}
 	}
 }
 
@@ -325,20 +354,8 @@ func (s *Server) logRequest(method, path string, statusCode int, startTime time.
 		zap.Duration("duration", duration))
 }
 
-// logError logs an error to the error log
+// logError writes a request failure to error.log. The terminal and dashboard do not show it.
 func (s *Server) logError(errMsg string) {
-	timestamp := time.Now().Format("15:04:05.000")
-	logEntry := fmt.Sprintf("%s ERROR: %s", timestamp, errMsg)
-
-	// Add to error log
-	s.errorLogMutex.Lock()
-	s.errorLog = append(s.errorLog, logEntry)
-	if len(s.errorLog) > 10 {
-		s.errorLog = s.errorLog[1:]
-	}
-	s.errorLogMutex.Unlock()
-
-	// Log to zap logger
 	logger.Error(errMsg)
 }
 
