@@ -196,12 +196,32 @@ func download(ctx context.Context, url, dest string) error {
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: %s", url, res.Status)
 	}
-	f, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	tmp := dest + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if _, err := io.Copy(f, res.Body); err != nil {
+	n, copyErr := io.Copy(f, res.Body)
+	if copyErr == nil && n > 0 {
+		copyErr = f.Sync()
+	}
+	closeErr := f.Close()
+	if copyErr != nil || n == 0 {
+		os.Remove(tmp)
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		return fmt.Errorf("download %s: empty", url)
+	}
+	if closeErr != nil {
+		os.Remove(tmp)
+		return closeErr
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return nil
