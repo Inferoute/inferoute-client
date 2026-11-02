@@ -28,6 +28,9 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	if runtime.GOOS != "linux" {
 		return "", "", fmt.Errorf("inferscale needs a Linux TUN; this machine is %s", runtime.GOOS)
 	}
+	// Exchange burns the join code before we download. Keep the one-shot
+	// Headscale key across a failed download / sudo so resumeWorker can join.
+	authKey = resolveAuthKey(authKey)
 	var cli string
 	if err := WithWait("Downloading inferscale", func() error {
 		var derr error
@@ -48,6 +51,7 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	}
 	// A saved address is not a connection. Offline still has the old IPv4.
 	if st, err := readState(ctx, cli); err == nil && st.Online && st.IP != "" {
+		clearAuthKey()
 		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", st.IP)
 		return st.IP, st.ID, nil
 	}
@@ -66,6 +70,8 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	}); err != nil {
 		return "", "", err
 	}
+	// up consumed the key even if we are not Online yet.
+	clearAuthKey()
 	ip, nodeID, err = waitOnline(ctx, cli)
 	if err == nil {
 		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", ip)
@@ -156,6 +162,51 @@ func binDir() (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+func authKeyPath() (string, error) {
+	dir, err := binDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "auth-key"), nil
+}
+
+func saveAuthKey(key string) error {
+	path, err := authKeyPath()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(key), 0o600)
+}
+
+func loadAuthKey() string {
+	path, err := authKeyPath()
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func clearAuthKey() {
+	path, err := authKeyPath()
+	if err != nil {
+		return
+	}
+	_ = os.Remove(path)
+}
+
+func resolveAuthKey(authKey string) string {
+	authKey = strings.TrimSpace(authKey)
+	if authKey != "" {
+		_ = saveAuthKey(authKey)
+		return authKey
+	}
+	return loadAuthKey()
 }
 
 func ensureBins(ctx context.Context) (string, error) {
