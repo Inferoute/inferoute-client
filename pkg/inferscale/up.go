@@ -28,6 +28,11 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	if runtime.GOOS != "linux" {
 		return "", "", fmt.Errorf("inferscale needs a Linux TUN; this machine is %s", runtime.GOOS)
 	}
+	// Exchange already spent the join code. The key has to be on disk before
+	// download or sudo can fail and the next run passes "".
+	if authKey, err = persistAuthKey(authKey); err != nil {
+		return "", "", err
+	}
 	var cli string
 	if err := WithWait("Downloading inferscale", func() error {
 		var derr error
@@ -48,6 +53,7 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	}
 	// A saved address is not a connection. Offline still has the old IPv4.
 	if st, err := readState(ctx, cli); err == nil && st.Online && st.IP != "" {
+		clearAuthKey()
 		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", st.IP)
 		return st.IP, st.ID, nil
 	}
@@ -62,6 +68,8 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("inferscale up: %w", err)
 		}
+		// shortcut: a failed up that already burned the key leaves the file; clear on a used-key error once we can tell them apart.
+		clearAuthKey()
 		return nil
 	}); err != nil {
 		return "", "", err
@@ -145,6 +153,53 @@ func openDaemonLog() io.WriteCloser {
 type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
+
+func authKeyPath() (string, error) {
+	dir, err := binDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "auth-key"), nil
+}
+
+// persistAuthKey stores a new one-shot key. An empty key is the saved one.
+func persistAuthKey(authKey string) (string, error) {
+	authKey = strings.TrimSpace(authKey)
+	if authKey == "" {
+		return loadAuthKey(), nil
+	}
+	path, err := authKeyPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(authKey), 0o600); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", err
+	}
+	return authKey, nil
+}
+
+func loadAuthKey() string {
+	path, err := authKeyPath()
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func clearAuthKey() {
+	path, err := authKeyPath()
+	if err != nil {
+		return
+	}
+	os.Remove(path)
+}
 
 func binDir() (string, error) {
 	home, err := os.UserHomeDir()
