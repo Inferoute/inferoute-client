@@ -16,6 +16,7 @@ import (
 type Logger struct {
 	*zap.Logger
 	level zapcore.Level
+	close func() error
 }
 
 // Config represents logger configuration
@@ -116,7 +117,22 @@ func New(cfg *Config) (*Logger, error) {
 	return &Logger{
 		Logger: logger,
 		level:  level,
+		close: func() error {
+			err := mainLogFile.Close()
+			if e := errorLogFile.Close(); err == nil {
+				err = e
+			}
+			return err
+		},
 	}, nil
+}
+
+// Close releases the log files. Windows cannot delete a file that is still open.
+func (l *Logger) Close() error {
+	if l == nil || l.close == nil {
+		return nil
+	}
+	return l.close()
 }
 
 // GetDefaultLogger returns the default logger, creating it on first use.

@@ -64,11 +64,19 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 		return "", "", err
 	}
 	cmd := commandAsRoot(ctx, cli, upArgs(loginServer, authKey)...)
+	// up's exit status does not say whether Headscale spent the key.
+	// The rejection text lands in the daemon log and, when the CLI prints it, on stderr.
+	logAt := fileSize(daemonLogPath())
+	var stderr bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 	if err := WithWait("Joining the tailnet", func() error {
 		if err := cmd.Run(); err != nil {
+			if authKeyRejected(stderr.String(), readFrom(daemonLogPath(), logAt)) {
+				clearAuthKey()
+				return fmt.Errorf("inferscale up: one-shot key was rejected: %w", err)
+			}
 			return fmt.Errorf("inferscale up: %w", err)
 		}
-		// shortcut: a failed up that already burned the key leaves the file; clear on a used-key error once we can tell them apart.
 		clearAuthKey()
 		return nil
 	}); err != nil {
@@ -199,6 +207,58 @@ func clearAuthKey() {
 		return
 	}
 	os.Remove(path)
+}
+
+// authKeyRejected is true when Headscale refused this key. Other up failures
+// may be before the key was spent, so the file has to stay.
+func authKeyRejected(stderr, daemonLog string) bool {
+	text := stderr + "\n" + daemonLog
+	for _, s := range []string{
+		"authkey already used",
+		"authkey expired",
+		"authkey revoked",
+		"invalid authkey",
+		"invalid pre auth key",
+	} {
+		if strings.Contains(text, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func fileSize(path string) int64 {
+	if path == "" {
+		return 0
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return st.Size()
+}
+
+func readFrom(path string, off int64) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.Size() <= off {
+		return ""
+	}
+	start := off
+	const max = 32 << 10
+	if st.Size()-start > max {
+		start = st.Size() - max
+	}
+	b := make([]byte, st.Size()-start)
+	n, err := f.ReadAt(b, start)
+	if n == 0 || (err != nil && err != io.EOF) {
+		return ""
+	}
+	return string(b[:n])
 }
 
 func binDir() (string, error) {

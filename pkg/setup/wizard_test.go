@@ -98,7 +98,11 @@ func TestExecuteMasterUsesClusterModel(t *testing.T) {
 	if !strings.Contains(out.String(), "Cluster inferoute-cluster1") || !strings.Contains(out.String(), "Qwen3 0.6B (Qwen/Qwen3-0.6B)") {
 		t.Fatalf("stdout = %s", out.String())
 	}
-	if !strings.Contains(out.String(), "vllm serve Qwen/Qwen3-0.6B") && !strings.Contains(out.String(), "serve Qwen/Qwen3-0.6B") {
+	serve := "vllm serve Qwen/Qwen3-0.6B"
+	if engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) == engine.KindLlamaCpp {
+		serve = "llama-server" // Windows remaps vllm onto llama.cpp.
+	}
+	if !strings.Contains(out.String(), serve) && !strings.Contains(out.String(), "serve Qwen/Qwen3-0.6B") {
 		t.Fatalf("missing serve command:\n%s", out.String())
 	}
 	cfg, err := config.Load(cfgPath)

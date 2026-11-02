@@ -2,8 +2,11 @@ package update
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/version"
@@ -68,5 +71,28 @@ func TestAssetURL(t *testing.T) {
 	sums := checksumURL(Release{Latest: "1.4.0", DownloadURL: "https://github.com/inferoute/inferoute-client/releases/latest"})
 	if sums != "https://github.com/inferoute/inferoute-client/releases/download/v1.4.0/checksums.txt" {
 		t.Fatalf("sums %s", sums)
+	}
+}
+
+func TestMoveFileCopiesWhenRenameFails(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := renameFile
+	renameFile = func(string, string) error { return errors.New("invalid cross-device link") }
+	t.Cleanup(func() { renameFile = orig })
+
+	if err := moveFile(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil || string(body) != "bin" {
+		t.Fatalf("dst = %q %v", body, err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("src still present: %v", err)
 	}
 }

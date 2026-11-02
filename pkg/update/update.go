@@ -286,20 +286,70 @@ func replaceExecutable(newPath string) error {
 	if err := os.Chmod(newPath, 0o755); err != nil {
 		return err
 	}
+	// The download lives under MkdirTemp. That is often a different filesystem
+	// from the installed binary, and rename returns EXDEV.
+	staged := exe + ".new"
+	_ = os.Remove(staged)
+	if err := moveFile(newPath, staged); err != nil {
+		return fmt.Errorf("install new binary: %w", err)
+	}
 	if runtime.GOOS == "windows" {
 		old := exe + ".old"
 		_ = os.Remove(old)
 		if err := os.Rename(exe, old); err != nil {
+			os.Remove(staged)
 			return fmt.Errorf("rename current binary: %w", err)
 		}
-		if err := os.Rename(newPath, exe); err != nil {
+		if err := os.Rename(staged, exe); err != nil {
 			_ = os.Rename(old, exe)
+			os.Remove(staged)
 			return fmt.Errorf("install new binary: %w", err)
 		}
 		return nil
 	}
-	if err := os.Rename(newPath, exe); err != nil {
-		return fmt.Errorf("install new binary: %w (is inferoute-client on a different filesystem, or not writable?)", err)
+	if err := os.Rename(staged, exe); err != nil {
+		os.Remove(staged)
+		return fmt.Errorf("install new binary: %w", err)
+	}
+	return nil
+}
+
+// renameFile is os.Rename. Tests swap it to force the copy fallback.
+var renameFile = os.Rename
+
+// moveFile renames src onto dst, or copies when they are on different filesystems.
+func moveFile(src, dst string) error {
+	if err := renameFile(src, dst); err == nil {
+		return nil
+	} else if copyErr := copyRegularFile(src, dst); copyErr != nil {
+		return err
+	}
+	if err := os.Chmod(dst, 0o755); err != nil {
+		os.Remove(dst)
+		return err
+	}
+	_ = os.Remove(src)
+	return nil
+}
+
+func copyRegularFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil {
+		os.Remove(dst)
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
 	}
 	return nil
 }

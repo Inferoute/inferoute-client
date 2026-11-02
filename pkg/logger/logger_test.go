@@ -57,6 +57,7 @@ func TestLogsStayInFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = l.Close() })
 	l.Info("hello")
 	l.Error("boom")
 	_ = l.Sync()

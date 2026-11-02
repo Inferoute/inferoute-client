@@ -2,11 +2,14 @@ package inferscale
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
 func TestAuthKeySurvivesEmptyRetry(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir) // Windows UserHomeDir ignores HOME.
 
 	got, err := persistAuthKey("tskey-one")
 	if err != nil || got != "tskey-one" {
@@ -20,7 +23,8 @@ func TestAuthKeySurvivesEmptyRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows only honors the read-only bit, so a writable file is always 0666.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %o", info.Mode().Perm())
 	}
 
@@ -48,5 +52,17 @@ func TestAuthKeySurvivesEmptyRetry(t *testing.T) {
 	got, err = persistAuthKey("")
 	if err != nil || got != "" {
 		t.Fatalf("after clear = %q %v", got, err)
+	}
+}
+
+func TestAuthKeyRejected(t *testing.T) {
+	if !authKeyRejected("", "Received error: register request: http 401: authkey already used") {
+		t.Fatal("used key")
+	}
+	if !authKeyRejected("backend error: invalid pre auth key", "") {
+		t.Fatal("unknown key")
+	}
+	if authKeyRejected("inferscale up: signal: interrupt", "Start inferscaled") {
+		t.Fatal("unrelated failure")
 	}
 }
