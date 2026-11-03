@@ -100,7 +100,11 @@ func Execute(opts Options, io Streams) error {
 	if kind == engine.KindVLLM {
 		pinned = strings.TrimSpace(plan.VLLMVersion)
 	}
-	if plan.Role == "worker" && kind == engine.KindVLLM && pinned == "" && !detected.Found {
+	// First-time workers must wait for the master's pin. An existing vLLM
+	// install is not a pin — joining with it starts a mixed-version cluster.
+	// Enrolled re-runs keep going when the engine route omits the version
+	// (transient fetch miss); those machines already joined.
+	if plan.Role == "worker" && kind == engine.KindVLLM && pinned == "" && !cfg.EnrolledWorker() {
 		return fmt.Errorf("this cluster has no vLLM version yet. Run setup on the master first")
 	}
 	if detected.Found && pinned != "" {

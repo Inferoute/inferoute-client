@@ -476,11 +476,13 @@ func TestPastedJoinCodeSkipsEngineAndModel(t *testing.T) {
 		return clusterSettings{
 			Role: "worker", Name: "inferoute-cluster1",
 			Model: "Qwen/Qwen3-0.6B", DisplayName: "Qwen3 0.6B", ServiceType: "vllm",
+			VLLMVersion: "0.31.0",
 		}, nil
 	}
 	detectEngine = func(kind engine.Kind) engine.Detected {
 		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
 	}
+	installEngine = func(context.Context, engine.Kind, string, io.Writer) error { return nil }
 	dir := t.TempDir()
 	var out, errBuf bytes.Buffer
 	err := Execute(Options{
@@ -553,16 +555,21 @@ func TestDifferentJoinCodeClearsSavedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	prev := clusterPlan
-	t.Cleanup(func() { clusterPlan = prev })
+	t.Cleanup(func() {
+		clusterPlan = prev
+		detectEngine = engine.Detect
+		installEngine = engine.Install
+	})
 	clusterPlan = func(cfg *config.Config) (clusterSettings, error) {
 		if cfg.Provider.APIKey != "join-new" || cfg.Provider.NodeToken != "" {
 			t.Fatalf("key %q token %q", cfg.Provider.APIKey, cfg.Provider.NodeToken)
 		}
-		return clusterSettings{Role: "worker", Name: "inferoute-cluster2", Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm"}, nil
+		return clusterSettings{Role: "worker", Name: "inferoute-cluster2", Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm", VLLMVersion: "0.31.0"}, nil
 	}
 	detectEngine = func(kind engine.Kind) engine.Detected {
 		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
 	}
+	installEngine = func(context.Context, engine.Kind, string, io.Writer) error { return nil }
 	var out bytes.Buffer
 	err := Execute(Options{
 		ConfigPath:     cfgPath,
@@ -601,6 +608,68 @@ func TestWorkerWaitsForMasterVersion(t *testing.T) {
 		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
 	}, Streams{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard})
 	if err == nil || !strings.Contains(err.Error(), "no vLLM version") {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkerWithInstalledVLLMStillWaitsForMasterVersion(t *testing.T) {
+	if engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) != engine.KindVLLM {
+		t.Skip("this OS remaps vLLM")
+	}
+	singlePlan(t)
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{
+			Role: "worker", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm",
+		}, nil
+	}
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
+	}
+	installEngine = func(context.Context, engine.Kind, string, io.Writer) error {
+		t.Fatal("must not install or join without a pin")
+		return nil
+	}
+	dir := t.TempDir()
+	err := Execute(Options{
+		ConfigPath:     filepath.Join(dir, "config.yaml"),
+		APIKey:         "join-abc",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+	}, Streams{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "no vLLM version") {
+		t.Fatal(err)
+	}
+}
+
+func TestEnrolledWorkerProceedsWithoutPin(t *testing.T) {
+	if engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) != engine.KindVLLM {
+		t.Skip("this OS remaps vLLM")
+	}
+	singlePlan(t)
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{
+			Role: "worker", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm",
+		}, nil
+	}
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
+	}
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	saved := &config.Config{}
+	saved.Provider.ClusterMode = "worker"
+	saved.Provider.NodeToken = "node-token"
+	saved.Provider.Model = "Qwen/Qwen3-0.6B"
+	saved.Provider.APIKey = "join-abc"
+	if err := config.Save(cfgPath, saved); err != nil {
+		t.Fatal(err)
+	}
+	err := Execute(Options{
+		ConfigPath:     cfgPath,
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+	}, Streams{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard})
+	if err != nil {
 		t.Fatal(err)
 	}
 }
