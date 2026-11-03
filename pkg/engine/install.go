@@ -67,7 +67,10 @@ func installVLLM(ctx context.Context, version string, w io.Writer) error {
 	}
 	req := vllmRequirement(version)
 	fmt.Fprintf(w, "Creating vLLM venv at %s (Python %s)...\n", venv, vllmPython)
-	if err := run(ctx, w, uv, "venv", "--python", vllmPython, venv); err != nil {
+	// --seed installs pip. FlashInfer's kernel download runs `python -m pip`.
+	// --clear replaces a venv left behind by a failed install; uv refuses to
+	// recreate one that already exists.
+	if err := run(ctx, w, uv, "venv", "--python", vllmPython, "--seed", "--clear", venv); err != nil {
 		return err
 	}
 	fmt.Fprintln(w, "Installing vLLM (this can take several minutes)...")
