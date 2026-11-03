@@ -334,9 +334,10 @@ func (r *Reporter) sendNodeHealth(ctx context.Context, status string, gpuInfo *g
 		return fmt.Errorf("worker node token is not set")
 	}
 	body, _ := json.Marshal(struct {
-		Status string       `json:"status"`
-		GPU    *gpu.GPUInfo `json:"gpu,omitempty"`
-	}{Status: status, GPU: gpuInfo})
+		Status        string       `json:"status"`
+		GPU           *gpu.GPUInfo `json:"gpu,omitempty"`
+		EngineVersion string       `json:"engine_version,omitempty"`
+	}{Status: status, GPU: gpuInfo, EngineVersion: installedEngineVersion(r)})
 	url := fmt.Sprintf("%s/api/provider/network/node/health", r.config.Provider.URL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -357,6 +358,14 @@ func (r *Reporter) sendNodeHealth(ctx context.Context, status string, gpuInfo *g
 	r.lastUpdateTime = time.Now()
 	r.lastUpdateMutex.Unlock()
 	return nil
+}
+
+func installedEngineVersion(r *Reporter) string {
+	kind, ok := engine.ParseKind(r.config.Provider.Engine)
+	if !ok || kind != engine.KindVLLM {
+		return ""
+	}
+	return engine.InstalledVersion(engine.BinPath(kind, r.config.Provider.EngineBin))
 }
 
 // GetHealthReport gets the current health report

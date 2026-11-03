@@ -27,6 +27,8 @@ type sessionResult struct {
 	ModelDisplayName string `json:"model_display_name"`
 	ServiceType      string `json:"service_type"`
 	LoginServer      string `json:"login_server"`
+	VLLMVersion      string `json:"vllm_version"`
+	MasterGPU        string `json:"master_gpu"`
 }
 
 func FetchSession(base, apiKey string) (sessionResult, error) {
@@ -53,15 +55,22 @@ func Exchange(base, code string) (enrollResult, error) {
 	return out, err
 }
 
-func ReportIP(base, token string, worker bool, ip, nodeID string) error {
+func ReportIP(base, token string, worker bool, ip, nodeID string, gpu any, engineVersion string) error {
 	path := "/api/provider/network/ip"
 	if worker {
 		path = "/api/provider/network/node/ip"
 	}
-	return doJSON(base, http.MethodPost, path, token, map[string]string{
+	body := map[string]any{
 		"tailnet_ip":        ip,
 		"headscale_node_id": nodeID,
-	}, nil)
+	}
+	if gpu != nil {
+		body["gpu"] = gpu
+	}
+	if strings.TrimSpace(engineVersion) != "" {
+		body["engine_version"] = strings.TrimSpace(engineVersion)
+	}
+	return doJSON(base, http.MethodPost, path, token, body, nil)
 }
 
 func FetchEngine(base, token string, worker bool) (Remote, error) {

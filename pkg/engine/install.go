@@ -17,14 +17,15 @@ const (
 	vllmDocsURL         = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
 )
 
-// Install runs the engine's official install path. It prints progress to w.
-func Install(ctx context.Context, kind Kind, w io.Writer) error {
+// Install runs the engine's official install path. version pins a vLLM
+// release (for example "0.31.0"). Empty installs the current latest.
+func Install(ctx context.Context, kind Kind, version string, w io.Writer) error {
 	if w == nil {
 		w = io.Discard
 	}
 	switch kind {
 	case KindVLLM:
-		return installVLLM(ctx, w)
+		return installVLLM(ctx, version, w)
 	case KindVLLMMetal:
 		return installVLLMMetal(ctx, w)
 	case KindLlamaCpp:
@@ -34,12 +35,26 @@ func Install(ctx context.Context, kind Kind, w io.Writer) error {
 	}
 }
 
-func installVLLM(ctx context.Context, w io.Writer) error {
+func vllmRequirement(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "vllm"
+	}
+	return "vllm==" + version
+}
+
+func installVLLM(ctx context.Context, version string, w io.Writer) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 	venv := filepath.Join(home, ".venv-vllm")
+	if strings.TrimSpace(version) != "" {
+		if err := replaceVenvDir(w, venv); err != nil {
+			return err
+		}
+	}
+	req := vllmRequirement(version)
 	fmt.Fprintf(w, "Creating vLLM venv at %s...\n", venv)
 	if lookPath("uv") != "" {
 		if err := run(ctx, w, "uv", "venv", venv); err != nil {
@@ -50,7 +65,7 @@ func installVLLM(ctx context.Context, w io.Writer) error {
 			pip = filepath.Join(venv, "Scripts", "uv.exe")
 		}
 		fmt.Fprintln(w, "Installing vLLM (this can take several minutes)...")
-		if err := run(ctx, w, pip, "pip", "install", "vllm"); err != nil {
+		if err := run(ctx, w, pip, "pip", "install", req); err != nil {
 			return fmt.Errorf("vLLM pip install failed: %w (see %s)", err, vllmDocsURL)
 		}
 		return downloadKernels(ctx, w, venv)
@@ -67,7 +82,7 @@ func installVLLM(ctx context.Context, w io.Writer) error {
 		pip = filepath.Join(venv, "Scripts", "pip.exe")
 	}
 	fmt.Fprintln(w, "Installing vLLM (this can take several minutes)...")
-	if err := run(ctx, w, pip, "install", "vllm"); err != nil {
+	if err := run(ctx, w, pip, "install", req); err != nil {
 		return fmt.Errorf("vLLM pip install failed: %w (see %s)", err, vllmDocsURL)
 	}
 	return downloadKernels(ctx, w, venv)
@@ -184,4 +199,22 @@ func download(ctx context.Context, url, dest string) error {
 	defer f.Close()
 	_, err = io.Copy(f, resp.Body)
 	return err
+}
+
+// InstalledVersion reads `<bin> --version`. The last field is the release.
+func InstalledVersion(bin string) string {
+	bin = strings.TrimSpace(bin)
+	if bin == "" {
+		return ""
+	}
+	out, err := exec.Command(bin, "--version").CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err != nil && text == "" {
+		return ""
+	}
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[len(fields)-1]
 }

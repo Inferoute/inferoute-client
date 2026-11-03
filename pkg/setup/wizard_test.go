@@ -131,7 +131,7 @@ func TestExecuteWorkerInstallsAndConfirms(t *testing.T) {
 		return engine.Detected{Kind: kind, Found: true, Bin: "vllm"}
 	}
 	installed := false
-	installEngine = func(_ context.Context, kind engine.Kind, _ io.Writer) error {
+	installEngine = func(_ context.Context, kind engine.Kind, _ string, _ io.Writer) error {
 		installed = true
 		if kind != engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) {
 			t.Errorf("installed %s", kind)
@@ -572,5 +572,17 @@ func TestDifferentJoinCodeClearsSavedToken(t *testing.T) {
 	}, Streams{In: strings.NewReader(""), Out: &out, Err: &out})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMixedGPUWarning(t *testing.T) {
+	if mixedGPUWarning("NVIDIA GeForce RTX 5090", "NVIDIA GeForce RTX 4090") == "" {
+		t.Fatal("different GPUs should warn")
+	}
+	if mixedGPUWarning("NVIDIA GeForce RTX 4090", "NVIDIA GeForce RTX 4090") != "" {
+		t.Fatal("same GPU should be quiet")
+	}
+	if mixedGPUWarning("NVIDIA GeForce RTX 5090", "") != "" || mixedGPUWarning("", "NVIDIA GeForce RTX 4090") != "" {
+		t.Fatal("missing side should be quiet")
 	}
 }

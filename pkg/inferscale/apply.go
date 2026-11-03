@@ -16,6 +16,8 @@ type Remote struct {
 	Command     string   `json:"command"`
 	Role        string   `json:"role"`
 	LoginServer string   `json:"login_server"`
+	VLLMVersion string   `json:"vllm_version"`
+	MasterGPU   string   `json:"master_gpu"`
 }
 
 // Apply merges the server command onto the local serve flags.

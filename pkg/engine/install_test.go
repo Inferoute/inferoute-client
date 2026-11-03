@@ -51,3 +51,27 @@ func TestReplaceVenvDirMissingOK(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestVLLMRequirement(t *testing.T) {
+	if vllmRequirement("") != "vllm" || vllmRequirement("  ") != "vllm" {
+		t.Fatal("empty pin should install latest")
+	}
+	if got := vllmRequirement("0.31.0"); got != "vllm==0.31.0" {
+		t.Fatal(got)
+	}
+}
+
+func TestInstalledVersion(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "vllm")
+	body := "#!/bin/sh\necho vLLM version 0.31.0\n"
+	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := InstalledVersion(bin); got != "0.31.0" {
+		t.Fatalf("version = %q", got)
+	}
+	if InstalledVersion("") != "" {
+		t.Fatal("empty bin")
+	}
+}

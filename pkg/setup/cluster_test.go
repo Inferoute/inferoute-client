@@ -55,11 +55,12 @@ func TestLoginServerFallsBackToSession(t *testing.T) {
 	}
 }
 
-func TestEnrolledWorkerSkipsJoinPreview(t *testing.T) {
-	hit := false
+func TestEnrolledWorkerReadsPinFromEngine(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-		http.Error(w, "unexpected", http.StatusInternalServerError)
+		if r.URL.Path != "/api/provider/network/node/engine" {
+			t.Fatalf("path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"vllm_version":"0.31.0","master_gpu":"NVIDIA GeForce RTX 4090"}`))
 	}))
 	defer srv.Close()
 	cfg := &config.Config{}
@@ -73,10 +74,10 @@ func TestEnrolledWorkerSkipsJoinPreview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hit {
-		t.Fatal("preview was called")
-	}
 	if plan.Role != "worker" || plan.Model != cfg.Provider.Model {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if plan.VLLMVersion != "0.31.0" || plan.MasterGPU != "NVIDIA GeForce RTX 4090" {
 		t.Fatalf("plan = %+v", plan)
 	}
 }

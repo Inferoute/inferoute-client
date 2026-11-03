@@ -35,6 +35,8 @@ type clusterSettings struct {
 	Model       string
 	DisplayName string
 	ServiceType string
+	VLLMVersion string
+	MasterGPU   string
 }
 
 // clusterPlan is replaced in tests. Production reads the cluster the key belongs to.
@@ -46,9 +48,15 @@ func clusterPlanReal(cfg *config.Config) (clusterSettings, error) {
 		if model == "" {
 			return clusterSettings{}, fmt.Errorf("this machine is in a cluster but has no saved model. Re-run setup with a new join code")
 		}
-		return clusterSettings{
+		settings := clusterSettings{
 			Role: "worker", Model: model, ServiceType: firstNonEmpty(cfg.Provider.Engine, "vllm"),
-		}, nil
+		}
+		remote, err := inferscale.FetchEngine(cfg.Provider.URL, cfg.Provider.NodeToken, true)
+		if err == nil {
+			settings.VLLMVersion = remote.VLLMVersion
+			settings.MasterGPU = remote.MasterGPU
+		}
+		return settings, nil
 	}
 	key := credential(cfg.Provider.APIKey)
 	if strings.HasPrefix(key, "join-") {
@@ -62,6 +70,7 @@ func clusterPlanReal(cfg *config.Config) (clusterSettings, error) {
 		return clusterSettings{
 			Role: "worker", Name: info.Name, Model: info.Model,
 			DisplayName: info.ModelDisplayName, ServiceType: info.ServiceType,
+			VLLMVersion: info.VLLMVersion, MasterGPU: info.MasterGPU,
 		}, nil
 	}
 	sess, err := inferscale.FetchSession(cfg.Provider.URL, key)
@@ -74,6 +83,7 @@ func clusterPlanReal(cfg *config.Config) (clusterSettings, error) {
 	return clusterSettings{
 		Role: "master", Name: sess.Name, Model: sess.Model,
 		DisplayName: sess.ModelDisplayName, ServiceType: sess.ServiceType,
+		VLLMVersion: sess.VLLMVersion, MasterGPU: sess.MasterGPU,
 	}, nil
 }
 
@@ -119,7 +129,7 @@ func resumeWorker(cfg *config.Config, spec *engine.Spec) error {
 	if err != nil {
 		return err
 	}
-	if err := inferscale.ReportIP(cfg.Provider.URL, token, true, ip, nodeID); err != nil {
+	if err := inferscale.ReportIP(cfg.Provider.URL, token, true, ip, nodeID, localGPU(), engine.InstalledVersion(spec.Bin)); err != nil {
 		return dropIfRemoved(cfg, err)
 	}
 	next := inferscale.Apply(*spec, remote)
@@ -189,7 +199,7 @@ func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
 	if worker {
 		bearer = cfg.Provider.NodeToken
 	}
-	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID); err != nil {
+	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID, localGPU(), engine.InstalledVersion(spec.Bin)); err != nil {
 		return err
 	}
 	remote, err := inferscale.FetchEngine(cfg.Provider.URL, bearer, worker)
@@ -249,7 +259,7 @@ func refreshClusterEngine(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID); err != nil {
+	if err := inferscale.ReportIP(cfg.Provider.URL, bearer, worker, ip, nodeID, localGPU(), engine.InstalledVersion(cfg.Provider.EngineBin)); err != nil {
 		if NodeRemoved(err) {
 			return removedErr(err)
 		}

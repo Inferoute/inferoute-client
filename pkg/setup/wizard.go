@@ -13,6 +13,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 )
@@ -81,6 +82,11 @@ func Execute(opts Options, io Streams) error {
 			return err
 		}
 		printCluster(io.Out, plan)
+		if plan.Role == "worker" {
+			if msg := mixedGPUWarning(localGPUProduct(), plan.MasterGPU); msg != "" {
+				fmt.Fprintln(io.Err, msg)
+			}
+		}
 	} else {
 		kind, err = applyEngine(cfg, opts, io)
 		if err != nil {
@@ -90,6 +96,35 @@ func Execute(opts Options, io Streams) error {
 
 	detected := detectEngine(kind)
 	autoStart := true
+	pinned := ""
+	if kind == engine.KindVLLM {
+		pinned = strings.TrimSpace(plan.VLLMVersion)
+	}
+	if detected.Found && pinned != "" {
+		have := engine.InstalledVersion(detected.Bin)
+		if have != "" && have != pinned {
+			reinstall := opts.Yes || plan.Role == "worker"
+			if !reinstall {
+				ok, err := promptYes(io.In, io.Out, fmt.Sprintf("vLLM %s is installed. This cluster uses vLLM %s. Reinstall it now?", have, pinned), true)
+				if err != nil {
+					return err
+				}
+				reinstall = ok
+			}
+			if reinstall {
+				fmt.Fprintf(io.Out, "Installing vLLM %s...\n", pinned)
+				if err := installEngine(context.Background(), kind, pinned, io.Out); err != nil {
+					fmt.Fprintf(io.Err, "install failed: %v\n", err)
+					autoStart = false
+				} else {
+					detected = detectEngine(kind)
+				}
+			} else {
+				autoStart = false
+				fmt.Fprintf(io.Err, "Leaving vLLM %s installed. This cluster uses vLLM %s, so it may not start.\n", have, pinned)
+			}
+		}
+	}
 	if !detected.Found {
 		doInstall := opts.Install || (plan.Role == "worker")
 		if !doInstall && !opts.Yes {
@@ -105,7 +140,7 @@ func Execute(opts Options, io Streams) error {
 		}
 		if doInstall {
 			fmt.Fprintf(io.Out, "Installing %s...\n", engine.Label(kind))
-			if err := installEngine(context.Background(), kind, io.Out); err != nil {
+			if err := installEngine(context.Background(), kind, pinned, io.Out); err != nil {
 				fmt.Fprintf(io.Err, "install failed: %v\n", err)
 				autoStart = false
 			} else {
@@ -300,6 +335,44 @@ func printCluster(out io.Writer, plan clusterSettings) {
 		fmt.Fprintf(out, "\nCluster %s\n", name)
 	}
 	fmt.Fprintf(out, "Model: %s\n", modelLabel(plan))
+	if plan.VLLMVersion != "" {
+		fmt.Fprintf(out, "vLLM: %s\n", plan.VLLMVersion)
+	}
+}
+
+func mixedGPUWarning(local, master string) string {
+	local = strings.TrimSpace(local)
+	master = strings.TrimSpace(master)
+	if local == "" || master == "" || local == master {
+		return ""
+	}
+	return fmt.Sprintf("This machine has %s. The master has %s. Mixed GPUs are untested on Inferoute and the cluster may not start.", local, master)
+}
+
+var localGPUProduct = readGPUProduct
+
+func readGPUProduct() string {
+	mon, err := gpu.NewMonitor()
+	if err != nil {
+		return ""
+	}
+	info, err := mon.GetGPUInfo()
+	if err != nil || info == nil || info.ProductName == "" || info.ProductName == "Unknown" {
+		return ""
+	}
+	return info.ProductName
+}
+
+func localGPU() *gpu.GPUInfo {
+	mon, err := gpu.NewMonitor()
+	if err != nil {
+		return nil
+	}
+	info, err := mon.GetGPUInfo()
+	if err != nil || info == nil || info.ProductName == "" || info.ProductName == "Unknown" {
+		return nil
+	}
+	return info
 }
 
 func modelLabel(plan clusterSettings) string {
