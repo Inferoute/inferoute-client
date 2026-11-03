@@ -30,6 +30,9 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	}
 	// Exchange already spent the join code. The key has to be on disk before
 	// download or sudo can fail and the next run passes "".
+	// A caller-supplied key is a cluster switch. persistAuthKey also returns a
+	// leftover from a failed up; that must not look like a switch.
+	freshKey := strings.TrimSpace(authKey) != ""
 	if authKey, err = persistAuthKey(authKey); err != nil {
 		return "", "", err
 	}
@@ -52,12 +55,17 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 		}
 	}
 	// A new key is a new cluster. Drop the old node so up does not resume
-	// it or refuse with "can't change --login-server".
-	if authKey != "" {
+	// it or refuse with "can't change --login-server". logout uses sudo -n,
+	// so cache sudo first — otherwise logout is a no-op on an already-running
+	// daemon and the online shortcut below would delete the unused key.
+	if freshKey {
+		if err := ensureSudo(ctx); err != nil {
+			return "", "", err
+		}
 		_ = commandAsRoot(ctx, cli, "logout").Run()
 	}
 	// A saved address is not a connection. Offline still has the old IPv4.
-	if st, err := readState(ctx, cli); err == nil && st.Online && st.IP != "" {
+	if st, err := readState(ctx, cli); err == nil && reuseOnlineNode(freshKey, st) {
 		clearAuthKey()
 		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", st.IP)
 		return st.IP, st.ID, nil
@@ -92,6 +100,12 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 		fmt.Fprintf(os.Stdout, "Inferscale address: %s\n", ip)
 	}
 	return ip, nodeID, err
+}
+
+// reuseOnlineNode is the already-joined shortcut. A caller-supplied key is a
+// cluster switch: keep the key and run `up` instead of returning the old IP.
+func reuseOnlineNode(freshKey bool, st nodeState) bool {
+	return !freshKey && st.Online && st.IP != ""
 }
 
 func upArgs(loginServer, authKey string) []string {

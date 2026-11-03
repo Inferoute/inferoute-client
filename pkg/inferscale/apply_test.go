@@ -34,6 +34,22 @@ func TestParseStatusOfflineKeepsAddress(t *testing.T) {
 	}
 }
 
+func TestReuseOnlineNodeSkipsFreshKey(t *testing.T) {
+	online := nodeState{IP: "198.18.0.4", ID: "n1", Online: true}
+	if reuseOnlineNode(true, online) {
+		t.Fatal("a new auth key must not reuse the old tailnet (that deletes the unused one-shot key)")
+	}
+	if !reuseOnlineNode(false, online) {
+		t.Fatal("reconnect without a new key should reuse an online node")
+	}
+	if reuseOnlineNode(false, nodeState{IP: "198.18.0.4", Online: false}) {
+		t.Fatal("offline node is not reusable")
+	}
+	if reuseOnlineNode(false, nodeState{Online: true}) {
+		t.Fatal("online without an IPv4 is not reusable")
+	}
+}
+
 func TestUpArgsReconnectsWithoutKey(t *testing.T) {
 	if strings.Join(upArgs("http://127.0.0.1:8444", ""), " ") != "up --login-server http://127.0.0.1:8444" {
 		t.Fatal(upArgs("http://127.0.0.1:8444", ""))
