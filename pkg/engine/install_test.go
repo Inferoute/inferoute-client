@@ -94,6 +94,11 @@ func TestInstalledVersion(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "vllm")
 	body := "#!/bin/sh\necho vLLM version 0.31.0\n"
+	if runtime.GOOS == "windows" {
+		// CreateProcess does not honor a shebang. cmd.exe does run .cmd.
+		bin += ".cmd"
+		body = "@echo vLLM version 0.31.0\r\n"
+	}
 	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
