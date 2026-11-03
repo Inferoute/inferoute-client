@@ -120,6 +120,7 @@ func TestExecuteWorkerInstallsAndConfirms(t *testing.T) {
 		return clusterSettings{
 			Role: "worker", Name: "inferoute-cluster1",
 			Model: "Qwen/Qwen3-0.6B", DisplayName: "Qwen3 0.6B", ServiceType: "vllm",
+			VLLMVersion: "0.31.0",
 		}, nil
 	}
 	calls := 0
@@ -571,6 +572,35 @@ func TestDifferentJoinCodeClearsSavedToken(t *testing.T) {
 		NoStart:        true,
 	}, Streams{In: strings.NewReader(""), Out: &out, Err: &out})
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkerWaitsForMasterVersion(t *testing.T) {
+	if engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) != engine.KindVLLM {
+		t.Skip("this OS remaps vLLM")
+	}
+	singlePlan(t)
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{
+			Role: "worker", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm",
+		}, nil
+	}
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind}
+	}
+	installEngine = func(context.Context, engine.Kind, string, io.Writer) error {
+		t.Fatal("installed before the master reported a version")
+		return nil
+	}
+	dir := t.TempDir()
+	err := Execute(Options{
+		ConfigPath:     filepath.Join(dir, "config.yaml"),
+		APIKey:         "join-abc",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+	}, Streams{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "no vLLM version") {
 		t.Fatal(err)
 	}
 }

@@ -100,6 +100,9 @@ func Execute(opts Options, io Streams) error {
 	if kind == engine.KindVLLM {
 		pinned = strings.TrimSpace(plan.VLLMVersion)
 	}
+	if plan.Role == "worker" && kind == engine.KindVLLM && pinned == "" && !detected.Found {
+		return fmt.Errorf("this cluster has no vLLM version yet. Run setup on the master first")
+	}
 	if detected.Found && pinned != "" {
 		have := engine.InstalledVersion(detected.Bin)
 		if have != "" && have != pinned {
