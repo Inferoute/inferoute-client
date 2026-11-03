@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 const (
@@ -80,15 +81,49 @@ func downloadKernels(ctx context.Context, w io.Writer, venv string) error {
 		fmt.Fprintln(w, "Skipping vLLM kernel download (nvidia-smi not found).")
 		return nil
 	}
-	vllm := filepath.Join(venv, "bin", "vllm")
-	if runtime.GOOS == "windows" {
-		vllm = filepath.Join(venv, "Scripts", "vllm.exe")
-	}
 	fmt.Fprintln(w, "Downloading FlashInfer kernels...")
-	if err := run(ctx, w, vllm, "download-kernels"); err != nil {
+	vllm := venvExe(venv, "vllm")
+	help, _ := exec.CommandContext(ctx, vllm, "-h").CombinedOutput()
+	// vLLM 0.33 has no download-kernels subcommand. Later releases wrap this CLI.
+	if cliHasSubcommand(string(help), "download-kernels") {
+		if err := run(ctx, w, vllm, "download-kernels"); err != nil {
+			return fmt.Errorf("vLLM kernel download failed: %w", err)
+		}
+		return nil
+	}
+	py := venvExe(venv, "python")
+	cmd := exec.CommandContext(ctx, py, "-m", "flashinfer", "download-kernels")
+	cmd.Stdout = w
+	cmd.Stderr = w
+	// FlashInfer refuses to import when an older cubin is already installed.
+	cmd.Env = append(os.Environ(), "FLASHINFER_DISABLE_VERSION_CHECK=1")
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("vLLM kernel download failed: %w", err)
 	}
 	return nil
+}
+
+func venvExe(venv, name string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(venv, "Scripts", name+".exe")
+	}
+	return filepath.Join(venv, "bin", name)
+}
+
+func cliHasSubcommand(help, name string) bool {
+	for _, field := range strings.FieldsFunc(help, func(r rune) bool {
+		switch r {
+		case '{', '}', ',', ' ', '\n', '\t', '\r':
+			return true
+		default:
+			return false
+		}
+	}) {
+		if field == name {
+			return true
+		}
+	}
+	return false
 }
 
 func installVLLMMetal(ctx context.Context, w io.Writer) error {

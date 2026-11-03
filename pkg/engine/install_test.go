@@ -30,6 +30,22 @@ func TestReplaceVenvDirRemovesExisting(t *testing.T) {
 	}
 }
 
+func TestCLIHasSubcommand(t *testing.T) {
+	help := `usage: vllm [-h] [-v]
+            {chat,complete,serve,launch,bench,collect-env,preload,run-batch,snapshot}
+            ...`
+	if cliHasSubcommand(help, "download-kernels") {
+		t.Fatal("vLLM 0.33 help selected download-kernels")
+	}
+	if !cliHasSubcommand(help, "serve") {
+		t.Fatal("serve missing from help")
+	}
+	newer := "{chat,complete,serve,download-kernels,snapshot}"
+	if !cliHasSubcommand(newer, "download-kernels") {
+		t.Fatal("download-kernels missing from help")
+	}
+}
+
 func TestReplaceVenvDirMissingOK(t *testing.T) {
 	if err := replaceVenvDir(io.Discard, filepath.Join(t.TempDir(), "nope")); err != nil {
 		t.Fatal(err)
