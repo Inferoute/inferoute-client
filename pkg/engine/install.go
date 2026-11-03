@@ -71,7 +71,8 @@ func installVLLM(ctx context.Context, version string, w io.Writer) error {
 		return err
 	}
 	fmt.Fprintln(w, "Installing vLLM (this can take several minutes)...")
-	if err := run(ctx, w, venvExe(venv, "uv"), "pip", "install", req); err != nil {
+	py := venvExe(venv, "python")
+	if err := run(ctx, w, uv, "pip", "install", "--python", py, req); err != nil {
 		return fmt.Errorf("vLLM pip install failed: %w (see %s)", err, vllmDocsURL)
 	}
 	if err := downloadKernels(ctx, w, venv); err != nil {
