@@ -15,6 +15,10 @@ import (
 const (
 	vllmMetalInstallURL = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
 	vllmDocsURL         = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
+	uvInstallURL        = "https://astral.sh/uv/install.sh"
+	// vllmPython is the interpreter every node uses. uv downloads this CPython
+	// when the host does not have it, so the distro's Python does not matter.
+	vllmPython = "3.12"
 )
 
 // Install runs the engine's official install path. version pins a vLLM
@@ -44,6 +48,9 @@ func vllmRequirement(version string) string {
 }
 
 func installVLLM(ctx context.Context, version string, w io.Writer) error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("vLLM is not supported on Windows (see %s)", vllmDocsURL)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -54,38 +61,69 @@ func installVLLM(ctx context.Context, version string, w io.Writer) error {
 			return err
 		}
 	}
-	req := vllmRequirement(version)
-	fmt.Fprintf(w, "Creating vLLM venv at %s...\n", venv)
-	if lookPath("uv") != "" {
-		if err := run(ctx, w, "uv", "venv", venv); err != nil {
-			return err
-		}
-		pip := filepath.Join(venv, "bin", "uv")
-		if runtime.GOOS == "windows" {
-			pip = filepath.Join(venv, "Scripts", "uv.exe")
-		}
-		fmt.Fprintln(w, "Installing vLLM (this can take several minutes)...")
-		if err := run(ctx, w, pip, "pip", "install", req); err != nil {
-			return fmt.Errorf("vLLM pip install failed: %w (see %s)", err, vllmDocsURL)
-		}
-		return downloadKernels(ctx, w, venv)
-	}
-	py := "python3"
-	if lookPath(py) == "" {
-		py = "python"
-	}
-	if err := run(ctx, w, py, "-m", "venv", venv); err != nil {
+	uv, err := ensureUV(ctx, w, home)
+	if err != nil {
 		return err
 	}
-	pip := filepath.Join(venv, "bin", "pip")
-	if runtime.GOOS == "windows" {
-		pip = filepath.Join(venv, "Scripts", "pip.exe")
+	req := vllmRequirement(version)
+	fmt.Fprintf(w, "Creating vLLM venv at %s (Python %s)...\n", venv, vllmPython)
+	if err := run(ctx, w, uv, "venv", "--python", vllmPython, venv); err != nil {
+		return err
 	}
 	fmt.Fprintln(w, "Installing vLLM (this can take several minutes)...")
-	if err := run(ctx, w, pip, "install", req); err != nil {
+	if err := run(ctx, w, venvExe(venv, "uv"), "pip", "install", req); err != nil {
 		return fmt.Errorf("vLLM pip install failed: %w (see %s)", err, vllmDocsURL)
 	}
-	return downloadKernels(ctx, w, venv)
+	if err := downloadKernels(ctx, w, venv); err != nil {
+		return err
+	}
+	return checkTorchCUDA(ctx, w, venv)
+}
+
+// findUV returns uv on PATH, or ~/.local/bin/uv when that file exists.
+// pathHit is the result of lookPath("uv"); tests pass it directly.
+func findUV(home, pathHit string) string {
+	if pathHit != "" {
+		return pathHit
+	}
+	local := filepath.Join(home, ".local", "bin", "uv")
+	if runtime.GOOS == "windows" {
+		local += ".exe"
+	}
+	if fileExists(local) {
+		return local
+	}
+	return ""
+}
+
+func ensureUV(ctx context.Context, w io.Writer, home string) (string, error) {
+	if uv := findUV(home, lookPath("uv")); uv != "" {
+		return uv, nil
+	}
+	fmt.Fprintln(w, "Installing uv...")
+	if err := runScript(ctx, w, uvInstallURL); err != nil {
+		return "", fmt.Errorf("install uv: %w", err)
+	}
+	uv := findUV(home, "")
+	if uv == "" {
+		return "", fmt.Errorf("uv install did not create %s", filepath.Join(home, ".local", "bin", "uv"))
+	}
+	return uv, nil
+}
+
+// checkTorchCUDA fails setup when the host driver cannot load the CUDA
+// runtime bundled in the torch wheel. Otherwise that shows up later, on
+// `vllm serve`, after the cluster has started waiting.
+func checkTorchCUDA(ctx context.Context, w io.Writer, venv string) error {
+	if _, err := exec.LookPath("nvidia-smi"); err != nil {
+		fmt.Fprintln(w, "Skipping PyTorch CUDA check (nvidia-smi not found).")
+		return nil
+	}
+	fmt.Fprintln(w, "Checking the NVIDIA driver can load PyTorch...")
+	if err := run(ctx, w, venvExe(venv, "python"), "-c", "import torch; torch.cuda.init()"); err != nil {
+		return fmt.Errorf("PyTorch cannot use this NVIDIA driver: %w (see %s)", err, vllmDocsURL)
+	}
+	return nil
 }
 
 // downloadKernels fetches prebuilt FlashInfer kernels. Without them vLLM

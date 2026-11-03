@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -49,6 +50,34 @@ func TestCLIHasSubcommand(t *testing.T) {
 func TestReplaceVenvDirMissingOK(t *testing.T) {
 	if err := replaceVenvDir(io.Discard, filepath.Join(t.TempDir(), "nope")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFindUV(t *testing.T) {
+	home := t.TempDir()
+	if got := findUV(home, "/usr/bin/uv"); got != "/usr/bin/uv" {
+		t.Fatalf("path hit = %q", got)
+	}
+	if got := findUV(home, ""); got != "" {
+		t.Fatalf("missing uv = %q", got)
+	}
+	local := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(local, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	name := "uv"
+	if runtime.GOOS == "windows" {
+		name = "uv.exe"
+	}
+	bin := filepath.Join(local, name)
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := findUV(home, ""); got != bin {
+		t.Fatalf("local uv = %q, want %q", got, bin)
+	}
+	if got := findUV(home, "/usr/bin/uv"); got != "/usr/bin/uv" {
+		t.Fatalf("path hit should win over local, got %q", got)
 	}
 }
 

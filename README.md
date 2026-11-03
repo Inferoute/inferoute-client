@@ -20,6 +20,12 @@ The Inferoute Provider Client is a lightweight Go service that runs next to vLLM
 - **macOS:** Apple Silicon with at least **48 GB** of unified memory
 
 
+## Software Requirements
+
+- **NVIDIA driver** on Linux and Windows so `nvidia-smi` is on `PATH`. No CUDA toolkit is needed.
+- **uv** on Linux for vLLM. Setup installs it to `~/.local/bin` if it is missing. No system Python is needed; uv downloads Python 3.12 for the vLLM environment.
+
+
 ## 💾 Installation
 
 ### Quick Start with Installation Script
