@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -116,9 +117,12 @@ func Execute(opts Options, io Streams) error {
 		}
 	}
 	if detected.Found {
-		cfg.Provider.EngineBin = detected.Bin
 		fmt.Fprintf(io.Out, "Found %s at %s\n", kind, detected.Bin)
-	} else {
+	}
+	bin := engine.BinPath(kind, firstNonEmpty(detected.Bin, cfg.Provider.EngineBin))
+	if filepath.IsAbs(bin) {
+		cfg.Provider.EngineBin = bin
+	} else if !detected.Found {
 		cfg.Provider.EngineBin = ""
 	}
 
@@ -141,7 +145,7 @@ func Execute(opts Options, io Streams) error {
 	hfRepo := engine.HFRepo(entry)
 	applyServeOpts(cfg, entry, hfRepo)
 	serveOpts := engine.ServeOptsFromCatalog(entry)
-	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, detected.Bin), entry.Alias, hfRepo, serveOpts)
+	spec := engine.ServeSpec(kind, bin, entry.Alias, hfRepo, serveOpts)
 	if err := prepareCluster(cfg, &spec); err != nil {
 		if saveErr := config.Save(path, cfg); saveErr != nil {
 			return saveErr

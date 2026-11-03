@@ -105,7 +105,7 @@ func lookupLlamaCpp() string {
 	return lookPath("llama-server")
 }
 
-// ResolveBin picks the engine binary. Missing configured paths are ignored.
+// ResolveBin picks a binary we can exec. Missing configured paths are ignored.
 func ResolveBin(kind Kind, configured string) string {
 	if usableEngineBin(configured) {
 		return configured
@@ -113,6 +113,58 @@ func ResolveBin(kind Kind, configured string) string {
 	d := Detect(kind)
 	if d.Found {
 		return d.Bin
+	}
+	return ""
+}
+
+// BinPath is the path the client prints and runs.
+// The dashboard command uses a bare name (vllm, llama-server). That name is
+// not on PATH when setup installed a venv, so the client expands it.
+func BinPath(kind Kind, configured string) string {
+	configured = strings.TrimSpace(configured)
+	if filepath.IsAbs(configured) && fileExists(configured) {
+		return configured
+	}
+	if p := lookup(kind); p != "" {
+		if abs, err := filepath.Abs(p); err == nil {
+			return abs
+		}
+		return p
+	}
+	if p := installBin(kind); p != "" {
+		return p
+	}
+	if configured != "" {
+		return configured
+	}
+	return defaultBinName(kind)
+}
+
+// installBin is where setup puts the engine. Printed even when the file is
+// not there yet, so the command does not depend on PATH.
+func installBin(kind Kind) string {
+	home, err := os.UserHomeDir()
+	if err != nil && kind != KindLlamaCpp {
+		return ""
+	}
+	switch kind {
+	case KindVLLM:
+		if runtime.GOOS == "windows" {
+			return filepath.Join(home, ".venv-vllm", "Scripts", "vllm.exe")
+		}
+		return filepath.Join(home, ".venv-vllm", "bin", "vllm")
+	case KindVLLMMetal:
+		return filepath.Join(home, ".venv-vllm-metal", "bin", "vllm")
+	case KindLlamaCpp:
+		dir, err := llamaInstallDir()
+		if err != nil {
+			return ""
+		}
+		name := "llama-server"
+		if runtime.GOOS == "windows" {
+			name = "llama-server.exe"
+		}
+		return filepath.Join(dir, name)
 	}
 	return ""
 }
@@ -196,4 +248,3 @@ func brokenBinReason(path string) string {
 	}
 	return fmt.Sprintf("interpreter %s is missing (broken venv)", target)
 }
-

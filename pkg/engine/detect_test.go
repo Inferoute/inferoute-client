@@ -8,6 +8,34 @@ import (
 	"testing"
 )
 
+func TestBinPathExpandsBareVLLM(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("venv path is Unix")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	venv := filepath.Join(home, ".venv-vllm", "bin", "vllm")
+	if err := os.MkdirAll(filepath.Dir(venv), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(venv, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := BinPath(KindVLLM, "vllm"); got != venv {
+		t.Fatalf("BinPath(vllm) = %q, want %q", got, venv)
+	}
+	if got := BinPath(KindVLLM, ""); got != venv {
+		t.Fatalf("BinPath(empty) = %q, want %q", got, venv)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	want := filepath.Join(os.Getenv("HOME"), ".venv-vllm", "bin", "vllm")
+	if got := BinPath(KindVLLM, "vllm"); got != want {
+		t.Fatalf("missing venv BinPath = %q, want %q", got, want)
+	}
+}
+
 func TestRunnableBinBrokenShebang(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shebang exec is Unix-only")

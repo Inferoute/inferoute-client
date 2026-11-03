@@ -266,7 +266,7 @@ func refreshClusterEngine(ctx context.Context, cfg *config.Config) error {
 	if !ok {
 		return fmt.Errorf("unknown engine %q", cfg.Provider.Engine)
 	}
-	spec := engine.ServeSpec(kind, firstNonEmpty(cfg.Provider.EngineBin, ""), cfg.Provider.Model, firstNonEmpty(cfg.Provider.HFRepo, cfg.Provider.Model), engine.ServeOpts{
+	spec := engine.ServeSpec(kind, engine.BinPath(kind, cfg.Provider.EngineBin), cfg.Provider.Model, firstNonEmpty(cfg.Provider.HFRepo, cfg.Provider.Model), engine.ServeOpts{
 		ToolCallParser:     cfg.Provider.ToolCallParser,
 		MaxModelLen:        cfg.Provider.MaxModelLen,
 		RopeType:           cfg.Provider.RopeType,

@@ -50,7 +50,7 @@ func StartAndWait(ctx context.Context, cfg *config.Config, logDir string) error 
 	if err != nil {
 		return err
 	}
-	if spec.Bin == "" {
+	if !usableEngineBin(spec.Bin) {
 		d := Detect(kind)
 		if d.Unusable != "" {
 			return fmt.Errorf("%s cannot run (%s); re-run inferoute-client setup", Label(kind), d.Unusable)
@@ -88,7 +88,7 @@ func SpecFromConfig(cfg *config.Config) (Spec, error) {
 	if !ok {
 		return Spec{}, fmt.Errorf("unknown engine %q", cfg.Provider.Engine)
 	}
-	bin := ResolveBin(kind, cfg.Provider.EngineBin)
+	bin := BinPath(kind, firstNonEmpty(ResolveBin(kind, cfg.Provider.EngineBin), cfg.Provider.EngineBin))
 	hfRepo := firstNonEmpty(cfg.Provider.HFRepo, cfg.Provider.Model)
 	spec := ServeSpec(kind, bin, cfg.Provider.Model, hfRepo, ServeOpts{
 		ToolCallParser:     cfg.Provider.ToolCallParser,
