@@ -51,6 +51,11 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 			return "", "", err
 		}
 	}
+	// A new key is a new cluster. Drop the old node so up does not resume
+	// it or refuse with "can't change --login-server".
+	if authKey != "" {
+		_ = commandAsRoot(ctx, cli, "logout").Run()
+	}
 	// A saved address is not a connection. Offline still has the old IPv4.
 	if st, err := readState(ctx, cli); err == nil && st.Online && st.IP != "" {
 		clearAuthKey()
@@ -440,7 +445,8 @@ func readState(ctx context.Context, cli string) (nodeState, error) {
 
 func parseStatus(out []byte) (nodeState, error) {
 	var st struct {
-		Self struct {
+		BackendState string `json:"BackendState"`
+		Self         struct {
 			ID           string   `json:"ID"`
 			Online       bool     `json:"Online"`
 			TailscaleIPs []string `json:"TailscaleIPs"`
@@ -449,7 +455,8 @@ func parseStatus(out []byte) (nodeState, error) {
 	if err := json.Unmarshal(out, &st); err != nil {
 		return nodeState{}, err
 	}
-	parsed := nodeState{ID: st.Self.ID, Online: st.Self.Online}
+	// Self.Online stays true on an expired node that sits in NeedsLogin.
+	parsed := nodeState{ID: st.Self.ID, Online: st.Self.Online && st.BackendState == "Running"}
 	for _, addr := range st.Self.TailscaleIPs {
 		if strings.Contains(addr, ".") {
 			parsed.IP = addr

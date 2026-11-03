@@ -28,6 +28,10 @@ func TestParseStatusOfflineKeepsAddress(t *testing.T) {
 	if err != nil || !st.Online {
 		t.Fatalf("online = %+v %v", st, err)
 	}
+	st, err = parseStatus([]byte(`{"BackendState":"NeedsLogin","Self":{"ID":"n1","Online":true,"Expired":true,"TailscaleIPs":["198.18.0.4"]}}`))
+	if err != nil || st.Online {
+		t.Fatalf("expired node must not count as online: %+v %v", st, err)
+	}
 }
 
 func TestUpArgsReconnectsWithoutKey(t *testing.T) {
