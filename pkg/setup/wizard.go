@@ -121,6 +121,11 @@ func Execute(opts Options, io Streams) error {
 			if reinstall {
 				fmt.Fprintf(io.Out, "Installing vLLM %s...\n", pinned)
 				if err := installEngine(context.Background(), kind, pinned, io.Out); err != nil {
+					if plan.Role == "worker" {
+						// Exchange spends the join code. Do not enroll on the
+						// wrong (or now-missing) vLLM after a failed reinstall.
+						return fmt.Errorf("install vLLM %s: %w", pinned, err)
+					}
 					fmt.Fprintf(io.Err, "install failed: %v\n", err)
 					autoStart = false
 				} else {
@@ -148,6 +153,9 @@ func Execute(opts Options, io Streams) error {
 		if doInstall {
 			fmt.Fprintf(io.Out, "Installing %s...\n", engine.Label(kind))
 			if err := installEngine(context.Background(), kind, pinned, io.Out); err != nil {
+				if plan.Role == "worker" {
+					return fmt.Errorf("install %s: %w", engine.Label(kind), err)
+				}
 				fmt.Fprintf(io.Err, "install failed: %v\n", err)
 				autoStart = false
 			} else {
