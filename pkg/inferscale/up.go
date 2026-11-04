@@ -38,6 +38,17 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 		return "", "", err
 	}
 	freshKey := pendingAuthKey(supplied, authKey)
+	// sudo -v prints on the tty. The download spinner clears that line, so
+	// the password prompt has to finish before WithWait starts.
+	needed, err := installNeeded()
+	if err != nil {
+		return "", "", err
+	}
+	if needed {
+		if err := ensureSudo(ctx); err != nil {
+			return "", "", err
+		}
+	}
 	var cli string
 	if err := WithWait("Downloading inferscale", func() error {
 		var derr error
@@ -329,15 +340,30 @@ func stateDir() (string, error) {
 	return dir, nil
 }
 
+// installNeeded is true when the root-owned binaries are not both present.
+func installNeeded() (bool, error) {
+	_, daemonName, err := hostAsset()
+	if err != nil {
+		return false, err
+	}
+	cli, daemon := binPaths()
+	return needsInstall(daemonName, cli, daemon), nil
+}
+
+func needsInstall(daemonName, cli, daemon string) bool {
+	return rootOwned(cli) != nil || (daemonName != "" && rootOwned(daemon) != nil)
+}
+
 func ensureBins(ctx context.Context) (string, error) {
 	cliName, daemonName, err := hostAsset()
 	if err != nil {
 		return "", err
 	}
 	cli, daemon := binPaths()
-	if rootOwned(cli) == nil && (daemonName == "" || rootOwned(daemon) == nil) {
+	if !needsInstall(daemonName, cli, daemon) {
 		return cli, nil
 	}
+	// BringUp prompts before the spinner. This covers a direct call.
 	if err := ensureSudo(ctx); err != nil {
 		return "", err
 	}
