@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -638,6 +639,99 @@ func TestWorkerWithInstalledVLLMStillWaitsForMasterVersion(t *testing.T) {
 	}, Streams{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard})
 	if err == nil || !strings.Contains(err.Error(), "no vLLM version") {
 		t.Fatal(err)
+	}
+}
+
+func fakeVersionBin(t *testing.T, version string) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "vllm")
+	body := "#!/bin/sh\necho vLLM version " + version + "\n"
+	if runtime.GOOS == "windows" {
+		bin += ".cmd"
+		body = "@echo vLLM version " + version + "\r\n"
+	}
+	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+func TestWorkerInstallFailureDoesNotJoin(t *testing.T) {
+	if engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) != engine.KindVLLM {
+		t.Skip("this OS remaps vLLM")
+	}
+	singlePlan(t)
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{
+			Role: "worker", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm",
+			VLLMVersion: "0.31.0",
+		}, nil
+	}
+	bin := fakeVersionBin(t, "0.30.0")
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind, Found: true, Bin: bin}
+	}
+	installEngine = func(context.Context, engine.Kind, string, io.Writer) error {
+		return fmt.Errorf("pip failed")
+	}
+	joined := false
+	prevPrepare := prepareCluster
+	prepareCluster = func(*config.Config, *engine.Spec) error {
+		joined = true
+		return nil
+	}
+	t.Cleanup(func() { prepareCluster = prevPrepare })
+	dir := t.TempDir()
+	err := Execute(Options{
+		ConfigPath:     filepath.Join(dir, "config.yaml"),
+		APIKey:         "join-abc",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+	}, Streams{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "install vLLM 0.31.0") {
+		t.Fatal(err)
+	}
+	if joined {
+		t.Fatal("worker joined after the pinned install failed")
+	}
+}
+
+func TestWorkerMissingInstallFailureDoesNotJoin(t *testing.T) {
+	if engine.RuntimeKind(runtime.GOOS, engine.KindVLLM) != engine.KindVLLM {
+		t.Skip("this OS remaps vLLM")
+	}
+	singlePlan(t)
+	clusterPlan = func(*config.Config) (clusterSettings, error) {
+		return clusterSettings{
+			Role: "worker", Name: "inferoute-cluster1",
+			Model: "Qwen/Qwen3-0.6B", ServiceType: "vllm",
+			VLLMVersion: "0.31.0",
+		}, nil
+	}
+	detectEngine = func(kind engine.Kind) engine.Detected {
+		return engine.Detected{Kind: kind}
+	}
+	installEngine = func(context.Context, engine.Kind, string, io.Writer) error {
+		return fmt.Errorf("pip failed")
+	}
+	joined := false
+	prevPrepare := prepareCluster
+	prepareCluster = func(*config.Config, *engine.Spec) error {
+		joined = true
+		return nil
+	}
+	t.Cleanup(func() { prepareCluster = prevPrepare })
+	dir := t.TempDir()
+	err := Execute(Options{
+		ConfigPath:     filepath.Join(dir, "config.yaml"),
+		APIKey:         "join-abc",
+		OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+	}, Streams{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "install vLLM") {
+		t.Fatal(err)
+	}
+	if joined {
+		t.Fatal("worker joined after install failed")
 	}
 }
 
