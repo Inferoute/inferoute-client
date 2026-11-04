@@ -16,8 +16,8 @@ const (
 	vllmMetalInstallURL = "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
 	vllmDocsURL         = "https://docs.vllm.ai/en/stable/getting_started/installation/gpu/index.html"
 	uvInstallURL        = "https://astral.sh/uv/install.sh"
-	// vllmPython is the interpreter every node uses. uv downloads this CPython
-	// when the host does not have it, so the distro's Python does not matter.
+	// vllmPython is the interpreter every node uses. vLLM's install path, CI,
+	// and ROCm wheels are 3.12 (supports 3.11–3.14).
 	vllmPython = "3.12"
 )
 
@@ -70,7 +70,9 @@ func installVLLM(ctx context.Context, version string, w io.Writer) error {
 	// --seed installs pip. FlashInfer's kernel download runs `python -m pip`.
 	// --clear replaces a venv left behind by a failed install; uv refuses to
 	// recreate one that already exists.
-	if err := run(ctx, w, uv, "venv", "--python", vllmPython, "--seed", "--clear", venv); err != nil {
+	// --managed-python skips a distro 3.12. Ubuntu 24.04's interpreter reports
+	// /usr/include/python3.12, and Triton fails there without python3.12-dev.
+	if err := run(ctx, w, uv, "venv", "--python", vllmPython, "--managed-python", "--seed", "--clear", venv); err != nil {
 		return err
 	}
 	fmt.Fprintln(w, "Installing vLLM (this can take several minutes)...")

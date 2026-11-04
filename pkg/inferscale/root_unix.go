@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,14 @@ func ensureSudo(ctx context.Context) error {
 	}
 	if _, err := exec.LookPath("sudo"); err != nil {
 		return fmt.Errorf("inferscale needs root to create %s, and sudo is not installed", TUN)
+	}
+	// Cached by an earlier ensureSudo in this setup. -n would otherwise
+	// print "a password is required" and we would print the banner again.
+	probe := exec.CommandContext(ctx, "sudo", "-n", "true")
+	probe.Stdout = io.Discard
+	probe.Stderr = io.Discard
+	if probe.Run() == nil {
+		return nil
 	}
 	fmt.Fprintf(os.Stderr, "inferscale needs root to create %s\n", TUN)
 	cmd := exec.CommandContext(ctx, "sudo", "-v")
