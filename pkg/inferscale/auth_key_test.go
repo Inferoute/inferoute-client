@@ -55,6 +55,24 @@ func TestAuthKeySurvivesEmptyRetry(t *testing.T) {
 	}
 }
 
+func TestLeftoverKeyIsPendingJoinOnEmptyRetry(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+
+	if _, err := persistAuthKey("tskey-one"); err != nil {
+		t.Fatal(err)
+	}
+	// resumeWorker / refreshCluster call BringUp with "".
+	got, err := persistAuthKey("")
+	if err != nil || got != "tskey-one" {
+		t.Fatalf("retry = %q %v", got, err)
+	}
+	if !pendingAuthKey("", got) {
+		t.Fatal("empty retry must still treat the leftover key as a pending join")
+	}
+}
+
 func TestAuthKeyRejected(t *testing.T) {
 	if !authKeyRejected("", "Received error: register request: http 401: authkey already used") {
 		t.Fatal("used key")

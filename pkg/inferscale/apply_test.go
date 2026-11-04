@@ -50,6 +50,25 @@ func TestReuseOnlineNodeSkipsFreshKey(t *testing.T) {
 	}
 }
 
+func TestPendingAuthKeyTreatsLeftoverAsFresh(t *testing.T) {
+	if !pendingAuthKey("tskey-new", "tskey-new") {
+		t.Fatal("caller-supplied key is a pending join")
+	}
+	if !pendingAuthKey("", "tskey-leftover") {
+		t.Fatal("leftover key after Exchange + failed BringUp is still a pending join")
+	}
+	if pendingAuthKey("", "") {
+		t.Fatal("no leftover means this machine already joined")
+	}
+	online := nodeState{IP: "198.18.0.4", ID: "n1", Online: true}
+	if reuseOnlineNode(pendingAuthKey("", "tskey-leftover"), online) {
+		t.Fatal("leftover key must not reuse the old tailnet or clearAuthKey would spend it")
+	}
+	if !reuseOnlineNode(pendingAuthKey("", ""), online) {
+		t.Fatal("reconnect with no leftover should reuse an online node")
+	}
+}
+
 func TestUpArgsReconnectsWithoutKey(t *testing.T) {
 	if strings.Join(upArgs("http://127.0.0.1:8444", ""), " ") != "up --login-server http://127.0.0.1:8444" {
 		t.Fatal(upArgs("http://127.0.0.1:8444", ""))
