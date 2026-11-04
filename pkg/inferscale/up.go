@@ -30,12 +30,14 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	}
 	// Exchange already spent the join code. The key has to be on disk before
 	// download or sudo can fail and the next run passes "".
-	// A caller-supplied key is a cluster switch. persistAuthKey also returns a
-	// leftover from a failed up; that must not look like a switch.
-	freshKey := strings.TrimSpace(authKey) != ""
+	// A leftover from that failed up is still a pending join: resumeWorker
+	// and refreshCluster both call BringUp with "". Treating it as "already
+	// joined" reuses the old tailnet and clearAuthKey deletes the unused key.
+	supplied := strings.TrimSpace(authKey)
 	if authKey, err = persistAuthKey(authKey); err != nil {
 		return "", "", err
 	}
+	freshKey := pendingAuthKey(supplied, authKey)
 	var cli string
 	if err := WithWait("Downloading inferscale", func() error {
 		var derr error
@@ -102,8 +104,15 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	return ip, nodeID, err
 }
 
-// reuseOnlineNode is the already-joined shortcut. A caller-supplied key is a
-// cluster switch: keep the key and run `up` instead of returning the old IP.
+// pendingAuthKey is true when this process still has a one-shot key to spend.
+// That includes a leftover from a failed `up` when the caller passed "".
+func pendingAuthKey(supplied, persisted string) bool {
+	return strings.TrimSpace(supplied) != "" || strings.TrimSpace(persisted) != ""
+}
+
+// reuseOnlineNode is the already-joined shortcut. A pending key (caller-supplied
+// or leftover) is a cluster switch: keep the key and run `up` instead of
+// returning the old IP.
 func reuseOnlineNode(freshKey bool, st nodeState) bool {
 	return !freshKey && st.Online && st.IP != ""
 }
