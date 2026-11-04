@@ -64,7 +64,11 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 		if err := ensureSudo(ctx); err != nil {
 			return "", "", err
 		}
-		_ = commandAsRoot(ctx, cli, "logout").Run()
+		logout, lerr := commandAsRoot(ctx, cli, "logout")
+		if lerr != nil {
+			return "", "", lerr
+		}
+		_ = logout.Run()
 	}
 	// A saved address is not a connection. Offline still has the old IPv4.
 	if st, err := readState(ctx, cli); err == nil && reuseOnlineNode(freshKey, st) {
@@ -78,7 +82,17 @@ func BringUp(ctx context.Context, loginServer, authKey string) (ip, nodeID strin
 	if err := ensureSudo(ctx); err != nil {
 		return "", "", err
 	}
-	cmd := commandAsRoot(ctx, cli, upArgs(loginServer, authKey)...)
+	keyFile := ""
+	if authKey != "" {
+		keyFile, err = authKeyPath()
+		if err != nil {
+			return "", "", err
+		}
+	}
+	cmd, err := commandAsRoot(ctx, cli, upArgs(loginServer, keyFile)...)
+	if err != nil {
+		return "", "", err
+	}
 	// up's exit status does not say whether Headscale spent the key.
 	// The rejection text lands in the daemon log and, when the CLI prints it, on stderr.
 	logAt := fileSize(daemonLogPath())
@@ -117,13 +131,14 @@ func reuseOnlineNode(freshKey bool, st nodeState) bool {
 	return !freshKey && st.Online && st.IP != ""
 }
 
-func upArgs(loginServer, authKey string) []string {
+// upArgs names the 0600 key file. file: keeps the one-shot key out of argv.
+func upArgs(loginServer, authKeyPath string) []string {
 	args := []string{"up"}
 	if loginServer != "" {
 		args = append(args, "--login-server", loginServer)
 	}
-	if authKey != "" {
-		args = append(args, "--auth-key", authKey)
+	if authKeyPath != "" {
+		args = append(args, "--auth-key", "file:"+authKeyPath)
 	}
 	return args
 }
@@ -139,16 +154,22 @@ func rootArgv(euid int, name string, args ...string) (string, []string) {
 	return "sudo", append([]string{"-n", "--", name}, args...)
 }
 
-func commandAsRoot(ctx context.Context, name string, args ...string) *exec.Cmd {
+func commandAsRoot(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	if err := rootOwned(name); err != nil {
+		return nil, fmt.Errorf("refusing to run %s as root: %w", name, err)
+	}
 	bin, argv := rootArgv(euid(), name, args...)
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd
+	return cmd, nil
 }
 
 func startDaemon(ctx context.Context, daemon string) error {
+	if err := rootOwned(daemon); err != nil {
+		return fmt.Errorf("refusing to run %s as root: %w", daemon, err)
+	}
 	logf := openDaemonLog()
 	defer logf.Close()
 	if euid() == 0 {
@@ -191,7 +212,7 @@ type nopWriteCloser struct{ io.Writer }
 func (nopWriteCloser) Close() error { return nil }
 
 func authKeyPath() (string, error) {
-	dir, err := binDir()
+	dir, err := stateDir()
 	if err != nil {
 		return "", err
 	}
@@ -289,7 +310,14 @@ func readFrom(path string, off int64) string {
 	return string(b[:n])
 }
 
-func binDir() (string, error) {
+const libexecDir = "/usr/local/libexec/inferoute"
+
+func binPaths() (cli, daemon string) {
+	return filepath.Join(libexecDir, "inferscale"), filepath.Join(libexecDir, "inferscaled")
+}
+
+// stateDir holds the one-shot key. The binaries do not live here.
+func stateDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -306,21 +334,108 @@ func ensureBins(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir, err := binDir()
-	if err != nil {
+	cli, daemon := binPaths()
+	if rootOwned(cli) == nil && (daemonName == "" || rootOwned(daemon) == nil) {
+		return cli, nil
+	}
+	if err := ensureSudo(ctx); err != nil {
 		return "", err
 	}
-	cli := filepath.Join(dir, "inferscale")
-	daemon := filepath.Join(dir, "inferscaled")
-	if err := download(ctx, downloadURL(cliName), cli); err != nil {
+	if err := lockDownDir(ctx, libexecDir); err != nil {
+		return "", err
+	}
+	if err := installBinary(ctx, downloadURL(cliName), cli); err != nil {
 		return "", err
 	}
 	if daemonName != "" {
-		if err := download(ctx, downloadURL(daemonName), daemon); err != nil {
+		if err := installBinary(ctx, downloadURL(daemonName), daemon); err != nil {
 			return "", err
 		}
 	}
+	if err := rootOwned(cli); err != nil {
+		return "", fmt.Errorf("inferscale install: %w", err)
+	}
+	if daemonName != "" {
+		if err := rootOwned(daemon); err != nil {
+			return "", fmt.Errorf("inferscaled install: %w", err)
+		}
+	}
 	return cli, nil
+}
+
+func installBinary(ctx context.Context, url, dest string) error {
+	if err := rejectSymlink(dest); err != nil {
+		return err
+	}
+	if euid() == 0 {
+		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := download(ctx, url, dest); err != nil {
+			return err
+		}
+		return os.Chmod(dest, 0o755)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s: %s", url, res.Status)
+	}
+	tmp := dest + ".tmp"
+	if err := runSudo(ctx, "rm", "-f", tmp); err != nil {
+		return err
+	}
+	pr, pw := io.Pipe()
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "--", "tee", tmp)
+	cmd.Stdin = pr
+	cmd.Stdout = io.Discard
+	cmd.Stderr = os.Stderr
+	copyErrc := make(chan error, 1)
+	go func() {
+		n, copyErr := io.Copy(pw, res.Body)
+		if copyErr == nil && n == 0 {
+			copyErr = fmt.Errorf("download %s: empty", url)
+		}
+		closeErr := pw.CloseWithError(copyErr)
+		if copyErr == nil {
+			copyErr = closeErr
+		}
+		copyErrc <- copyErr
+	}()
+	runErr := cmd.Run()
+	copyErr := <-copyErrc
+	if copyErr != nil || runErr != nil {
+		_ = runSudo(ctx, "rm", "-f", tmp)
+		if copyErr != nil {
+			return copyErr
+		}
+		return fmt.Errorf("install %s: %w", dest, runErr)
+	}
+	if err := runSudo(ctx, "mv", "-f", tmp, dest); err != nil {
+		return err
+	}
+	if err := runSudo(ctx, "chmod", "0755", dest); err != nil {
+		return err
+	}
+	return runSudo(ctx, "chown", "root:root", dest)
+}
+
+func runSudo(ctx context.Context, args ...string) error {
+	bin, argv := rootArgv(euid(), args[0], args[1:]...)
+	cmd := exec.CommandContext(ctx, bin, argv...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sudo %s: %w", args[0], err)
+	}
+	return nil
 }
 
 func download(ctx context.Context, url, dest string) error {
@@ -518,17 +633,25 @@ func waitOnline(ctx context.Context, cli string) (string, string, error) {
 	}
 }
 
-// CLI is the inferscale binary on PATH or the one setup downloaded.
+// CLI is the root-owned inferscale binary. A user-writable PATH entry is ignored.
 func CLI() (string, error) {
-	if path, err := exec.LookPath("inferscale"); err == nil {
-		return path, nil
+	cli, err := trustedCLI()
+	if err != nil {
+		return "", fmt.Errorf("inferscale is not installed: %w", err)
 	}
-	dir, err := binDir()
+	return cli, nil
+}
+
+func trustedCLI() (string, error) {
+	cli, _ := binPaths()
+	if err := rootOwned(cli); err == nil {
+		return cli, nil
+	}
+	path, err := exec.LookPath("inferscale")
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "inferscale")
-	if _, err := os.Stat(path); err != nil {
+	if err := rootOwned(path); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -560,16 +683,8 @@ func LocalStatus() (ip, peers string) {
 
 // Tailnet is this machine's tailnet IPv4 and how many other nodes are online.
 func Tailnet() (ip string, onlinePeers int) {
-	cli, err := exec.LookPath("inferscale")
+	cli, err := trustedCLI()
 	if err != nil {
-		if dir, derr := binDir(); derr == nil {
-			candidate := filepath.Join(dir, "inferscale")
-			if _, serr := os.Stat(candidate); serr == nil {
-				cli = candidate
-			}
-		}
-	}
-	if cli == "" {
 		return "", 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

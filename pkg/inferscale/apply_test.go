@@ -73,8 +73,12 @@ func TestUpArgsReconnectsWithoutKey(t *testing.T) {
 	if strings.Join(upArgs("http://127.0.0.1:8444", ""), " ") != "up --login-server http://127.0.0.1:8444" {
 		t.Fatal(upArgs("http://127.0.0.1:8444", ""))
 	}
-	if strings.Join(upArgs("http://127.0.0.1:8444", "k"), " ") != "up --login-server http://127.0.0.1:8444 --auth-key k" {
-		t.Fatal(upArgs("http://127.0.0.1:8444", "k"))
+	const key = "tskey-auth-test"
+	path := "/home/ubuntu/.local/share/inferoute/inferscale/auth-key"
+	got := strings.Join(upArgs("http://127.0.0.1:8444", path), " ")
+	want := "up --login-server http://127.0.0.1:8444 --auth-key file:" + path
+	if got != want || strings.Contains(got, key) {
+		t.Fatalf("argv = %q", got)
 	}
 }
 
