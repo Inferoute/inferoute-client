@@ -117,7 +117,7 @@ function render(s) {
   document.getElementById("app").innerHTML = `
     ${updateHtml}
     ${row("Last Health Update", esc(s.last_health_update))}
-    ${row("Session Status", "online", "ok")}
+    ${row("Session Status", esc(s.session_status || "online"), s.session_status === "benchmarking" ? "warn" : "ok")}
     ${row("Provider Type", esc(s.provider_type))}
     ${row("Provider API Key", esc(s.provider_api_key))}
     ${row("Provider URL", esc(s.provider_url))}
@@ -127,7 +127,7 @@ function render(s) {
     ${tunnel}
     <h2>CLUSTER STATUS</h2>
     ${row("Cluster", esc(s.cluster || "single"))}
-    ${s.engine_note ? row("Engine", esc(s.engine_note)) : ""}
+    ${s.engine_note ? row("Benchmark", esc(s.engine_note)) : ""}
     ${s.nodes ? row("Nodes", esc(s.nodes)) : ""}
     ${modelHtml}
     <h2>GPU INFORMATION</h2>

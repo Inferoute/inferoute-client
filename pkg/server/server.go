@@ -212,7 +212,14 @@ func (s *Server) redrawConsole() {
 	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\033[0m\n")
 
 	buf.WriteString(fmt.Sprintf("\033[1;35mLast Health Update            \033[0m%s\n", snap.LastHealthUpdate))
-	buf.WriteString("\033[1;35mSession Status                \033[0m\033[1;32monline\033[0m\n")
+	statusColor := "\033[1;32m"
+	if snap.SessionStatus == "benchmarking" {
+		statusColor = "\033[1;33m"
+	}
+	buf.WriteString(fmt.Sprintf("\033[1;35mSession Status                \033[0m%s%s\033[0m\n", statusColor, snap.SessionStatus))
+	if snap.EngineNote != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35mBenchmark                     \033[0m%s\n", snap.EngineNote))
+	}
 	switch snap.UpdateStatus {
 	case "required":
 		buf.WriteString(fmt.Sprintf("\033[1;31mUpdate required: %s -> %s. Run 'inferoute-client update' then restart.\033[0m\n", snap.ClientVersion, snap.LatestVersion))

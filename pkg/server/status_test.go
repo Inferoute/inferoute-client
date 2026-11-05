@@ -66,6 +66,23 @@ func TestHandleStatusMasksAPIKey(t *testing.T) {
 	}
 }
 
+func TestSessionStatusWhileBenchmarking(t *testing.T) {
+	s := newTestServer("http://unused", &fakeLLM{})
+	s.SetBenchmarking(true)
+	s.SetEngineNote("benchmarking (1/5)")
+	snap := s.snapshot()
+	if snap.SessionStatus != "benchmarking" {
+		t.Fatalf("session = %q", snap.SessionStatus)
+	}
+	if snap.EngineNote != "benchmarking (1/5)" {
+		t.Fatalf("note = %q", snap.EngineNote)
+	}
+	s.SetBenchmarking(false)
+	if s.snapshot().SessionStatus != "online" {
+		t.Fatal("session should return to online")
+	}
+}
+
 func TestWorkerStatusUsesMasterURL(t *testing.T) {
 	s := newTestServer("http://unused", &fakeLLM{})
 	s.config.Provider.ClusterMode = "worker"

@@ -127,7 +127,7 @@ func (s *Server) snapshot() StatusSnapshot {
 	}
 	return StatusSnapshot{
 		LastHealthUpdate: lastUpdateStr,
-		SessionStatus:    "online",
+		SessionStatus:    s.sessionLabel(),
 		ProviderType:     providerType,
 		ProviderAPIKey:   apiKey,
 		ProviderURL:      providerURL,
@@ -145,6 +145,13 @@ func (s *Server) snapshot() StatusSnapshot {
 		Nodes:            nodes,
 		EngineNote:       s.engineNoteText(),
 	}
+}
+
+func (s *Server) sessionLabel() string {
+	if s.benchmarking.Load() {
+		return "benchmarking"
+	}
+	return "online"
 }
 
 func (s *Server) engineNoteText() string {
