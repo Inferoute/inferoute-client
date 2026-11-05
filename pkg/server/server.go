@@ -77,6 +77,7 @@ func (s *Server) SetMaxInflight(n int32) {
 func (s *Server) SetBenchmarking(on bool) {
 	s.benchmarking.Store(on)
 	s.notifyCapacityChange()
+	s.redrawConsole()
 }
 
 // SetEngineNote is the local dashboard line for benchmark progress.
@@ -84,6 +85,7 @@ func (s *Server) SetEngineNote(note string) {
 	s.engineNoteMu.Lock()
 	s.engineNote = note
 	s.engineNoteMu.Unlock()
+	s.redrawConsole()
 }
 
 // SlotSnapshot is what the capacity sender reports.
@@ -201,8 +203,15 @@ func (s *Server) consoleUpdater() {
 	}
 }
 
-// redrawConsole completely redraws the console
+// redrawConsole completely redraws the console. Benchmark progress calls
+// this immediately; the 3s ticker is too slow and was painting the
+// "verified" line only after the benchmarking flag had already cleared.
 func (s *Server) redrawConsole() {
+	if !s.consoleUI {
+		return
+	}
+	s.consoleMu.Lock()
+	defer s.consoleMu.Unlock()
 	snap := s.snapshot()
 
 	var buf bytes.Buffer

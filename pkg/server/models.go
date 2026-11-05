@@ -26,6 +26,7 @@ type Server struct {
 	connector        *connect.Client
 	connectCancel    context.CancelFunc
 	consoleUI        bool
+	consoleMu        sync.Mutex
 	maxInflight      atomic.Int32
 	inflight         atomic.Int32
 	benchmarking     atomic.Bool

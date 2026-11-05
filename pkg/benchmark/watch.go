@@ -76,6 +76,9 @@ func (w *Watcher) measure(ctx context.Context, fp string) {
 	if w.Gate != nil {
 		w.Gate(true)
 	}
+	if w.Note != nil {
+		w.Note("benchmarking (1/" + itoa(len(Levels)) + ")")
+	}
 	defer func() {
 		if w.Gate != nil {
 			w.Gate(false)
