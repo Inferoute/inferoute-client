@@ -56,7 +56,7 @@ func TestServeSpec(t *testing.T) {
 	}
 
 	ft := ServeSpec(KindLlamaCpp, "llama-server", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct-GGUF", ServeOpts{GGUFFile: "qwen2.5-7b-instruct-q4_k_m.gguf"})
-	wantArgs := []string{"--hf-repo", "Qwen/Qwen2.5-7B-Instruct-GGUF", "--hf-file", "qwen2.5-7b-instruct-q4_k_m.gguf", "--alias", "Qwen/Qwen2.5-7B-Instruct", "--host", "127.0.0.1", "--port", "8081", "-ngl", "99"}
+	wantArgs := []string{"--hf-repo", "Qwen/Qwen2.5-7B-Instruct-GGUF", "--hf-file", "qwen2.5-7b-instruct-q4_k_m.gguf", "--alias", "Qwen/Qwen2.5-7B-Instruct", "--host", "127.0.0.1", "--port", "8081", "-ngl", "99", "--metrics"}
 	if len(ft.Args) != len(wantArgs) {
 		t.Fatalf("llama.cpp args = %v", ft.Args)
 	}

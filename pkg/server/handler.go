@@ -87,10 +87,15 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 		return
 	}
 
-	// A matching X-Session-Key means this is a follow-up turn of the
-	// conversation whose KV cache is warm on this GPU. Those turns skip the
-	// busy rejection (the GPU-util arm fires exactly while the previous turn
-	// of the same session is decoding) and queue for the slot instead.
+	// A benchmark owns the engine. Returning conversations do not skip this:
+	// they skip the slot check below, and would otherwise land mid-benchmark.
+	if s.benchmarking.Load() {
+		s.writeBusy(w, r, startTime)
+		return
+	}
+
+	// A matching X-Session-Key means this conversation was served here
+	// recently. Those turns queue for a slot instead of being rejected.
 	sessionKey := r.Header.Get("X-Session-Key")
 	sameSession := sessionKey != "" && s.isActiveSession(sessionKey)
 
@@ -127,8 +132,8 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 
 	acquired := false
 	if sameSession {
-		// Same-session turns are serial, so this queue has depth 1 in
-		// practice; the bounded wait covers the previous turn's decode.
+		// Returning conversations wait for a free slot. Parallel calls that
+		// share a key are admitted together, up to the slot limit.
 		acquired = s.acquireInferenceWait(r.Context(), s.sessionQueueWait)
 	} else {
 		acquired = s.tryAcquireInference()

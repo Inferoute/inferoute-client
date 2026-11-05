@@ -127,6 +127,7 @@ function render(s) {
     ${tunnel}
     <h2>CLUSTER STATUS</h2>
     ${row("Cluster", esc(s.cluster || "single"))}
+    ${s.engine_note ? row("Engine", esc(s.engine_note)) : ""}
     ${s.nodes ? row("Nodes", esc(s.nodes)) : ""}
     ${modelHtml}
     <h2>GPU INFORMATION</h2>

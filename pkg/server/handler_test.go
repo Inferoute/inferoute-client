@@ -70,7 +70,9 @@ func newTestServer(nodeURL string, llmClient llm.Client) *Server {
 	cfg.Provider.URL = nodeURL
 	cfg.Provider.APIKey = "test-key"
 	cfg.Provider.ProviderType = "vllm"
-	return &Server{config: cfg, llmClient: llmClient, maxInflight: 1}
+	s := &Server{config: cfg, llmClient: llmClient}
+	s.maxInflight.Store(1)
+	return s
 }
 
 func postChat(s *Server, hmac, body string) *httptest.ResponseRecorder {
@@ -429,7 +431,8 @@ func TestSameSessionQueueTimesOut(t *testing.T) {
 }
 
 func TestIsBusyIsSlotOnly(t *testing.T) {
-	s := &Server{maxInflight: 1}
+	s := &Server{}
+	s.maxInflight.Store(1)
 	busy, err := s.isBusy()
 	if err != nil || busy {
 		t.Fatalf("free slot: busy=%v err=%v", busy, err)
@@ -444,7 +447,8 @@ func TestIsBusyIsSlotOnly(t *testing.T) {
 }
 
 func TestTryAcquireInference(t *testing.T) {
-	s := &Server{maxInflight: 1}
+	s := &Server{}
+	s.maxInflight.Store(1)
 	if !s.tryAcquireInference() {
 		t.Fatal("first acquire should succeed")
 	}
@@ -456,7 +460,7 @@ func TestTryAcquireInference(t *testing.T) {
 		t.Fatal("acquire after release should succeed")
 	}
 
-	unlimited := &Server{maxInflight: 0}
+	unlimited := &Server{}
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -468,4 +472,26 @@ func TestTryAcquireInference(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestRaisingLimitUnblocksQueuedSession(t *testing.T) {
+	s := &Server{sessionQueueWait: time.Second}
+	s.maxInflight.Store(1)
+	if !s.tryAcquireInference() {
+		t.Fatal("acquire")
+	}
+	done := make(chan bool, 1)
+	go func() {
+		done <- s.acquireInferenceWait(context.Background(), time.Second)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	s.SetMaxInflight(2)
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("queued acquire should succeed after the limit rises")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued acquire did not notice the new limit")
+	}
 }

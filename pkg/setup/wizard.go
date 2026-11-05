@@ -237,7 +237,6 @@ func loadOrFresh(path string) (*config.Config, error) {
 		cfg := &config.Config{}
 		cfg.Server.Port = 8080
 		cfg.Server.Host = "127.0.0.1"
-		cfg.Server.MaxConcurrentInference = 1
 		cfg.Server.SessionQueueWaitSeconds = 90
 		cfg.Server.RequestTimeoutSeconds = 240
 		cfg.Provider.URL = config.DefaultPlatformURL

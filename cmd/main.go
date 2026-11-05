@@ -14,10 +14,13 @@ import (
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/benchmark"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/capacity"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/inferscale"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
@@ -42,6 +45,7 @@ Usage:
   inferoute-client setup [flags]
   inferoute-client compatibility [flags]
   inferoute-client update [--check]
+  inferoute-client benchmark
 
 Commands:
   setup           Interactive engine, model, and API key wizard (safe to re-run)
@@ -49,6 +53,7 @@ Commands:
                   (does not start the provider daemon)
   update          Download the newest client, verify it, and replace this binary.
                   Stop the running client first. --check only prints the result.
+  benchmark       Ask the running client to measure concurrency again.
 
 Flags:
   --config string   Path to configuration file (default: ~/.config/inferoute/config.yaml)
@@ -81,6 +86,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "setup" {
 		if err := setup.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "benchmark" {
+		if err := runBenchmark(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "benchmark: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -231,6 +243,7 @@ func main() {
 	if useTray {
 		srv.SetConsoleUI(false)
 	}
+	startCapacity(ctx, cfg, *configPath, llmURL, llmClient, gpuMonitor, catalog, srv, healthReporter)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -280,20 +293,6 @@ func main() {
 			select {
 			case <-ticker.C:
 				if !report("Failed to send health report") {
-					return
-				}
-			case <-healthReporter.BusyChanges():
-				// Busy-state transition: push immediately so the central
-				// provider_busy flag is seconds, not minutes, stale.
-				if !report("Failed to send busy-transition health report") {
-					return
-				}
-				// Cool down so rapid request bursts don't flood the platform.
-				// A transition during the cooldown leaves a pending signal
-				// (buffered channel), which sends a fresh report right after.
-				select {
-				case <-time.After(10 * time.Second):
-				case <-ctx.Done():
 					return
 				}
 			case <-ctx.Done():
@@ -512,4 +511,112 @@ func maybeFirstRunSetup(configPath string) error {
 	}
 	fmt.Println("No provider API key configured. Starting setup...")
 	return setup.Run([]string{"--config", configPath})
+}
+
+func runBenchmark(args []string) error {
+	fs := flag.NewFlagSet("benchmark", flag.ContinueOnError)
+	configPath := fs.String("config", "", "path to configuration file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	path := *configPath
+	if path == "" {
+		var err error
+		path, err = resolveConfigPath()
+		if err != nil {
+			return err
+		}
+	}
+	if err := benchmark.Clear(path); err != nil {
+		return err
+	}
+	fmt.Println("benchmark requested; the running client measures on its next check")
+	return nil
+}
+
+func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL string, llmClient llm.Client, gpuMonitor *gpu.Monitor, catalog *verify.Catalog, srv *server.Server, reporter *health.Reporter) {
+	if cfg.EnrolledWorker() || cfg.Provider.ClusterMode == "worker" {
+		return
+	}
+	sender := capacity.NewSender(cfg.Provider.URL, cfg.Provider.APIKey, srv.SlotSnapshot, llmClient)
+	srv.SetCapacityNotify(sender.Notify)
+	go sender.Loop(ctx)
+
+	if _, explicit := cfg.ExplicitConcurrency(); explicit || cfg.Provider.Engine == "llama_cpp" {
+		return
+	}
+	kind, _ := engine.ParseKind(cfg.Provider.Engine)
+	go (&benchmark.Watcher{
+		ConfigPath: configPath,
+		EngineURL:  llmURL,
+		Model:      cfg.Provider.Model,
+		Ready: func() bool {
+			probe, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			if cfg.Provider.ClusterMode == "master" {
+				_, online := inferscale.Tailnet()
+				return engine.MasterState(probe, kind, llmURL, cfg.Provider.EngineArgs, online) == "ready"
+			}
+			return engine.Healthy(probe, kind, llmURL)
+		},
+		Fingerprint: func() string { return deploymentFingerprint(ctx, cfg, llmClient, gpuMonitor) },
+		Recommended: func() int {
+			entry, ok := catalog.Get(cfg.Provider.Model)
+			if ok && entry.RecommendedConcurrency != nil && *entry.RecommendedConcurrency > 0 {
+				return int(*entry.RecommendedConcurrency)
+			}
+			return engine.DefaultConcurrency(kind)
+		},
+		Apply: func(n int) { srv.SetMaxInflight(int32(n)) },
+		Note:  srv.SetEngineNote,
+		Gate:  srv.SetBenchmarking,
+		GPUBusy: func() bool {
+			if gpuMonitor == nil {
+				return false
+			}
+			info, err := gpuMonitor.GetGPUInfo()
+			return err == nil && info != nil && info.Utilization > 20
+		},
+		Preemptions: func(c context.Context) int64 {
+			src, ok := llmClient.(interface {
+				EngineCapacity(context.Context) (llm.EngineCapacity, error)
+			})
+			if !ok {
+				return 0
+			}
+			got, err := src.EngineCapacity(c)
+			if err != nil || got.Preemptions == nil {
+				return 0
+			}
+			return *got.Preemptions
+		},
+		Record: func(res benchmark.Result) {
+			reporter.SetBenchmark(&health.BenchmarkSummary{
+				Concurrency: res.Concurrency,
+				MeasuredAt:  res.MeasuredAt,
+				Levels:      res.Levels,
+			})
+		},
+	}).Loop(ctx)
+}
+
+func deploymentFingerprint(ctx context.Context, cfg *config.Config, llmClient llm.Client, gpuMonitor *gpu.Monitor) string {
+	fp := cfg.Provider.Model + "|" + cfg.Provider.Engine + "|" + engine.InstalledVersion(cfg.Provider.EngineBin)
+	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if listed, err := llmClient.ListModels(probe); err == nil {
+		for _, m := range listed.Models {
+			if m.ID == cfg.Provider.Model || cfg.Provider.Model == "" {
+				fp += "|" + m.WeightFingerprint + "|" + fmt.Sprint(m.MaxModelLen)
+				break
+			}
+		}
+	}
+	if gpuMonitor != nil {
+		if info, err := gpuMonitor.GetGPUInfo(); err == nil && info != nil {
+			fp += "|" + info.ProductName + "|" + fmt.Sprint(info.GPUCount)
+		}
+	}
+	fp += "|" + fmt.Sprint(engine.NNodes(cfg.Provider.EngineArgs))
+	return fp
 }

@@ -50,17 +50,45 @@ func CreateServer(cfg *config.Config, gpuMonitor *gpu.Monitor, healthReporter *h
 		llmClient:        llmClient,
 		verifier:         verifier,
 		consoleUI:        true,
-		maxInflight:      int32(cfg.Server.MaxConcurrentInference),
 		sessionQueueWait: cfg.SessionQueueWait(),
 	}
-
-	// Health reports include the inflight-slot state in is_busy so the
-	// central busy flag reflects actual serving, not just GPU utilization.
-	if healthReporter != nil {
-		healthReporter.SetSlotBusyFunc(s.slotsBusy)
+	kind, _ := engine.ParseKind(cfg.Provider.Engine)
+	n := int32(engine.DefaultConcurrency(kind))
+	if v, ok := cfg.ExplicitConcurrency(); ok {
+		n = int32(v)
 	}
+	s.maxInflight.Store(n)
 
 	return s
+}
+
+// SetCapacityNotify is called when inflight or the limit changes.
+func (s *Server) SetCapacityNotify(fn func()) {
+	s.onCapacity = fn
+}
+
+// SetMaxInflight changes the live slot limit and reports it immediately.
+func (s *Server) SetMaxInflight(n int32) {
+	s.maxInflight.Store(n)
+	s.notifyCapacityChange()
+}
+
+// SetBenchmarking closes the gate while a concurrency benchmark runs.
+func (s *Server) SetBenchmarking(on bool) {
+	s.benchmarking.Store(on)
+	s.notifyCapacityChange()
+}
+
+// SetEngineNote is the local dashboard line for benchmark progress.
+func (s *Server) SetEngineNote(note string) {
+	s.engineNoteMu.Lock()
+	s.engineNote = note
+	s.engineNoteMu.Unlock()
+}
+
+// SlotSnapshot is what the capacity sender reports.
+func (s *Server) SlotSnapshot() (inflight, maxInflight int32, accepting bool) {
+	return s.inflight.Load(), s.maxInflight.Load(), !s.benchmarking.Load()
 }
 
 // SetConsoleUI enables or disables the ANSI terminal dashboard.

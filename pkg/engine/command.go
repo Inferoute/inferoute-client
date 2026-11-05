@@ -106,6 +106,7 @@ func ServeSpec(kind Kind, bin, modelAlias, hfRepo string, opts ServeOpts) Spec {
 			"--host", "127.0.0.1",
 			"--port", "8081",
 			"-ngl", "99",
+			"--metrics",
 		}
 		if opts.MaxModelLen > 0 {
 			spec.Args = append(spec.Args, "-c", strconv.FormatInt(opts.MaxModelLen, 10))

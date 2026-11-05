@@ -14,6 +14,17 @@ const (
 	KindLlamaCpp  Kind = "llama_cpp"
 )
 
+// DefaultConcurrency is the starting slot limit before a benchmark.
+// vLLM batches; llama.cpp stays at 1 because -c is split across --parallel slots.
+func DefaultConcurrency(k Kind) int {
+	switch k {
+	case KindVLLM, KindVLLMMetal:
+		return 4
+	default:
+		return 1
+	}
+}
+
 // Label is the human-readable engine name for prompts and spinners.
 func Label(k Kind) string {
 	switch k {

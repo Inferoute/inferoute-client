@@ -53,6 +53,7 @@ type StatusSnapshot struct {
 	Peers            string        `json:"peers,omitempty"`
 	Cluster          string        `json:"cluster,omitempty"`
 	Nodes            string        `json:"nodes,omitempty"`
+	EngineNote       string        `json:"engine_note,omitempty"`
 }
 
 func (s *Server) snapshot() StatusSnapshot {
@@ -142,7 +143,14 @@ func (s *Server) snapshot() StatusSnapshot {
 		Peers:            peers,
 		Cluster:          cluster,
 		Nodes:            nodes,
+		EngineNote:       s.engineNoteText(),
 	}
+}
+
+func (s *Server) engineNoteText() string {
+	s.engineNoteMu.Lock()
+	defer s.engineNoteMu.Unlock()
+	return s.engineNote
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {

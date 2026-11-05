@@ -26,16 +26,21 @@ type Server struct {
 	connector        *connect.Client
 	connectCancel    context.CancelFunc
 	consoleUI        bool
-	maxInflight      int32
+	maxInflight      atomic.Int32
 	inflight         atomic.Int32
+	benchmarking     atomic.Bool
+	onCapacity       func()
+	engineNote       string
+	engineNoteMu     sync.Mutex
 	sessionQueueWait time.Duration
-	// activeSessionKey is the X-Session-Key of the in-flight (or last
-	// completed) inference. Matching follow-up turns queue for the slot
-	// instead of being rejected, because their KV cache is warm here.
-	sessionMu        sync.Mutex
-	activeSessionKey string
-	server           *http.Server
-	requestStats     struct {
+	// sessions remembers recent X-Session-Key values so a returning
+	// conversation can wait for a slot. There is no per-session lock:
+	// parallel agent calls often share one key, and serialising them
+	// would throw away the batching the slot limit exists for.
+	sessionMu    sync.Mutex
+	sessions     map[string]time.Time
+	server       *http.Server
+	requestStats struct {
 		Total        int
 		Success      int
 		Errors       int

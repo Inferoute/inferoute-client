@@ -57,7 +57,7 @@ Daemon:
 3. `GET /api/models/approved-builds`
 4. Verifier + pricing registration
 5. HTTP server and the outbound connection. Invalid API key → process exits with an operator-facing message (not a raw 500).
-6. Health loop (`ReportInterval` = **3 minutes**): initial push, then ticker **and** busy-edge pushes (10s cooldown)
+6. Health loop (`ReportInterval` = **3 minutes**). Capacity is a separate POST every change and every 20s.
 
 Windows: tray is default; process detaches so closing PowerShell does not kill it. `--console` for the TUI.
 
@@ -65,7 +65,7 @@ Windows: tray is default; process detaches so closing PowerShell does not kill i
 
 | Section | Fields that matter |
 |---------|-------------------|
-| `server` | `port` (8080), `host` (`127.0.0.1`; set `0.0.0.0` only for LAN/Docker host dashboard), `max_concurrent_inference` (**1**; `0` = unlimited), `session_queue_wait_seconds` (**90**), `request_timeout_seconds` (**240** — must cover queue + inference) |
+| `server` | `port` (8080), `host` (`127.0.0.1`; set `0.0.0.0` only for LAN/Docker host dashboard), `max_concurrent_inference` (omit = benchmark; `0` = unlimited; a written number always wins), `session_queue_wait_seconds` (**90**), `request_timeout_seconds` (**240** — must cover queue + inference) |
 | `provider` | `api_key`, `url` (platform base), `provider_type` (`vllm` or `llama_cpp`), `engine` (`vllm` \| `vllm-metal` \| `llama_cpp`), `llm_url`, `llm_timeout_seconds` (**120**, matches platform sticky timeout), optional `hf_hub_cache` / `model_path` / `gguf_file` |
 | `logging` | level, `log_dir`, rotation |
 
@@ -76,11 +76,12 @@ Windows: tray is default; process detaches so closing PowerShell does not kill i
 Order is load-bearing:
 
 1. Require `X-Request-Id` (reject missing or >256 bytes) and `POST /api/provider/validate_hmac`. Fail → **401**. No GPU query yet.
-2. Read `X-Session-Key`. If it matches the in-flight/last session → **skip** the busy reject (GPU util >20% fires while the previous turn of *this* chat is still decoding).
-3. Else: 503 if in-flight cap reached **or** NVIDIA util > 20% (`nvidia-smi` cached ~1s).
-4. Parse `model`; `CheckInference` must be `verification_status == verified` for allowlisted aliases.
-5. Same session → `acquireInferenceWait` up to `session_queue_wait_seconds`; other → `tryAcquireInference`. Fail → 503.
-6. `forwardToLLM`, write **entire** body, release slot.
+2. 503 while a concurrency benchmark is running. This applies to returning conversations too.
+3. Read `X-Session-Key`. A key seen in the last 15 minutes queues for a slot.
+4. Else: 503 when every slot is taken. GPU utilization is not an admission signal.
+5. Parse `model`; `CheckInference` must be `verification_status == verified` for allowlisted aliases.
+6. Same session → `acquireInferenceWait` up to `session_queue_wait_seconds`; other → `tryAcquireInference`. Fail → 503. The slot limit is read on every attempt, so a benchmark that raises it lets a queued turn in.
+7. `forwardToLLM`, write **entire** body, release slot.
 
 **Streaming proxy.** `ForwardRequest` returns the engine response body unread. `handleInference` copies it to the caller and flushes after each write, so consumer `stream=true` is SSE.
 
@@ -88,19 +89,20 @@ Timeout alignment: platform pinned attempt 120s; client LLM forward 120s; HTTP r
 
 ### X-Session-Key contract
 
-Platform affinity key (see node technical). Client tracks one active key (`max_concurrent_inference` default 1 ⇒ queue depth 1).
+Platform affinity key (see node technical). The client remembers every key from the last 15 minutes. It does not serialise calls that share a key.
 
-| Incoming key vs busy | Behavior |
+| Incoming key vs slots | Behavior |
 |----------------------|----------|
-| Match | Wait for slot (bound 90s), skip GPU-util busy |
-| Different or missing | Immediate 503 → orchestrator failover |
+| Seen recently | Wait for a slot (bound 90s) |
+| Different or missing | Immediate 503 when full → orchestrator failover |
 | Wait expires | 503 |
+| Benchmark running | 503 for everyone |
 
 ## Health
 
-- Interval: 3 min + **immediate on busy flip** (buffered, 10s cooldown) so Redis `provider_busy` is seconds-stale, not minutes.
-- `is_busy`: GPU util > 20% **or** all inference slots taken (macOS / util- lag path).
-- Payload: models (with verification fields), GPU block, `provider_type`.
+- Interval: 3 min. Slot changes go out on `POST /api/provider/capacity` (20s heartbeat), not on the health report.
+- `is_busy` on the health payload is GPU utilization only. Routing ignores it.
+- Payload: models (with verification fields), GPU block, `provider_type`, optional `benchmark`.
 - Per cycle: refresh catalog → `ListModels` → `ApplyToModels` → register newly verified → `POST /api/provider/health`.
 - Local: `GET /api/health`, `GET /api/busy`.
 

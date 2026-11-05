@@ -38,13 +38,8 @@ type Reporter struct {
 	displayedModelsMu sync.RWMutex
 	displayedModels   []llm.Model
 
-	// slotBusyFn reports whether all inference slots are taken; folded into
-	// the health report's is_busy alongside GPU utilization.
-	slotBusyFn func() bool
-	// busyChanges signals busy-state transitions so a report can be pushed
-	// immediately instead of waiting for the next 3-minute tick. Buffered by
-	// one: rapid flips coalesce into a single pending report.
-	busyChanges chan struct{}
+	benchmarkMu sync.Mutex
+	benchmark   *BenchmarkSummary
 }
 
 const (
@@ -53,10 +48,18 @@ const (
 
 // HealthReport represents a health report to be sent to the central system
 type HealthReport struct {
-	Object       string       `json:"object"`
-	Data         []llm.Model  `json:"data"`
-	GPU          *gpu.GPUInfo `json:"gpu"`
-	ProviderType string       `json:"provider_type"`
+	Object       string            `json:"object"`
+	Data         []llm.Model       `json:"data"`
+	GPU          *gpu.GPUInfo      `json:"gpu"`
+	ProviderType string            `json:"provider_type"`
+	Benchmark    *BenchmarkSummary `json:"benchmark,omitempty"`
+}
+
+// BenchmarkSummary is the last concurrency measurement, stored by the node.
+type BenchmarkSummary struct {
+	Concurrency int       `json:"concurrency"`
+	MeasuredAt  time.Time `json:"measured_at"`
+	Levels      any       `json:"levels,omitempty"`
 }
 
 // SetVerifier attaches the model integrity verifier (optional).
@@ -75,29 +78,14 @@ func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Clie
 		pricingClient:    pricingClient,
 		client:           nodeapi.NewHTTPClient(10 * time.Second),
 		registeredModels: make(map[string]bool),
-		busyChanges:      make(chan struct{}, 1),
 	}
 }
 
-// SetSlotBusyFunc attaches the server's inflight-slot state so health reports
-// mark the provider busy while it is actually serving, not only when GPU
-// utilization crosses the threshold.
-func (r *Reporter) SetSlotBusyFunc(fn func() bool) {
-	r.slotBusyFn = fn
-}
-
-// NotifyBusyChange requests an immediate health report because the busy state
-// flipped. Non-blocking; pending notifications coalesce.
-func (r *Reporter) NotifyBusyChange() {
-	select {
-	case r.busyChanges <- struct{}{}:
-	default:
-	}
-}
-
-// BusyChanges is consumed by the report loop to push transition reports.
-func (r *Reporter) BusyChanges() <-chan struct{} {
-	return r.busyChanges
+// SetBenchmark attaches the last concurrency measurement to health reports.
+func (r *Reporter) SetBenchmark(b *BenchmarkSummary) {
+	r.benchmarkMu.Lock()
+	r.benchmark = b
+	r.benchmarkMu.Unlock()
 }
 
 // InitializeRegisteredModels initializes the set of registered models
@@ -381,11 +369,16 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 
 	gpuInfo := r.gpuInfo()
 
+	r.benchmarkMu.Lock()
+	bench := r.benchmark
+	r.benchmarkMu.Unlock()
+
 	report := &HealthReport{
 		Object:       "list",
 		Data:         enriched,
 		GPU:          gpuInfo,
 		ProviderType: r.config.Provider.ProviderType,
+		Benchmark:    bench,
 	}
 
 	return report, nil
@@ -404,9 +397,6 @@ func (r *Reporter) gpuInfo() *gpu.GPUInfo {
 		} else if got != nil {
 			info = got
 		}
-	}
-	if r.slotBusyFn != nil && r.slotBusyFn() {
-		info.IsBusy = true
 	}
 	return info
 }

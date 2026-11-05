@@ -21,9 +21,11 @@ const EnvPlatformURL = "INFEROUTE_URL"
 type Config struct {
 	// Server configuration
 	Server struct {
-		Port                   int    `yaml:"port"`
-		Host                   string `yaml:"host"`
-		MaxConcurrentInference int    `yaml:"max_concurrent_inference"` // 0 = unlimited; default 1
+		Port int    `yaml:"port"`
+		Host string `yaml:"host"`
+		// MaxConcurrentInference is set only when the provider chooses a limit.
+		// Nil lets the benchmark (or the engine default) decide. 0 = unlimited.
+		MaxConcurrentInference *int `yaml:"max_concurrent_inference,omitempty"`
 		// SessionQueueWaitSeconds bounds how long a same-session request
 		// (matching X-Session-Key) waits for the inference slot instead of
 		// being rejected with 503. Default 90.
@@ -86,7 +88,6 @@ func Load(path string) (*Config, error) {
 	// Set default values
 	cfg.Server.Port = 8080
 	cfg.Server.Host = "127.0.0.1"
-	cfg.Server.MaxConcurrentInference = 1
 	cfg.Server.SessionQueueWaitSeconds = 90
 	cfg.Server.RequestTimeoutSeconds = 240
 	cfg.Provider.URL = DefaultPlatformURL
@@ -137,6 +138,15 @@ func (c *Config) normalize() {
 		c.Provider.Engine = "vllm"
 	}
 	c.Provider.ProviderType = PlatformType(c.Provider.Engine)
+}
+
+// ExplicitConcurrency reports a limit the provider wrote into config.
+// The second result is false when the benchmark or engine default should decide.
+func (c *Config) ExplicitConcurrency() (int, bool) {
+	if c == nil || c.Server.MaxConcurrentInference == nil {
+		return 0, false
+	}
+	return *c.Server.MaxConcurrentInference, true
 }
 
 // PlatformType is the Inferoute provider_type for a local engine.
