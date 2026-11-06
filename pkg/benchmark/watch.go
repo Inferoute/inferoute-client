@@ -107,9 +107,15 @@ func (w *Watcher) measure(ctx context.Context, fp string) {
 		}
 	}
 	best := Pick(levels)
-	if len(levels) == 0 || levels[0].Errors > 0 {
-		best = w.fallback()
-		logger.Warn("benchmark failed; using the catalog recommendation", zap.Int("concurrency", best))
+	if best < 1 {
+		if len(levels) == 0 || levels[0].Errors > 0 {
+			best = w.fallback()
+			logger.Warn("benchmark failed; using the catalog recommendation", zap.Int("concurrency", best))
+		} else {
+			// n=1 completed but missed the quality bar (slow TTFT / decode).
+			// Stay at 1; do not treat 0 as unlimited slots.
+			best = 1
+		}
 	}
 	res := Result{
 		Fingerprint: fp,
