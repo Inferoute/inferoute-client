@@ -2,6 +2,8 @@
 
 The Inferoute Provider Client is a lightweight Go service that runs next to vLLM, vLLM Metal, or llama.cpp. It handles health monitoring, reporting, and inference request handling.
 
+Team docs (how the client works, benchmarking, metrics) are in the **internal-docs** repo. Customer install guides stay in **inferoute-docs**.
+
 
 ## Supported platforms
 
