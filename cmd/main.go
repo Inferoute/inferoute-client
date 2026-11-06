@@ -570,6 +570,10 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 		Apply: func(n int) { srv.SetMaxInflight(int32(n)) },
 		Note:  srv.SetEngineNote,
 		Gate:  srv.SetBenchmarking,
+		Inflight: func() int32 {
+			n, _, _ := srv.SlotSnapshot()
+			return n
+		},
 		GPUBusy: func() bool {
 			if gpuMonitor == nil {
 				return false

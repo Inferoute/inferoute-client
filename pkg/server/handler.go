@@ -143,6 +143,14 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 		return
 	}
 	defer s.releaseInference()
+	// acquireInferenceWait can block for sessionQueueWait. A benchmark that
+	// started while we queued would otherwise share the engine with 1/2/4/8/16
+	// concurrent 2000-token streams (vLLM OOM). The early check above cannot
+	// see that; this one can.
+	if s.benchmarking.Load() {
+		s.writeBusy(w, r, startTime)
+		return
+	}
 	s.setActiveSession(sessionKey)
 
 	llmResp, err := s.forwardToLLM(r.Context(), llmPath, body)
