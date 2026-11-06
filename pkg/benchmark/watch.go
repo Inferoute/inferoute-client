@@ -11,6 +11,10 @@ import (
 
 const poll = 5 * time.Second
 
+// drainWait is how long a benchmark waits for in-flight inference after
+// closing the gate. Covers the default HTTP request timeout (240s).
+var drainWait = 5 * time.Minute
+
 // Watcher measures once the engine is ready, then stays quiet until the
 // engine drops or someone asks for another run.
 type Watcher struct {
@@ -24,6 +28,7 @@ type Watcher struct {
 	Note        func(string)
 	Gate        func(closed bool)
 	GPUBusy     func() bool
+	Inflight    func() int32
 	Preemptions func(ctx context.Context) int64
 	Record      func(Result)
 	client      *http.Client
@@ -84,6 +89,10 @@ func (w *Watcher) measure(ctx context.Context, fp string) {
 			w.Gate(false)
 		}
 	}()
+	if !w.waitIdle(ctx) {
+		logger.Warn("deferring benchmark; inference still in flight")
+		return
+	}
 
 	var levels []LevelResult
 	for i, n := range Levels {
@@ -142,6 +151,30 @@ func (w *Watcher) finish(res Result) {
 		w.Record(res)
 	}
 	logger.Info("concurrency set", zap.Int("n", res.Concurrency))
+}
+
+// waitIdle is true once no client-forwarded request is still decoding.
+// The gate is already closed, so this is only the requests admitted before it.
+func (w *Watcher) waitIdle(ctx context.Context) bool {
+	if w.Inflight == nil || w.Inflight() <= 0 {
+		return true
+	}
+	deadline := time.Now().Add(drainWait)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-tick.C:
+			if w.Inflight() <= 0 {
+				return true
+			}
+			if time.Now().After(deadline) {
+				return false
+			}
+		}
+	}
 }
 
 func (w *Watcher) fallback() int {
