@@ -23,12 +23,16 @@ type LevelResult struct {
 // evicted, the first token arrives quickly, each stream keeps half its solo
 // speed, and total output is still rising. The thresholds are policy, not
 // measurements.
+//
+// 0 means no tried level passed. The watcher uses that to stop climbing:
+// a floor of 1 made Pick(failed n=1)==1, so 16 concurrent 2000-token
+// streams still ran after the first level already lost.
 func Pick(levels []LevelResult) int {
 	if len(levels) == 0 {
-		return 1
+		return 0
 	}
 	solo := levels[0].MinDecodeTPS
-	best := 1
+	best := 0
 	for i, l := range levels {
 		if l.Errors > 0 || l.Preemptions > 0 || l.P95TTFT > maxP95TTFT {
 			break

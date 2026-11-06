@@ -49,6 +49,26 @@ func TestPick(t *testing.T) {
 			},
 			want: 1,
 		},
+		{
+			name: "empty",
+			in:   nil,
+			want: 0,
+		},
+		{
+			name: "n=1 errors",
+			in:   []LevelResult{lvl(1, 1, 0, ok, 0, 0)},
+			want: 0,
+		},
+		{
+			name: "n=1 slow TTFT",
+			in:   []LevelResult{lvl(1, 0, 0, 4*time.Second, 40, 40)},
+			want: 0,
+		},
+		{
+			name: "n=1 slow decode",
+			in:   []LevelResult{lvl(1, 0, 0, ok, 10, 10)},
+			want: 0,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
