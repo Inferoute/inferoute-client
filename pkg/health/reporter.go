@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -91,10 +90,8 @@ func (r *Reporter) advertiseModels(models []llm.Model) []llm.Model {
 	kept := make([]llm.Model, 0, len(models))
 	for _, model := range models {
 		if _, ok := cat.Get(model.ID); !ok {
-			if _, ok = cat.Get(strings.TrimSuffix(model.ID, ":latest")); !ok {
-				logger.Info("not an approved model, not advertised", zap.String("model", model.ID))
-				continue
-			}
+			logger.Info("not an approved model, not advertised", zap.String("model", model.ID))
+			continue
 		}
 		kept = append(kept, model)
 	}
