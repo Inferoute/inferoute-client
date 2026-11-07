@@ -10,7 +10,6 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/health"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 )
 
 // These fixtures are the request bodies copied into inferoute-node
@@ -34,11 +33,9 @@ func TestRequestShapes(t *testing.T) {
 			},
 			ProviderType: "vllm",
 		}},
-		{"models.request.json", pricing.RegisterModelRequest{
-			ModelName: "Qwen/Qwen2.5-7B-Instruct", ServiceType: "vllm",
-			InputPriceTokens: 0.0000005, OutputPriceTokens: 0.000001,
-		}},
-		{"get-prices.request.json", pricing.GetPricesRequest{Models: []string{"Qwen/Qwen2.5-7B-Instruct"}}},
+		{"get-prices.request.json", struct {
+			Models []string `json:"models"`
+		}{Models: []string{"Qwen/Qwen2.5-7B-Instruct"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {

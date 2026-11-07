@@ -24,7 +24,6 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/server"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/setup"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/tray"
@@ -214,10 +213,8 @@ func main() {
 		}
 	}
 	llmClient := llm.NewClient(cfg.Provider.ProviderType, llmURL, cfg.LLMTimeout())
-	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
 
 	catalog := verify.NewCatalog(cfg.Provider.URL, cfg.Provider.ProviderType)
-	var registeredModelIDs []string
 	var modelVerifier *verify.Verifier
 	if !cfg.EnrolledWorker() {
 		if err := catalog.Refresh(ctx); err != nil {
@@ -228,16 +225,10 @@ func main() {
 		}
 		serverClient := verify.NewServerClient(cfg.Provider.URL, cfg.Provider.APIKey)
 		modelVerifier = verify.NewVerifier(catalog, serverClient, cfg.Provider.ProviderType, cfg.Provider.HFHubCache, cfg.Provider.ModelPath)
-		if ids, err := pricing.RegisterLocalModels(ctx, llmClient, pricingClient, cfg.Provider.ProviderType, modelVerifier); err != nil {
-			logger.Error("Failed to register local models", zap.Error(err))
-		} else {
-			registeredModelIDs = ids
-		}
 	}
 
 	healthReporter := health.NewReporter(cfg, gpuMonitor, llmClient)
 	healthReporter.SetVerifier(modelVerifier)
-	healthReporter.InitializeRegisteredModels(registeredModelIDs)
 
 	srv := server.CreateServer(cfg, gpuMonitor, healthReporter, modelVerifier)
 	if useTray {

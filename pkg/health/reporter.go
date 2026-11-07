@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/nodeapi"
-	"github.com/sentnl/inferoute-node/inferoute-client/pkg/pricing"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/verify"
 	"go.uber.org/zap"
 )
@@ -26,14 +26,10 @@ type Reporter struct {
 	config          *config.Config
 	gpuMonitor      *gpu.Monitor
 	llmClient       llm.Client
-	pricingClient   *pricing.Client
 	verifier        *verify.Verifier
 	client          *http.Client
 	lastUpdateTime  time.Time
 	lastUpdateMutex sync.Mutex
-	// Track registered models to avoid duplicate registrations
-	registeredModels   map[string]bool
-	registeredModelsMu sync.Mutex
 
 	displayedModelsMu sync.RWMutex
 	displayedModels   []llm.Model
@@ -69,15 +65,11 @@ func (r *Reporter) SetVerifier(v *verify.Verifier) {
 
 // NewReporter creates a new health reporter
 func NewReporter(cfg *config.Config, gpuMonitor *gpu.Monitor, llmClient llm.Client) *Reporter {
-	pricingClient := pricing.NewClient(cfg.Provider.URL, cfg.Provider.APIKey)
-
 	return &Reporter{
-		config:           cfg,
-		gpuMonitor:       gpuMonitor,
-		llmClient:        llmClient,
-		pricingClient:    pricingClient,
-		client:           nodeapi.NewHTTPClient(10 * time.Second),
-		registeredModels: make(map[string]bool),
+		config:     cfg,
+		gpuMonitor: gpuMonitor,
+		llmClient:  llmClient,
+		client:     nodeapi.NewHTTPClient(10 * time.Second),
 	}
 }
 
@@ -88,145 +80,30 @@ func (r *Reporter) SetBenchmark(b *BenchmarkSummary) {
 	r.benchmarkMu.Unlock()
 }
 
-// InitializeRegisteredModels initializes the set of registered models
-// This should be called after the initial model registration at startup
-func (r *Reporter) InitializeRegisteredModels(modelIDs []string) {
-	r.registeredModelsMu.Lock()
-	defer r.registeredModelsMu.Unlock()
+const maxAdvertisedModels = 5
 
-	for _, id := range modelIDs {
-		r.registeredModels[id] = true
+// advertiseModels keeps approved catalog models, at most 5. The server rejects a larger push.
+func (r *Reporter) advertiseModels(models []llm.Model) []llm.Model {
+	if r.verifier == nil {
+		return models
 	}
-
-	logger.Info("Initialized registered models tracker",
-		zap.Int("model_count", len(modelIDs)))
-}
-
-// registerNewModels checks for new verified models and registers them with pricing
-func (r *Reporter) registerNewModels(ctx context.Context, models []llm.Model) {
-	// Get the current list of verified model IDs
-	currentModelIDs := make([]string, 0, len(models))
+	cat := r.verifier.CatalogClient()
+	kept := make([]llm.Model, 0, len(models))
 	for _, model := range models {
-		if !verify.IsInferenceAllowed(model.VerificationStatus) {
-			continue
-		}
-		currentModelIDs = append(currentModelIDs, model.ID)
-	}
-
-	// Find new models that need to be registered
-	newModels := make([]string, 0)
-	r.registeredModelsMu.Lock()
-	for _, id := range currentModelIDs {
-		if !r.registeredModels[id] {
-			newModels = append(newModels, id)
-		}
-	}
-	r.registeredModelsMu.Unlock()
-
-	if len(newModels) == 0 {
-		return // No new models to register
-	}
-
-	logger.Info("Found new models to register",
-		zap.Strings("new_models", newModels))
-
-	// Get pricing for the new models
-	prices, err := r.pricingClient.GetModelPrices(ctx, newModels)
-	if err != nil {
-		logger.Error("Failed to get model prices for new models",
-			zap.Error(err),
-			zap.Strings("models", newModels))
-		return
-	}
-
-	// Create a map of model prices for easy lookup and find default pricing
-	priceMap := make(map[string]pricing.ModelPrice)
-	var defaultPrice pricing.ModelPrice
-	for _, price := range prices.ModelPrices {
-		if price.ModelName == "default" {
-			defaultPrice = price
-			continue
-		}
-		priceMap[price.ModelName] = price
-	}
-
-	if defaultPrice.ModelName == "" {
-		logger.Warn("No default pricing found in API response, using hardcoded defaults")
-		defaultPrice = pricing.ModelPrice{
-			ModelName:      "default",
-			AvgInputPrice:  0.0002,
-			AvgOutputPrice: 0.0003,
-		}
-	}
-
-	// Register each new model
-	for _, modelName := range newModels {
-		price, exists := priceMap[modelName]
-		if !exists {
-			logger.Info("No specific pricing found for model, using default pricing",
-				zap.String("model", modelName),
-				zap.Float64("default_input_price", defaultPrice.AvgInputPrice),
-				zap.Float64("default_output_price", defaultPrice.AvgOutputPrice))
-
-			err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType,
-				defaultPrice.AvgInputPrice, defaultPrice.AvgOutputPrice)
-
-			if err != nil {
-				// Check if it's a 400 error (model already exists)
-				if resp, ok := err.(*pricing.ErrorResponse); ok && resp.StatusCode == 400 {
-					logger.Info("Model already registered elsewhere",
-						zap.String("model", modelName))
-
-					// Still mark it as registered in our tracker
-					r.registeredModelsMu.Lock()
-					r.registeredModels[modelName] = true
-					r.registeredModelsMu.Unlock()
-					continue
-				}
-
-				logger.Error("Failed to register model with default pricing",
-					zap.String("model", modelName),
-					zap.Error(err))
-				continue
-			}
-		} else {
-			logger.Info("Registering model with specific pricing",
-				zap.String("model", modelName),
-				zap.Float64("input_price", price.AvgInputPrice),
-				zap.Float64("output_price", price.AvgOutputPrice),
-				zap.Int("sample_size", price.SampleSize))
-
-			err := r.pricingClient.RegisterModel(ctx, modelName, r.config.Provider.ProviderType,
-				price.AvgInputPrice, price.AvgOutputPrice)
-
-			if err != nil {
-				// Check if it's a 400 error (model already exists)
-				if resp, ok := err.(*pricing.ErrorResponse); ok && resp.StatusCode == 400 {
-					logger.Info("Model already registered elsewhere",
-						zap.String("model", modelName))
-
-					// Still mark it as registered in our tracker
-					r.registeredModelsMu.Lock()
-					r.registeredModels[modelName] = true
-					r.registeredModelsMu.Unlock()
-					continue
-				}
-
-				logger.Error("Failed to register model",
-					zap.String("model", modelName),
-					zap.Error(err))
+		if _, ok := cat.Get(model.ID); !ok {
+			if _, ok = cat.Get(strings.TrimSuffix(model.ID, ":latest")); !ok {
+				logger.Info("not an approved model, not advertised", zap.String("model", model.ID))
 				continue
 			}
 		}
-
-		// Mark model as registered
-		r.registeredModelsMu.Lock()
-		r.registeredModels[modelName] = true
-		r.registeredModelsMu.Unlock()
-
-		logger.Info("Successfully registered new model",
-			zap.String("model", modelName))
+		kept = append(kept, model)
 	}
+	if len(kept) > maxAdvertisedModels {
+		logger.Warn("serving more approved models than a health push allows; advertising the first 5",
+			zap.Int("serving", len(kept)))
+		kept = kept[:maxAdvertisedModels]
+	}
+	return kept
 }
 
 // SendHealthReport sends a health report to the central system
@@ -257,8 +134,7 @@ func (r *Reporter) SendHealthReport(ctx context.Context) error {
 		return fmt.Errorf("failed to get health report: %w", err)
 	}
 
-	// Register any new models
-	r.registerNewModels(ctx, report.Data)
+	report.Data = r.advertiseModels(report.Data)
 
 	logger.Info("Preparing to send health report", zap.Int("models", len(report.Data)))
 
