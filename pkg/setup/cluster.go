@@ -161,8 +161,14 @@ func prepareClusterReal(cfg *config.Config, spec *engine.Spec) error {
 		role = decideCluster(key, sess.Mode, err)
 		if role == "single" {
 			if err != nil {
+				// A failed lookup must not wipe a saved cluster command.
 				fmt.Fprintf(os.Stderr, "could not read cluster mode (%v); continuing as a single node\n", err)
+				return nil
 			}
+			cfg.Provider.ClusterMode = ""
+			cfg.Provider.NodeToken = ""
+			cfg.Provider.EngineArgs = append([]string(nil), spec.Args...)
+			cfg.Provider.EngineEnv = append([]string(nil), spec.Env...)
 			return nil
 		}
 		login = sess.LoginServer

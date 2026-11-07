@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 )
 
 func TestCredentialKeepsJoinCode(t *testing.T) {
@@ -79,6 +80,56 @@ func TestEnrolledWorkerReadsPinFromEngine(t *testing.T) {
 	}
 	if plan.VLLMVersion != "0.31.0" || plan.MasterGPU != "NVIDIA GeForce RTX 4090" {
 		t.Fatalf("plan = %+v", plan)
+	}
+}
+
+func TestPrepareClusterSingleReplacesClusterCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/provider/network/session" {
+			t.Fatalf("path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"cluster_mode":"single"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &config.Config{}
+	cfg.Provider.URL = srv.URL
+	cfg.Provider.APIKey = "sk-test"
+	cfg.Provider.ClusterMode = "master"
+	cfg.Provider.NodeToken = "node-old"
+	cfg.Provider.EngineArgs = []string{"serve", "mistralai/Mistral-7B-Instruct-v0.3", "--nnodes", "2"}
+	cfg.Provider.EngineEnv = []string{"NCCL_SOCKET_IFNAME=inferscale0"}
+	spec := engine.ServeSpec(engine.KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "", engine.ServeOpts{})
+	if err := prepareClusterReal(cfg, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.ClusterMode != "" || cfg.Provider.NodeToken != "" {
+		t.Fatalf("leftover mode=%q token=%q", cfg.Provider.ClusterMode, cfg.Provider.NodeToken)
+	}
+	if strings.Join(cfg.Provider.EngineArgs, " ") != strings.Join(spec.Args, " ") {
+		t.Fatalf("args = %v", cfg.Provider.EngineArgs)
+	}
+	if len(cfg.Provider.EngineEnv) != 0 {
+		t.Fatalf("env = %v", cfg.Provider.EngineEnv)
+	}
+}
+
+func TestPrepareClusterLookupFailureKeepsClusterCommand(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Provider.URL = "http://127.0.0.1:1"
+	cfg.Provider.APIKey = "sk-test"
+	cfg.Provider.ClusterMode = "master"
+	cfg.Provider.NodeToken = "node-old"
+	cfg.Provider.EngineArgs = []string{"serve", "mistral", "--nnodes", "2"}
+	spec := engine.ServeSpec(engine.KindVLLM, "vllm", "Qwen/Qwen2.5-7B-Instruct", "", engine.ServeOpts{})
+	if err := prepareClusterReal(cfg, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.ClusterMode != "master" || cfg.Provider.NodeToken != "node-old" {
+		t.Fatalf("wiped cluster identity mode=%q token=%q", cfg.Provider.ClusterMode, cfg.Provider.NodeToken)
+	}
+	if strings.Join(cfg.Provider.EngineArgs, " ") != "serve mistral --nnodes 2" {
+		t.Fatalf("args = %v", cfg.Provider.EngineArgs)
 	}
 }
 
