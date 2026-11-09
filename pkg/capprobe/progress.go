@@ -38,9 +38,9 @@ func Label(outcomes []Outcome) string {
 	}
 	line := fmt.Sprintf("testing - %d/%d checked (still serving requests)", checked, probeCount)
 	if checked == probeCount {
-		line = fmt.Sprintf("%d/%d checked", probeCount, probeCount)
+		line = "completed"
 		if unverified > 0 {
-			line += fmt.Sprintf(" (%d unverified, retrying)", unverified)
+			line = fmt.Sprintf("completed (%d unverified, retrying)", unverified)
 		}
 	}
 	return line

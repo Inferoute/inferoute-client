@@ -12,7 +12,7 @@ func TestLabelCountsCheckedIncludingUnverified(t *testing.T) {
 
 func TestLabelDoneNamesUnverified(t *testing.T) {
 	got := Label([]Outcome{Supported, Supported, Supported, Supported, Unverified})
-	want := "5/5 checked (1 unverified, retrying)"
+	want := "completed (1 unverified, retrying)"
 	if got != want {
 		t.Fatalf("got %q", got)
 	}
@@ -31,6 +31,13 @@ func TestFingerprintChangeDropsLateResult(t *testing.T) {
 	kept := resetForFingerprint("A", "A", []Outcome{Supported})
 	if kept[0] != Supported {
 		t.Fatal("same fingerprint should keep the result")
+	}
+}
+
+func TestLabelDoneSaysCompleted(t *testing.T) {
+	got := Label([]Outcome{Supported, Unsupported, Supported, Supported, Supported})
+	if got != "completed" {
+		t.Fatalf("got %q", got)
 	}
 }
 
