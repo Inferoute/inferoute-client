@@ -33,6 +33,8 @@ type Server struct {
 	onCapacity       func()
 	engineNote       string
 	engineNoteMu     sync.Mutex
+	capabilitiesNote string
+	capabilityItems  []CapabilityStatus
 	sessionQueueWait time.Duration
 	// sessions remembers recent X-Session-Key values so a returning
 	// conversation can wait for a slot. There is no per-session lock:

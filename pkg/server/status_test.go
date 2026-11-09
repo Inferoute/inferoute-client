@@ -83,6 +83,25 @@ func TestSessionStatusWhileBenchmarking(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesStayOnline(t *testing.T) {
+	s := newTestServer("http://unused", &fakeLLM{})
+	s.SetCapabilities("testing - 2/5 checked (still serving requests)")
+	s.SetCapabilityItems([]CapabilityStatus{
+		{Name: "Tool calling", State: "supported"},
+		{Name: "Forced tool calling", State: "unverified", Detail: "timeout"},
+	})
+	snap := s.snapshot()
+	if snap.SessionStatus != "online" {
+		t.Fatalf("session = %q", snap.SessionStatus)
+	}
+	if snap.CapabilityLine != "testing - 2/5 checked (still serving requests)" {
+		t.Fatalf("line = %q", snap.CapabilityLine)
+	}
+	if len(snap.Capabilities) != 2 || snap.Capabilities[1].State != "unverified" {
+		t.Fatalf("caps = %+v", snap.Capabilities)
+	}
+}
+
 func TestWorkerStatusUsesMasterURL(t *testing.T) {
 	s := newTestServer("http://unused", &fakeLLM{})
 	s.config.Provider.ClusterMode = "worker"

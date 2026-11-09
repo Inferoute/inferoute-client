@@ -16,6 +16,7 @@ import (
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/benchmark"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/capacity"
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/capprobe"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/compat"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/engine"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/gpu"
@@ -532,10 +533,23 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 	sender := capacity.NewSender(cfg.Provider.URL, cfg.Provider.APIKey, srv.SlotSnapshot, llmClient)
 	srv.SetCapacityNotify(sender.Notify)
 	go sender.Loop(ctx)
+	go (&capprobe.Watcher{
+		EngineURL:   llmURL,
+		Model:       cfg.Provider.Model,
+		PlatformURL: cfg.Provider.URL,
+		APIKey:      cfg.Provider.APIKey,
+		Fingerprint: func() string { return deploymentFingerprint(ctx, cfg, llmClient, gpuMonitor) },
+		Idle: func() bool {
+			inflight, _, _ := srv.SlotSnapshot()
+			return inflight == 0
+		},
+		Note: srv.SetCapabilities,
+	}).Loop(ctx)
 
 	if _, explicit := cfg.ExplicitConcurrency(); explicit || cfg.Provider.Engine == "llama_cpp" {
 		return
 	}
+	srv.SetBenchmarking(true)
 	kind, _ := engine.ParseKind(cfg.Provider.Engine)
 	go (&benchmark.Watcher{
 		ConfigPath: configPath,

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/sentnl/inferoute-node/inferoute-client/internal/config"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/llm"
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -83,6 +85,65 @@ func postChat(s *Server, hmac, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	s.handleChatCompletions(rec, req)
 	return rec
+}
+
+func TestWriteDeadlineOnRealServer(t *testing.T) {
+	node := nodeStub(t, true)
+	s := newTestServer(node.URL, &sseLLM{body: "data: [DONE]\n\n"})
+	s.config.Provider.Model = "m"
+	r := mux.NewRouter()
+	r.HandleFunc("/v1/chat/completions", s.handleChatCompletions).Methods(http.MethodPost)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: r}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	deadline := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
+	req, err := http.NewRequest(http.MethodPost, "http://"+ln.Addr().String()+"/v1/chat/completions", strings.NewReader(`{"model":"m","stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Request-Id", "good-hmac")
+	req.Header.Set("X-Inferoute-Deadline", deadline)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+}
+
+func TestEngineStatusPassedThrough(t *testing.T) {
+	node := nodeStub(t, true)
+	s := newTestServer(node.URL, &statusLLM{code: http.StatusBadRequest, body: `{"error":"maximum context length"}`})
+	rec := postChat(s, "good-hmac", `{"model":"m","stream":false}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "maximum context length") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+type statusLLM struct {
+	code int
+	body string
+}
+
+func (s *statusLLM) ListModels(context.Context) (*llm.ListModelsResponse, error) { return nil, nil }
+func (s *statusLLM) Chat(context.Context, *llm.ChatRequest) (*llm.ChatResponse, error) {
+	return nil, nil
+}
+func (s *statusLLM) ForwardRequest(context.Context, string, []byte) (*http.Response, error) {
+	h := make(http.Header)
+	h.Set("Content-Type", "application/json")
+	return &http.Response{StatusCode: s.code, Header: h, Body: io.NopCloser(strings.NewReader(s.body))}, nil
 }
 
 func TestHandleChatCompletionsStreamsSSE(t *testing.T) {

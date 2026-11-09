@@ -128,6 +128,8 @@ function render(s) {
     <h2>CLUSTER STATUS</h2>
     ${row("Cluster", esc(s.cluster || "single"))}
     ${s.engine_note ? row("Benchmark", esc(s.engine_note)) : ""}
+    ${s.capability_line ? row("Capabilities", esc(s.capability_line)) : ""}
+    ${(s.capabilities || []).map(function (c) { return row(c.name, esc(c.state), c.state === "supported" ? "ok" : "warn"); }).join("")}
     ${s.nodes ? row("Nodes", esc(s.nodes)) : ""}
     ${modelHtml}
     <h2>GPU INFORMATION</h2>

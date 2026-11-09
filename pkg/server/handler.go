@@ -14,6 +14,25 @@ import (
 // and small enough that a flood cannot push megabyte tokens at the platform.
 const maxRequestIDLength = 256
 
+const streamWriteDeadlineGrace = 5 * time.Second
+
+func (s *Server) modelNotServed(w http.ResponseWriter, r *http.Request, body []byte, startTime time.Time) bool {
+	if s.config == nil || s.config.Provider.Model == "" {
+		return false
+	}
+	var payload struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(body, &payload) != nil || payload.Model == "" || payload.Model == s.config.Provider.Model {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "model_not_served"})
+	s.logRequest(r.Method, r.URL.Path, http.StatusServiceUnavailable, startTime)
+	return true
+}
+
 // handleHealth handles the /api/health endpoint
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	report, err := s.healthReporter.GetHealthReport(r.Context())
@@ -121,6 +140,9 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 		return
 	}
 
+	if s.modelNotServed(w, r, body, startTime) {
+		return
+	}
 	if err := s.verifyModelInRequest(r.Context(), body); err != nil {
 		s.logError(fmt.Sprintf("Model verification failed: %v", err))
 		w.Header().Set("Content-Type", "application/json")
@@ -159,7 +181,20 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 	}
-	w.WriteHeader(http.StatusOK)
+	status := llmResp.StatusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if deadline := r.Header.Get("X-Inferoute-Deadline"); deadline != "" {
+		if when, err := time.Parse(time.RFC3339, deadline); err == nil {
+			if err := http.NewResponseController(w).SetWriteDeadline(when.Add(streamWriteDeadlineGrace)); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+				return
+			}
+		}
+	}
+	w.WriteHeader(status)
 	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 4096)
 	for {
@@ -183,5 +218,5 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 			return
 		}
 	}
-	s.logRequest(r.Method, r.URL.Path, http.StatusOK, startTime)
+	s.logRequest(r.Method, r.URL.Path, status, startTime)
 }

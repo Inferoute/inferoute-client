@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaultHost(t *testing.T) {
@@ -176,6 +177,18 @@ func TestHasAPIKey(t *testing.T) {
 	cfg.Provider.APIKey = "real"
 	if !cfg.HasAPIKey() {
 		t.Fatal("real key should be true")
+	}
+}
+
+func TestTimeoutFloors(t *testing.T) {
+	cfg := &Config{}
+	cfg.Provider.LLMTimeoutSeconds = 120
+	cfg.Server.RequestTimeoutSeconds = 240
+	if cfg.LLMTimeout() < 330*time.Second {
+		t.Fatalf("llm timeout %s", cfg.LLMTimeout())
+	}
+	if cfg.RequestTimeout() < 420*time.Second {
+		t.Fatalf("request timeout %s", cfg.RequestTimeout())
 	}
 }
 

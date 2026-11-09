@@ -88,6 +88,22 @@ func (s *Server) SetEngineNote(note string) {
 	s.redrawConsole()
 }
 
+// SetCapabilities is the local dashboard line for capability checks.
+// Session status stays online while this line is set.
+func (s *Server) SetCapabilities(note string) {
+	s.engineNoteMu.Lock()
+	s.capabilitiesNote = note
+	s.engineNoteMu.Unlock()
+	s.redrawConsole()
+}
+
+func (s *Server) SetCapabilityItems(items []CapabilityStatus) {
+	s.engineNoteMu.Lock()
+	s.capabilityItems = append([]CapabilityStatus(nil), items...)
+	s.engineNoteMu.Unlock()
+	s.redrawConsole()
+}
+
 // SlotSnapshot is what the capacity sender reports.
 func (s *Server) SlotSnapshot() (inflight, maxInflight int32, accepting bool) {
 	return s.inflight.Load(), s.maxInflight.Load(), !s.benchmarking.Load()
@@ -228,6 +244,12 @@ func (s *Server) redrawConsole() {
 	buf.WriteString(fmt.Sprintf("\033[1;35mSession Status                \033[0m%s%s\033[0m\n", statusColor, snap.SessionStatus))
 	if snap.EngineNote != "" {
 		buf.WriteString(fmt.Sprintf("\033[1;35mBenchmark                     \033[0m%s\n", snap.EngineNote))
+	}
+	if snap.CapabilityLine != "" {
+		buf.WriteString(fmt.Sprintf("\033[1;35mCapabilities                  \033[0m%s\n", snap.CapabilityLine))
+	}
+	for _, cap := range snap.Capabilities {
+		buf.WriteString(fmt.Sprintf("  %-30s%s\n", cap.Name, cap.State))
 	}
 	switch snap.UpdateStatus {
 	case "required":

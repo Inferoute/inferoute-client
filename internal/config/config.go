@@ -213,14 +213,29 @@ func (c *Config) SessionQueueWait() time.Duration {
 	return time.Duration(c.Server.SessionQueueWaitSeconds) * time.Second
 }
 
-// RequestTimeout is the HTTP server read/write timeout.
+const (
+	minLLMTimeoutSeconds     = 330
+	minRequestTimeoutSeconds = 420
+)
+
+// RequestTimeout is the HTTP server read/write timeout. Values below the
+// platform non-streaming deadline are raised so a valid request is not cut
+// into a fallback.
 func (c *Config) RequestTimeout() time.Duration {
-	return time.Duration(c.Server.RequestTimeoutSeconds) * time.Second
+	secs := c.Server.RequestTimeoutSeconds
+	if secs < minRequestTimeoutSeconds {
+		secs = minRequestTimeoutSeconds
+	}
+	return time.Duration(secs) * time.Second
 }
 
-// LLMTimeout is the timeout for requests forwarded to the local LLM.
+// LLMTimeout is the timeout for non-streaming requests forwarded to the local LLM.
 func (c *Config) LLMTimeout() time.Duration {
-	return time.Duration(c.Provider.LLMTimeoutSeconds) * time.Second
+	secs := c.Provider.LLMTimeoutSeconds
+	if secs < minLLMTimeoutSeconds {
+		secs = minLLMTimeoutSeconds
+	}
+	return time.Duration(secs) * time.Second
 }
 
 // LocalDashboardURL is the loopback URL for the in-process status page.

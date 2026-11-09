@@ -33,6 +33,9 @@ type Watcher struct {
 // Loop polls. Explicit config and llama.cpp never get here: the caller skips them.
 func (w *Watcher) Loop(ctx context.Context) {
 	w.client = &http.Client{Timeout: 3 * time.Minute}
+	if w.Gate != nil {
+		w.Gate(true)
+	}
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
 	w.step(ctx)
@@ -140,6 +143,9 @@ func (w *Watcher) finish(res Result) {
 	}
 	if w.Record != nil {
 		w.Record(res)
+	}
+	if w.Gate != nil {
+		w.Gate(false)
 	}
 	logger.Info("concurrency set", zap.Int("n", res.Concurrency))
 }

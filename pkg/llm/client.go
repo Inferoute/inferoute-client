@@ -64,7 +64,7 @@ type Client interface {
 	Chat(ctx context.Context, request *ChatRequest) (*ChatResponse, error)
 
 	// ForwardRequest forwards a raw request to the LLM API.
-	// The caller must close the response body. A non-200 from the engine is an error.
+	// The caller must close the response body. A non-200 is returned with its status.
 	ForwardRequest(ctx context.Context, path string, body []byte) (*http.Response, error)
 }
 

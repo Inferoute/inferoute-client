@@ -16,6 +16,7 @@ import (
 type VLLMClient struct {
 	baseURL string
 	client  *http.Client
+	stream  *http.Client
 }
 
 // NewVLLMClient creates a new vLLM client
@@ -26,6 +27,7 @@ func NewVLLMClient(baseURL string, timeout time.Duration) Client {
 	return &VLLMClient{
 		baseURL: baseURL,
 		client:  &http.Client{Timeout: timeout},
+		stream:  &http.Client{},
 	}
 }
 
@@ -144,16 +146,14 @@ func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byt
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.client.Do(req)
+	httpClient := c.client
+	if bytes.Contains(body, []byte(`"stream":true`)) || bytes.Contains(body, []byte(`"stream": true`)) {
+		httpClient = c.stream
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("forward: %w", wrapRequestErr(err))
 	}
-
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("forward: %w", wrapHTTPStatusErr(resp.StatusCode))
-	}
-
 	return resp, nil
 }
 
