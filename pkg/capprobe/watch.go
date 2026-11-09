@@ -239,7 +239,7 @@ func callJSON(ctx context.Context, client *http.Client, method, url, key string,
 	return resp.StatusCode, raw, nil
 }
 
-func probe(ctx context.Context, client *http.Client, base, model, name string) Outcome {
+func probeBody(model, name string) map[string]any {
 	body := map[string]any{
 		"model":      model,
 		"messages":   []map[string]string{{"role": "user", "content": "Reply with ok."}},
@@ -248,17 +248,25 @@ func probe(ctx context.Context, client *http.Client, base, model, name string) O
 	}
 	switch name {
 	case "tools", "forced_tools":
+		// An empty ping tool with "Reply with ok" is answered in text, so auto was stored as unsupported.
+		body["messages"] = []map[string]string{{"role": "user", "content": "What is the weather in Paris right now? Use the get_current_weather tool."}}
 		body["tools"] = []any{map[string]any{
 			"type": "function",
 			"function": map[string]any{
-				"name":       "ping",
-				"parameters": map[string]any{"type": "object", "properties": map[string]any{}},
+				"name":        "get_current_weather",
+				"description": "Get the current weather in a given city",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"city": map[string]any{"type": "string", "description": "City name"},
+					},
+					"required": []string{"city"},
+				},
 			},
 		}}
+		body["tool_choice"] = "auto"
 		if name == "forced_tools" {
 			body["tool_choice"] = "required"
-		} else {
-			body["tool_choice"] = "auto"
 		}
 	case "json_object":
 		body["response_format"] = map[string]any{"type": "json_object"}
@@ -281,7 +289,11 @@ func probe(ctx context.Context, client *http.Client, base, model, name string) O
 		body["logprobs"] = true
 		body["top_logprobs"] = 1
 	}
-	raw, _ := json.Marshal(body)
+	return body
+}
+
+func probe(ctx context.Context, client *http.Client, base, model, name string) Outcome {
+	raw, _ := json.Marshal(probeBody(model, name))
 	reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, base+"/v1/chat/completions", bytes.NewReader(raw))

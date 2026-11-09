@@ -89,3 +89,34 @@ func TestReportSameFingerprintSkipsRegister(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestToolsProbeAsksForTheTool(t *testing.T) {
+	raw, err := json.Marshal(probeBody("Qwen/Qwen2.5-3B-Instruct", "tools"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+		ToolChoice string `json:"tool_choice"`
+		Tools      []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ToolChoice != "auto" || len(body.Tools) != 1 || body.Tools[0].Function.Name != "get_current_weather" {
+		t.Fatalf("%s", raw)
+	}
+	if len(body.Messages) != 1 || body.Messages[0].Content == "Reply with ok." {
+		t.Fatalf("%s", raw)
+	}
+	forced := probeBody("m", "forced_tools")
+	if forced["tool_choice"] != "required" {
+		t.Fatalf("forced tool_choice = %v", forced["tool_choice"])
+	}
+}
