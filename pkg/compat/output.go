@@ -123,7 +123,7 @@ func WriteTable(w io.Writer, report Report) error {
 
 	var raw strings.Builder
 	tw := tabwriter.NewWriter(&raw, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "#\tSTATUS\tSERVICE\tMODEL\tSIZE\tREQUIRED")
+	fmt.Fprintln(tw, "#\tSTATUS\tSERVICE\tMODEL\tWEIGHTS\tVRAM REQUIRED")
 	for i, m := range report.Models {
 		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n",
 			i+1,
