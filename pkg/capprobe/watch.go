@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // Watcher runs the five probes while the GPU is idle and reports the label.
@@ -27,6 +31,7 @@ func (w *Watcher) Loop(ctx context.Context) {
 	}
 	client := w.Client
 	outcomes := make([]Outcome, probeCount)
+	var seen string
 	for {
 		if ctx.Err() != nil {
 			return
@@ -43,22 +48,37 @@ func (w *Watcher) Loop(ctx context.Context) {
 		if w.Fingerprint != nil {
 			fp = w.Fingerprint()
 		}
+		outcomes = resetForFingerprint(seen, fp, outcomes)
+		seen = fp
 		for i, name := range Names {
+			if outcomes[i] != Waiting {
+				continue
+			}
 			if ctx.Err() != nil {
 				return
 			}
-			if w.Fingerprint != nil {
+			if w.Fingerprint != nil && w.Fingerprint() != fp {
 				outcomes = resetForFingerprint(fp, w.Fingerprint(), outcomes)
-				if w.Fingerprint() != fp {
-					break
-				}
+				seen = w.Fingerprint()
+				break
 			}
 			outcomes[i] = probe(ctx, client, w.EngineURL, w.Model, name)
 			if w.Note != nil {
 				w.Note(Label(outcomes))
 			}
 		}
-		w.publish(ctx, outcomes)
+		if !anyChecked(outcomes) {
+			continue
+		}
+		if err := w.publish(ctx, fp, outcomes); err != nil {
+			logger.Warn("capability report failed", zap.Error(err))
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Minute):
+			}
+			continue
+		}
 		if !needsRetry(outcomes) {
 			return
 		}
@@ -75,6 +95,15 @@ func (w *Watcher) Loop(ctx context.Context) {
 	}
 }
 
+func anyChecked(outcomes []Outcome) bool {
+	for _, o := range outcomes {
+		if o != Waiting {
+			return true
+		}
+	}
+	return false
+}
+
 func needsRetry(outcomes []Outcome) bool {
 	for _, o := range outcomes {
 		if o == Unverified || o == Waiting {
@@ -84,46 +113,130 @@ func needsRetry(outcomes []Outcome) bool {
 	return false
 }
 
-func (w *Watcher) publish(ctx context.Context, outcomes []Outcome) {
-	if w.PlatformURL == "" || w.APIKey == "" || w.Fingerprint == nil {
-		return
+type deployment struct {
+	Revision    int64  `json:"revision"`
+	Fingerprint string `json:"fingerprint"`
+	Attempt     int64  `json:"attempt"`
+}
+
+type capabilityReport struct {
+	Fingerprint string `json:"fingerprint"`
+	Revision    int64  `json:"revision"`
+	Attempt     int64  `json:"attempt"`
+	Tools       *bool  `json:"tools,omitempty"`
+	ForcedTools *bool  `json:"forced_tools,omitempty"`
+	JSONObject  *bool  `json:"json_object,omitempty"`
+	JSONSchema  *bool  `json:"json_schema,omitempty"`
+	Logprobs    *bool  `json:"logprobs,omitempty"`
+}
+
+func (w *Watcher) publish(ctx context.Context, fp string, outcomes []Outcome) error {
+	if w.PlatformURL == "" || w.APIKey == "" {
+		return nil
 	}
-	fp := w.Fingerprint()
 	if fp == "" {
-		return
+		return fmt.Errorf("empty fingerprint")
 	}
-	body := map[string]any{"fingerprint": fp}
-	set := func(key string, o Outcome) {
-		switch o {
-		case Supported:
-			body[key] = true
-		case Unsupported:
-			body[key] = false
-		}
-	}
-	keys := []string{"tools", "forced_tools", "json_object", "json_schema", "logprobs"}
-	for i, key := range keys {
-		if i < len(outcomes) {
-			set(key, outcomes[i])
-		}
-	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	return report(ctx, w.Client, w.PlatformURL, w.APIKey, fp, outcomes)
+}
+
+// report registers the deployment, then records this attempt.
+// The API rejects a record whose revision is 0 or whose attempt is not newer.
+func report(ctx context.Context, client *http.Client, base, key, fp string, outcomes []Outcome) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, w.PlatformURL+"/api/provider/capabilities", bytes.NewReader(raw))
+	var dep deployment
+	code, raw, err := callJSON(ctx, client, http.MethodGet, base+"/api/provider/capabilities/deployment", key, nil, &dep)
 	if err != nil {
-		return
+		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+w.APIKey)
-	resp, err := w.Client.Do(req)
+	if code != http.StatusOK {
+		return fmt.Errorf("GET capabilities/deployment: %d %s", code, bytes.TrimSpace(raw))
+	}
+	if dep.Fingerprint != fp {
+		code, raw, err = callJSON(ctx, client, http.MethodPost, base+"/api/provider/capabilities/deployment", key, map[string]any{
+			"fingerprint":   fp,
+			"prev_revision": dep.Revision,
+		}, &dep)
+		if err != nil {
+			return err
+		}
+		if code != http.StatusOK {
+			return fmt.Errorf("POST capabilities/deployment: %d %s", code, bytes.TrimSpace(raw))
+		}
+	}
+	body := capabilityReport{
+		Fingerprint: fp,
+		Revision:    dep.Revision,
+		Attempt:     dep.Attempt + 1,
+		Tools:       outcomeBool(flagAt(outcomes, 0)),
+		ForcedTools: outcomeBool(flagAt(outcomes, 1)),
+		JSONObject:  outcomeBool(flagAt(outcomes, 2)),
+		JSONSchema:  outcomeBool(flagAt(outcomes, 3)),
+		Logprobs:    outcomeBool(flagAt(outcomes, 4)),
+	}
+	code, raw, err = callJSON(ctx, client, http.MethodPost, base+"/api/provider/capabilities", key, body, nil)
 	if err != nil {
-		return
+		return err
 	}
-	resp.Body.Close()
+	if code != http.StatusNoContent {
+		return fmt.Errorf("POST capabilities: %d %s", code, bytes.TrimSpace(raw))
+	}
+	return nil
+}
+
+func flagAt(outcomes []Outcome, i int) Outcome {
+	if i >= len(outcomes) {
+		return Waiting
+	}
+	return outcomes[i]
+}
+
+func outcomeBool(o Outcome) *bool {
+	switch o {
+	case Supported:
+		v := true
+		return &v
+	case Unsupported:
+		v := false
+		return &v
+	default:
+		return nil
+	}
+}
+
+func callJSON(ctx context.Context, client *http.Client, method, url, key string, in, out any) (int, []byte, error) {
+	var rdr io.Reader
+	if in != nil {
+		raw, err := json.Marshal(in)
+		if err != nil {
+			return 0, nil, err
+		}
+		rdr = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
+	if err != nil {
+		return 0, nil, err
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	if out != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 && len(bytes.TrimSpace(raw)) > 0 {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return resp.StatusCode, raw, err
+		}
+	}
+	return resp.StatusCode, raw, nil
 }
 
 func probe(ctx context.Context, client *http.Client, base, model, name string) Outcome {
