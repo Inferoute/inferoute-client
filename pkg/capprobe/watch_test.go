@@ -383,3 +383,53 @@ func TestNoProbeWhileBusy(t *testing.T) {
 	mu.Unlock()
 	waitFor(t, "probe once idle", func() bool { return calls() > 0 })
 }
+
+// The benchmark can close the gate after the first probe has started. The
+// rest of the batch must wait instead of running beside it.
+func TestProbeLoopStopsWhenBenchmarkStarts(t *testing.T) {
+	var mu sync.Mutex
+	idle := true
+	calls := 0
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		calls++
+		idle = false
+		mu.Unlock()
+		_, _ = w.Write([]byte(passingAnswer(probeName(body))))
+	}))
+	t.Cleanup(engine.Close)
+
+	platform := &fakePlatform{}
+	runWatcher(t, &Watcher{
+		EngineURL:   engine.URL,
+		PlatformURL: platform.server(t).URL,
+		Fingerprint: func() string { return "fp" },
+		Idle: func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return idle
+		},
+	})
+	waitFor(t, "first probe", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls >= 1
+	})
+	time.Sleep(40 * time.Millisecond)
+	mu.Lock()
+	n := calls
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("probes continued while the benchmark owned the engine: %d", n)
+	}
+	mu.Lock()
+	idle = true
+	mu.Unlock()
+	waitFor(t, "probes resume", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls > 1
+	})
+}

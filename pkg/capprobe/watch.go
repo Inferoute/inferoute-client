@@ -92,12 +92,20 @@ func (w *Watcher) Loop(ctx context.Context) {
 		}
 		candidate = ""
 
+		paused := false
 		for i, name := range Names {
 			if outcomes[i] != Waiting {
 				continue
 			}
 			if ctx.Err() != nil {
 				return
+			}
+			// Idle is not stable across this loop. The startup benchmark can
+			// close the gate while a fingerprint is being read, and a probe
+			// started in that window runs beside the concurrency test.
+			if w.Idle != nil && !w.Idle() {
+				paused = true
+				break
 			}
 			outcomes[i] = w.settle(i, probe(ctx, w.Client, w.EngineURL, w.Model, name))
 			dirty = true
@@ -114,6 +122,17 @@ func (w *Watcher) Loop(ctx context.Context) {
 				continue
 			}
 			dirty = false
+		}
+		if paused {
+			if !sleep(ctx, busyWait) {
+				return
+			}
+			for i, o := range outcomes {
+				if o == Unverified {
+					outcomes[i] = Waiting
+				}
+			}
+			continue
 		}
 		if needsRetry(outcomes) {
 			if !sleep(ctx, retryWait) {

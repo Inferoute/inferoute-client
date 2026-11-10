@@ -146,15 +146,30 @@ func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byt
 
 	req.Header.Set("Content-Type", "application/json")
 
-	httpClient := c.client
-	if bytes.Contains(body, []byte(`"stream":true`)) || bytes.Contains(body, []byte(`"stream": true`)) {
-		httpClient = c.stream
-	}
-	resp, err := httpClient.Do(req)
+	resp, err := c.forwardClient(ctx, body).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("forward: %w", wrapRequestErr(err))
 	}
 	return resp, nil
+}
+
+// forwardClient picks the HTTP client for one forwarded request.
+// Streams skip the configured timeout so a long generation is not cut off,
+// but only when the caller already set a deadline (X-Inferoute-Timeout-Ms).
+// A stream with no deadline stays on the timeout client: otherwise a stalled
+// engine holds an inference slot until the platform hangs up.
+func (c *VLLMClient) forwardClient(ctx context.Context, body []byte) *http.Client {
+	if c.stream == nil || !streamRequest(body) {
+		return c.client
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return c.client
+	}
+	return c.stream
+}
+
+func streamRequest(body []byte) bool {
+	return bytes.Contains(body, []byte(`"stream":true`)) || bytes.Contains(body, []byte(`"stream": true`))
 }
 
 // LlamaServerContext reads n_ctx from llama-server GET /props.
