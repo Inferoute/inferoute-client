@@ -13,34 +13,56 @@ import (
 	"go.uber.org/zap"
 )
 
-// Watcher runs the five probes while the GPU is idle and reports the label.
+const (
+	// softFailLimit is how many times a probe can get a 200 that fails the
+	// check before the capability is stored as unsupported. Models do not
+	// answer the same way every time.
+	softFailLimit = 3
+
+	probeTimeout = 2 * time.Minute
+)
+
+// Watcher runs the five probes while the engine is idle, reports them, and
+// keeps watching: a changed deployment is probed again.
 type Watcher struct {
 	EngineURL   string
 	Model       string
 	PlatformURL string
 	APIKey      string
+	// Fingerprint identifies the deployment. Empty means the engine is not
+	// answering yet, so nothing is probed.
 	Fingerprint func() string
 	Idle        func() bool
 	Note        func(string)
 	Client      *http.Client
+
+	// Waits. Zero uses the defaults; tests shorten them.
+	BusyWait  time.Duration
+	RetryWait time.Duration
+	WatchWait time.Duration
+
+	softFails [probeCount]int
 }
 
 func (w *Watcher) Loop(ctx context.Context) {
 	if w.Client == nil {
-		w.Client = &http.Client{Timeout: 60 * time.Second}
+		w.Client = &http.Client{Timeout: probeTimeout + 10*time.Second}
 	}
-	client := w.Client
+	busyWait := orDefault(w.BusyWait, 5*time.Second)
+	retryWait := orDefault(w.RetryWait, time.Minute)
+	watchWait := orDefault(w.WatchWait, time.Minute)
+
 	outcomes := make([]Outcome, probeCount)
-	var seen string
+	seen := ""      // deployment the outcomes belong to
+	candidate := "" // a different fingerprint seen once, not yet trusted
+	dirty := false  // results not yet reported
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		if w.Idle != nil && !w.Idle() {
-			select {
-			case <-ctx.Done():
+			if !sleep(ctx, busyWait) {
 				return
-			case <-time.After(5 * time.Second):
 			}
 			continue
 		}
@@ -48,8 +70,28 @@ func (w *Watcher) Loop(ctx context.Context) {
 		if w.Fingerprint != nil {
 			fp = w.Fingerprint()
 		}
-		outcomes = resetForFingerprint(seen, fp, outcomes)
-		seen = fp
+		if fp == "" {
+			if !sleep(ctx, busyWait) {
+				return
+			}
+			continue
+		}
+		if fp != seen {
+			// One odd reading (a GPU query that failed, say) must not wipe
+			// the reported capabilities. Act on a change seen twice.
+			if seen != "" && fp != candidate {
+				candidate = fp
+				if !sleep(ctx, busyWait) {
+					return
+				}
+				continue
+			}
+			outcomes = make([]Outcome, probeCount)
+			w.softFails = [probeCount]int{}
+			seen = fp
+		}
+		candidate = ""
+
 		for i, name := range Names {
 			if outcomes[i] != Waiting {
 				continue
@@ -57,51 +99,73 @@ func (w *Watcher) Loop(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if w.Fingerprint != nil && w.Fingerprint() != fp {
-				outcomes = resetForFingerprint(fp, w.Fingerprint(), outcomes)
-				seen = w.Fingerprint()
-				break
-			}
-			outcomes[i] = probe(ctx, client, w.EngineURL, w.Model, name)
+			outcomes[i] = w.settle(i, probe(ctx, w.Client, w.EngineURL, w.Model, name))
+			dirty = true
 			if w.Note != nil {
 				w.Note(Label(outcomes))
 			}
 		}
-		if !anyChecked(outcomes) {
-			continue
+		if dirty {
+			if err := w.publish(ctx, seen, outcomes); err != nil {
+				logger.Warn("capability report failed", zap.Error(err))
+				if !sleep(ctx, retryWait) {
+					return
+				}
+				continue
+			}
+			dirty = false
 		}
-		if err := w.publish(ctx, fp, outcomes); err != nil {
-			logger.Warn("capability report failed", zap.Error(err))
-			select {
-			case <-ctx.Done():
+		if needsRetry(outcomes) {
+			if !sleep(ctx, retryWait) {
 				return
-			case <-time.After(time.Minute):
+			}
+			for i, o := range outcomes {
+				if o == Unverified {
+					outcomes[i] = Waiting
+				}
 			}
 			continue
 		}
-		if !needsRetry(outcomes) {
+		// Everything is settled. Stay up and look for a changed deployment.
+		if !sleep(ctx, watchWait) {
 			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Minute):
-		}
-		for i, o := range outcomes {
-			if o == Unverified {
-				outcomes[i] = Waiting
-			}
 		}
 	}
 }
 
-func anyChecked(outcomes []Outcome) bool {
-	for _, o := range outcomes {
-		if o != Waiting {
-			return true
+// settle turns one probe result into the stored outcome. A 200 that failed the
+// check is retried until it has failed softFailLimit times.
+func (w *Watcher) settle(i int, res probeResult) Outcome {
+	if res.outcome == Supported {
+		w.softFails[i] = 0
+		return Supported
+	}
+	if res.outcome == Unsupported && res.soft {
+		w.softFails[i]++
+		if w.softFails[i] < softFailLimit {
+			return Unverified
 		}
 	}
-	return false
+	return res.outcome
+}
+
+func orDefault(d, fallback time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return fallback
+}
+
+// sleep waits for d. It returns false when ctx ended first.
+func sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 func needsRetry(outcomes []Outcome) bool {
@@ -241,10 +305,12 @@ func callJSON(ctx context.Context, client *http.Client, method, url, key string,
 
 func probeBody(model, name string) map[string]any {
 	body := map[string]any{
-		"model":      model,
-		"messages":   []map[string]string{{"role": "user", "content": "Reply with ok."}},
-		"max_tokens": 256,
-		"stream":     false,
+		"model":    model,
+		"messages": []map[string]string{{"role": "user", "content": "Reply with ok."}},
+		// Room for a reasoning model to think and still answer.
+		"max_tokens":  1024,
+		"temperature": 0,
+		"stream":      false,
 	}
 	switch name {
 	case "tools", "forced_tools":
@@ -292,34 +358,45 @@ func probeBody(model, name string) map[string]any {
 	return body
 }
 
-func probe(ctx context.Context, client *http.Client, base, model, name string) Outcome {
+// probeResult is one probe's outcome. soft marks an Unsupported that came from
+// a 200 whose answer failed the check, which can be the model and not the engine.
+type probeResult struct {
+	outcome Outcome
+	soft    bool
+}
+
+// classifyStatus maps a non-2xx engine status. Only 400 and 422 mean the engine
+// does not accept the feature. Busy, auth, not-found, and server errors say
+// nothing about the feature, so they are tried again.
+func classifyStatus(status int) Outcome {
+	if status == http.StatusBadRequest || status == http.StatusUnprocessableEntity {
+		return Unsupported
+	}
+	return Unverified
+}
+
+func probe(ctx context.Context, client *http.Client, base, model, name string) probeResult {
 	raw, _ := json.Marshal(probeBody(model, name))
-	reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, base+"/v1/chat/completions", bytes.NewReader(raw))
 	if err != nil {
-		return Unverified
+		return probeResult{outcome: Unverified}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return Unverified
-		}
-		return Unverified
+		return probeResult{outcome: Unverified}
 	}
 	defer resp.Body.Close()
 	rawBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return Unsupported
-	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Unverified
+		return probeResult{outcome: classifyStatus(resp.StatusCode)}
 	}
 	if probePassed(name, rawBody) {
-		return Supported
+		return probeResult{outcome: Supported}
 	}
-	return Unsupported
+	return probeResult{outcome: Unsupported, soft: true}
 }
 
 func probePassed(name string, raw []byte) bool {

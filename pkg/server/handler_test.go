@@ -101,13 +101,15 @@ func TestWriteDeadlineOnRealServer(t *testing.T) {
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
 
-	deadline := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
 	req, err := http.NewRequest(http.MethodPost, "http://"+ln.Addr().String()+"/v1/chat/completions", strings.NewReader(`{"model":"m","stream":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("X-Request-Id", "good-hmac")
-	req.Header.Set("X-Inferoute-Deadline", deadline)
+	req.Header.Set("X-Inferoute-Timeout-Ms", "600000")
+	// A time of day from another machine's clock is not used. This one is in
+	// the past, which used to fail every write.
+	req.Header.Set("X-Inferoute-Deadline", time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +118,22 @@ func TestWriteDeadlineOnRealServer(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d body = %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "[DONE]") {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestStreamWriteDeadline(t *testing.T) {
+	arrived := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	when, ok := streamWriteDeadline("1800000", arrived)
+	if !ok || !when.Equal(arrived.Add(30*time.Minute+streamWriteDeadlineGrace)) {
+		t.Fatalf("deadline = %v ok = %v", when, ok)
+	}
+	for _, header := range []string{"", "abc", "0", "-5", "2026-01-02T03:04:05Z"} {
+		if _, ok := streamWriteDeadline(header, arrived); ok {
+			t.Errorf("header %q set a deadline", header)
+		}
 	}
 }
 

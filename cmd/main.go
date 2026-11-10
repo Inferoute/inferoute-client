@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -539,9 +542,10 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 		PlatformURL: cfg.Provider.URL,
 		APIKey:      cfg.Provider.APIKey,
 		Fingerprint: func() string { return deploymentFingerprint(ctx, cfg, llmClient, gpuMonitor) },
+		// Not accepting means the concurrency benchmark owns the engine.
 		Idle: func() bool {
-			inflight, _, _ := srv.SlotSnapshot()
-			return inflight == 0
+			inflight, _, accepting := srv.SlotSnapshot()
+			return inflight == 0 && accepting
 		},
 		Note: srv.SetCapabilities,
 	}).Loop(ctx)
@@ -605,16 +609,22 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 	}).Loop(ctx)
 }
 
+// deploymentFingerprint identifies what is being served: model, engine and its
+// version, weights, GPUs, and the engine's launch arguments. It is empty while
+// the engine does not answer, so a half-started engine is not mistaken for a
+// different deployment.
 func deploymentFingerprint(ctx context.Context, cfg *config.Config, llmClient llm.Client, gpuMonitor *gpu.Monitor) string {
 	fp := cfg.Provider.Model + "|" + cfg.Provider.Engine + "|" + engine.InstalledVersion(cfg.Provider.EngineBin)
 	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if listed, err := llmClient.ListModels(probe); err == nil {
-		for _, m := range listed.Models {
-			if m.ID == cfg.Provider.Model || cfg.Provider.Model == "" {
-				fp += "|" + m.WeightFingerprint + "|" + fmt.Sprint(m.MaxModelLen)
-				break
-			}
+	listed, err := llmClient.ListModels(probe)
+	if err != nil {
+		return ""
+	}
+	for _, m := range listed.Models {
+		if m.ID == cfg.Provider.Model || cfg.Provider.Model == "" {
+			fp += "|" + m.WeightFingerprint + "|" + fmt.Sprint(m.MaxModelLen)
+			break
 		}
 	}
 	if gpuMonitor != nil {
@@ -623,5 +633,14 @@ func deploymentFingerprint(ctx context.Context, cfg *config.Config, llmClient ll
 		}
 	}
 	fp += "|" + fmt.Sprint(engine.NNodes(cfg.Provider.EngineArgs))
+	fp += "|" + engineArgsDigest(cfg.Provider.EngineArgs)
 	return fp
+}
+
+// engineArgsDigest changes when the engine's launch arguments change (a tool
+// parser turned on, say). It is a hash because the fingerprint is sent to the
+// platform and the arguments can hold an API key.
+func engineArgsDigest(args []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(args, "\x00")))
+	return hex.EncodeToString(sum[:6])
 }

@@ -45,11 +45,3 @@ func Label(outcomes []Outcome) string {
 	}
 	return line
 }
-
-// resetForFingerprint drops in-flight results when the deployment changed.
-func resetForFingerprint(have, want string, outcomes []Outcome) []Outcome {
-	if have == want {
-		return outcomes
-	}
-	return make([]Outcome, probeCount)
-}

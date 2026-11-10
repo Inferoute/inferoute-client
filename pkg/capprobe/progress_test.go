@@ -18,22 +18,6 @@ func TestLabelDoneNamesUnverified(t *testing.T) {
 	}
 }
 
-func TestFingerprintChangeDropsLateResult(t *testing.T) {
-	got := resetForFingerprint("A", "B", []Outcome{Supported, Supported, Unverified})
-	if len(got) != probeCount {
-		t.Fatal(len(got))
-	}
-	for _, o := range got {
-		if o != Waiting {
-			t.Fatal("old result survived")
-		}
-	}
-	kept := resetForFingerprint("A", "A", []Outcome{Supported})
-	if kept[0] != Supported {
-		t.Fatal("same fingerprint should keep the result")
-	}
-}
-
 func TestLabelDoneSaysCompleted(t *testing.T) {
 	got := Label([]Outcome{Supported, Unsupported, Supported, Supported, Supported})
 	if got != "completed" {

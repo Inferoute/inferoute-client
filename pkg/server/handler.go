@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/usermsg"
@@ -15,6 +17,18 @@ import (
 const maxRequestIDLength = 256
 
 const streamWriteDeadlineGrace = 5 * time.Second
+
+// streamWriteDeadline is when a stream must stop being written. The platform
+// sends how long the stream may run (X-Inferoute-Timeout-Ms), and the deadline
+// is counted from when the request arrived here. It is a duration and not a
+// time of day because the platform's clock and this machine's are not the same.
+func streamWriteDeadline(header string, arrived time.Time) (time.Time, bool) {
+	ms, err := strconv.ParseInt(strings.TrimSpace(header), 10, 64)
+	if err != nil || ms <= 0 {
+		return time.Time{}, false
+	}
+	return arrived.Add(time.Duration(ms)*time.Millisecond + streamWriteDeadlineGrace), true
+}
 
 func (s *Server) modelNotServed(w http.ResponseWriter, r *http.Request, body []byte, startTime time.Time) bool {
 	if s.config == nil || s.config.Provider.Model == "" {
@@ -185,13 +199,11 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 	if status == 0 {
 		status = http.StatusOK
 	}
-	if deadline := r.Header.Get("X-Inferoute-Deadline"); deadline != "" {
-		if when, err := time.Parse(time.RFC3339, deadline); err == nil {
-			if err := http.NewResponseController(w).SetWriteDeadline(when.Add(streamWriteDeadlineGrace)); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
-				return
-			}
+	if when, ok := streamWriteDeadline(r.Header.Get("X-Inferoute-Timeout-Ms"), startTime); ok {
+		if err := http.NewResponseController(w).SetWriteDeadline(when); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
+			return
 		}
 	}
 	w.WriteHeader(status)
