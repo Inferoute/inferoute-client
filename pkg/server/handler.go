@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -181,7 +182,20 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 	defer s.releaseInference()
 	s.setActiveSession(sessionKey)
 
-	llmResp, err := s.forwardToLLM(r.Context(), llmPath, body)
+	// The platform tells us how long this stream may run. Bound the upstream
+	// call with that deadline too: the write deadline below never fires while
+	// we are blocked reading a stalled engine, and the stream client has no
+	// timeout of its own. Without this the inference slot stays taken until
+	// the platform gives up.
+	reqCtx := r.Context()
+	writeDeadline, hasWriteDeadline := streamWriteDeadline(r.Header.Get("X-Inferoute-Timeout-Ms"), startTime)
+	if hasWriteDeadline {
+		var cancel context.CancelFunc
+		reqCtx, cancel = context.WithDeadline(reqCtx, writeDeadline)
+		defer cancel()
+	}
+
+	llmResp, err := s.forwardToLLM(reqCtx, llmPath, body)
 	if err != nil {
 		s.logError(fmt.Sprintf("Failed to forward request to LLM provider: %v", err))
 		http.Error(w, usermsg.HTTP(err, s.config.Provider.ProviderType), http.StatusBadGateway)
@@ -199,8 +213,8 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 	if status == 0 {
 		status = http.StatusOK
 	}
-	if when, ok := streamWriteDeadline(r.Header.Get("X-Inferoute-Timeout-Ms"), startTime); ok {
-		if err := http.NewResponseController(w).SetWriteDeadline(when); err != nil {
+	if hasWriteDeadline {
+		if err := http.NewResponseController(w).SetWriteDeadline(writeDeadline); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			s.logRequest(r.Method, r.URL.Path, http.StatusInternalServerError, startTime)
 			return

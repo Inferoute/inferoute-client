@@ -536,6 +536,15 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 	sender := capacity.NewSender(cfg.Provider.URL, cfg.Provider.APIKey, srv.SlotSnapshot, llmClient)
 	srv.SetCapacityNotify(sender.Notify)
 	go sender.Loop(ctx)
+
+	_, explicit := cfg.ExplicitConcurrency()
+	runBenchmark := !explicit && cfg.Provider.Engine != "llama_cpp"
+	if runBenchmark {
+		// Close the gate before capability probes start. The probe's fingerprint
+		// read is a network call; a probe that gets past Idle during it would
+		// generate beside the concurrency benchmark.
+		srv.SetBenchmarking(true)
+	}
 	go (&capprobe.Watcher{
 		EngineURL:   llmURL,
 		Model:       cfg.Provider.Model,
@@ -550,10 +559,9 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 		Note: srv.SetCapabilities,
 	}).Loop(ctx)
 
-	if _, explicit := cfg.ExplicitConcurrency(); explicit || cfg.Provider.Engine == "llama_cpp" {
+	if !runBenchmark {
 		return
 	}
-	srv.SetBenchmarking(true)
 	kind, _ := engine.ParseKind(cfg.Provider.Engine)
 	go (&benchmark.Watcher{
 		ConfigPath: configPath,

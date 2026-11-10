@@ -124,6 +124,60 @@ func TestWriteDeadlineOnRealServer(t *testing.T) {
 	}
 }
 
+// A stream that never produces a byte must still end when the platform
+// timeout is reached. The write deadline alone does not fire until a write,
+// so the upstream request has to carry the same deadline.
+func TestHungStreamStopsAtTimeout(t *testing.T) {
+	node := nodeStub(t, true)
+	cancelled := make(chan struct{})
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+		<-r.Context().Done()
+		close(cancelled)
+	}))
+	t.Cleanup(engine.Close)
+
+	s := newTestServer(node.URL, llm.NewVLLMClient(engine.URL, time.Hour))
+	s.config.Provider.Model = "m"
+	r := mux.NewRouter()
+	r.HandleFunc("/v1/chat/completions", s.handleChatCompletions).Methods(http.MethodPost)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: r}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+
+	req, err := http.NewRequest(http.MethodPost, "http://"+ln.Addr().String()+"/v1/chat/completions", strings.NewReader(`{"model":"m","stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Request-Id", "good-hmac")
+	req.Header.Set("X-Inferoute-Timeout-Ms", "200")
+	client := &http.Client{Timeout: 20 * time.Second}
+	started := time.Now()
+	resp, err := client.Do(req)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
+	}
+	if elapsed > 12*time.Second {
+		t.Fatalf("hung stream returned after %s", elapsed)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("engine request was still running")
+	}
+}
+
 func TestStreamWriteDeadline(t *testing.T) {
 	arrived := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	when, ok := streamWriteDeadline("1800000", arrived)
