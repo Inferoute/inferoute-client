@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -180,6 +181,13 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 func toolsFlag(p *fakePlatform) *bool {
 	rep, _, _ := p.last()
 	return rep.Tools
+}
+
+// fullReport is true once the last report carries all five flags.
+func fullReport(p *fakePlatform) bool {
+	rep, _, _ := p.last()
+	return rep.Tools != nil && rep.ForcedTools != nil && rep.JSONObject != nil &&
+		rep.JSONSchema != nil && rep.Logprobs != nil
 }
 
 // A busy engine (429) says nothing about tools. The probe is tried again.
@@ -382,4 +390,115 @@ func TestNoProbeWhileBusy(t *testing.T) {
 	idle = true
 	mu.Unlock()
 	waitFor(t, "probe once idle", func() bool { return calls() > 0 })
+}
+
+// The benchmark, or a request, can take the engine in the middle of a round.
+// The rest of the round waits until the engine is free, and probes that
+// already finished are not run again.
+func TestRoundStopsWhenEngineIsTaken(t *testing.T) {
+	var mu sync.Mutex
+	idle := true
+	var ran []string
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		name := probeName(body)
+		mu.Lock()
+		if !idle {
+			t.Errorf("%s probe ran while the engine was taken", name)
+		}
+		ran = append(ran, name)
+		if len(ran) == 1 {
+			idle = false // the benchmark takes the engine during the first probe
+		}
+		mu.Unlock()
+		_, _ = w.Write([]byte(passingAnswer(name)))
+	}))
+	t.Cleanup(engine.Close)
+	platform := &fakePlatform{}
+	runWatcher(t, &Watcher{
+		EngineURL:   engine.URL,
+		PlatformURL: platform.server(t).URL,
+		Fingerprint: func() string { return "fp" },
+		Idle: func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return idle
+		},
+	})
+	ranSoFar := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), ran...)
+	}
+	waitFor(t, "the first probe", func() bool { return len(ranSoFar()) > 0 })
+	time.Sleep(50 * time.Millisecond)
+	if got := ranSoFar(); len(got) != 1 {
+		t.Fatalf("probes ran while the engine was taken: %v", got)
+	}
+
+	mu.Lock()
+	idle = true
+	mu.Unlock()
+	waitFor(t, "the rest of the round", func() bool { return fullReport(platform) })
+	if got := ranSoFar(); len(got) != probeCount {
+		t.Fatalf("probes ran %v, want each once", got)
+	}
+}
+
+// Each probe holds a slot while its request runs and gives it back after.
+func TestEachProbeHoldsASlot(t *testing.T) {
+	var held, claims atomic.Int32
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if n := held.Load(); n != 1 {
+			t.Errorf("probe ran holding %d slots, want 1", n)
+		}
+		_, _ = w.Write([]byte(passingAnswer(probeName(body))))
+	}))
+	t.Cleanup(engine.Close)
+	platform := &fakePlatform{}
+	runWatcher(t, &Watcher{
+		EngineURL:   engine.URL,
+		PlatformURL: platform.server(t).URL,
+		Fingerprint: func() string { return "fp" },
+		Claim: func() (func(), bool) {
+			claims.Add(1)
+			held.Add(1)
+			return func() { held.Add(-1) }, true
+		},
+	})
+	waitFor(t, "a full report", func() bool { return fullReport(platform) })
+	if n := claims.Load(); n != probeCount {
+		t.Fatalf("claimed %d slots, want one per probe (%d)", n, probeCount)
+	}
+	if n := held.Load(); n != 0 {
+		t.Fatalf("%d slots still held after the round", n)
+	}
+}
+
+// A refused claim means no probe, even when the engine looks idle.
+func TestNoProbeWithoutASlot(t *testing.T) {
+	var granted atomic.Bool
+	engine, calls := fakeEngine(t, func(int) (int, string) { return http.StatusOK, toolCallAnswer })
+	platform := &fakePlatform{}
+	runWatcher(t, &Watcher{
+		EngineURL:   engine.URL,
+		PlatformURL: platform.server(t).URL,
+		Fingerprint: func() string { return "fp" },
+		Idle:        func() bool { return true },
+		Claim: func() (func(), bool) {
+			if !granted.Load() {
+				return nil, false
+			}
+			return func() {}, true
+		},
+	})
+	time.Sleep(50 * time.Millisecond)
+	if n := calls(); n != 0 {
+		t.Fatalf("probed %d times without a slot", n)
+	}
+	granted.Store(true)
+	waitFor(t, "probe once a slot is granted", func() bool { return calls() > 0 })
 }

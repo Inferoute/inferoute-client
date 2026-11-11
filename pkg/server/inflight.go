@@ -100,6 +100,24 @@ func (s *Server) releaseInference() {
 	s.notifyCapacityChange()
 }
 
+// ClaimIdleSlot reserves an inference slot for the client's own work, such as
+// a capability probe. It succeeds only when nothing is in flight and no
+// benchmark has the engine. The slot counts as in flight: the platform sees
+// it, and a benchmark that starts while it is held waits for it.
+func (s *Server) ClaimIdleSlot() (release func(), ok bool) {
+	if s.benchmarking.Load() || !s.inflight.CompareAndSwap(0, 1) {
+		return nil, false
+	}
+	// The benchmark closes the gate, then waits for in-flight work. If it
+	// closed the gate after the check above, give the slot back.
+	if s.benchmarking.Load() {
+		s.inflight.Add(-1)
+		return nil, false
+	}
+	s.notifyCapacityChange()
+	return s.releaseInference, true
+}
+
 // notifyCapacityChange asks the capacity sender to push. Non-blocking;
 // the sender coalesces bursts into one in-flight POST.
 func (s *Server) notifyCapacityChange() {

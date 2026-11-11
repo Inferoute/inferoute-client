@@ -468,6 +468,73 @@ func TestSameSessionRequestQueuesInsteadOf503(t *testing.T) {
 	}
 }
 
+func TestBenchmarkingRejectsAfterAcquire(t *testing.T) {
+	node := nodeStub(t, true)
+	block := &blockingLLM{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		inner:   fakeLLM{forwardResp: []byte(`{"ok":true}`)},
+	}
+	s := newTestServer(node.URL, block)
+	s.sessionQueueWait = 5 * time.Second
+
+	postSession := func(sessionKey string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+		req.Header.Set("X-Request-Id", "hmac")
+		req.Header.Set("X-Session-Key", sessionKey)
+		rec := httptest.NewRecorder()
+		s.handleChatCompletions(rec, req)
+		return rec
+	}
+
+	first := make(chan int, 1)
+	go func() { first <- postSession("sess-1").Code }()
+	select {
+	case <-block.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request never reached LLM")
+	}
+
+	second := make(chan int, 1)
+	go func() { second <- postSession("sess-1").Code }()
+	time.Sleep(200 * time.Millisecond)
+
+	s.SetBenchmarking(true)
+	close(block.release)
+
+	select {
+	case code := <-first:
+		if code != http.StatusOK {
+			t.Fatalf("first request status = %d, want 200", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first request did not finish")
+	}
+	select {
+	case code := <-second:
+		if code != http.StatusServiceUnavailable {
+			t.Fatalf("queued request status = %d, want 503 after benchmark gate", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued request did not finish")
+	}
+	if n, _, _ := s.SlotSnapshot(); n != 0 {
+		t.Fatalf("inflight = %d, want 0 after gated waiter released the slot", n)
+	}
+}
+
+func TestBenchmarkingRejectsNewInference(t *testing.T) {
+	node := nodeStub(t, true)
+	s := newTestServer(node.URL, &fakeLLM{forwardResp: []byte(`{"ok":true}`)})
+	s.SetBenchmarking(true)
+	if got := postChat(s, "hmac", `{"model":"m"}`).Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", got)
+	}
+	if n, _, _ := s.SlotSnapshot(); n != 0 {
+		t.Fatalf("inflight = %d, want 0", n)
+	}
+}
+
 func TestSameSessionQueueTimesOut(t *testing.T) {
 	node := nodeStub(t, true)
 	block := &blockingLLM{
@@ -551,6 +618,49 @@ func TestTryAcquireInference(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// A probe gets a slot only on an idle engine, and the slot counts as in flight.
+func TestClaimIdleSlot(t *testing.T) {
+	s := &Server{}
+	s.maxInflight.Store(1)
+
+	release, ok := s.ClaimIdleSlot()
+	if !ok {
+		t.Fatal("claim refused on an idle server")
+	}
+	if n, _, _ := s.SlotSnapshot(); n != 1 {
+		t.Fatalf("inflight = %d with a claim held, want 1", n)
+	}
+	if s.tryAcquireInference() {
+		t.Fatal("a request took the only slot while a probe held it")
+	}
+	if _, ok := s.ClaimIdleSlot(); ok {
+		t.Fatal("second claim granted while the first is held")
+	}
+	release()
+	if n, _, _ := s.SlotSnapshot(); n != 0 {
+		t.Fatalf("inflight = %d after release, want 0", n)
+	}
+
+	// Not beside a request, even with slots free.
+	s.maxInflight.Store(4)
+	if !s.tryAcquireInference() {
+		t.Fatal("acquire")
+	}
+	if _, ok := s.ClaimIdleSlot(); ok {
+		t.Fatal("claim granted beside a request in flight")
+	}
+	s.releaseInference()
+
+	// Not while the benchmark has the engine.
+	s.SetBenchmarking(true)
+	if _, ok := s.ClaimIdleSlot(); ok {
+		t.Fatal("claim granted during the benchmark")
+	}
+	if n, _, _ := s.SlotSnapshot(); n != 0 {
+		t.Fatalf("a refused claim left inflight = %d", n)
+	}
 }
 
 func TestRaisingLimitUnblocksQueuedSession(t *testing.T) {

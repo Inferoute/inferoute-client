@@ -536,6 +536,14 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 	sender := capacity.NewSender(cfg.Provider.URL, cfg.Provider.APIKey, srv.SlotSnapshot, llmClient)
 	srv.SetCapacityNotify(sender.Notify)
 	go sender.Loop(ctx)
+
+	// vLLM without a configured limit measures its concurrency. Close the gate
+	// before the probes start, so their first round cannot delay that.
+	_, explicit := cfg.ExplicitConcurrency()
+	benchmarks := !explicit && cfg.Provider.Engine != "llama_cpp"
+	if benchmarks {
+		srv.SetBenchmarking(true)
+	}
 	go (&capprobe.Watcher{
 		EngineURL:   llmURL,
 		Model:       cfg.Provider.Model,
@@ -547,13 +555,14 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 			inflight, _, accepting := srv.SlotSnapshot()
 			return inflight == 0 && accepting
 		},
-		Note: srv.SetCapabilities,
+		// Each probe holds a slot, so the benchmark waits for it.
+		Claim: srv.ClaimIdleSlot,
+		Note:  srv.SetCapabilities,
 	}).Loop(ctx)
 
-	if _, explicit := cfg.ExplicitConcurrency(); explicit || cfg.Provider.Engine == "llama_cpp" {
+	if !benchmarks {
 		return
 	}
-	srv.SetBenchmarking(true)
 	kind, _ := engine.ParseKind(cfg.Provider.Engine)
 	go (&benchmark.Watcher{
 		ConfigPath: configPath,
@@ -579,6 +588,10 @@ func startCapacity(ctx context.Context, cfg *config.Config, configPath, llmURL s
 		Apply: func(n int) { srv.SetMaxInflight(int32(n)) },
 		Note:  srv.SetEngineNote,
 		Gate:  srv.SetBenchmarking,
+		Inflight: func() int32 {
+			n, _, _ := srv.SlotSnapshot()
+			return n
+		},
 		GPUBusy: func() bool {
 			if gpuMonitor == nil {
 				return false

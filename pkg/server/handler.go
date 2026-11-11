@@ -179,6 +179,14 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request, llmPath
 		return
 	}
 	defer s.releaseInference()
+	// The benchmark may have closed the gate after the check at the top,
+	// while this request read its body or queued for a slot (up to
+	// sessionQueueWait). It now waits for in-flight work to finish, so give
+	// the slot back instead of sending this request into its measurement.
+	if s.benchmarking.Load() {
+		s.writeBusy(w, r, startTime)
+		return
+	}
 	s.setActiveSession(sessionKey)
 
 	llmResp, err := s.forwardToLLM(r.Context(), llmPath, body)

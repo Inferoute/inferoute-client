@@ -32,9 +32,15 @@ type Watcher struct {
 	// Fingerprint identifies the deployment. Empty means the engine is not
 	// answering yet, so nothing is probed.
 	Fingerprint func() string
-	Idle        func() bool
-	Note        func(string)
-	Client      *http.Client
+	// Idle is checked before each round and before each probe.
+	Idle func() bool
+	// Claim takes an inference slot for one probe and returns its release.
+	// It fails while requests are in flight or the concurrency benchmark has
+	// the engine. A held slot counts as in flight, so a benchmark that starts
+	// during a probe waits for it. Nil runs probes without a slot.
+	Claim  func() (release func(), ok bool)
+	Note   func(string)
+	Client *http.Client
 
 	// Waits. Zero uses the defaults; tests shorten them.
 	BusyWait  time.Duration
@@ -92,6 +98,7 @@ func (w *Watcher) Loop(ctx context.Context) {
 		}
 		candidate = ""
 
+		taken := false
 		for i, name := range Names {
 			if outcomes[i] != Waiting {
 				continue
@@ -99,11 +106,26 @@ func (w *Watcher) Loop(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			outcomes[i] = w.settle(i, probe(ctx, w.Client, w.EngineURL, w.Model, name))
+			release, ok := w.claim()
+			if !ok {
+				taken = true
+				break
+			}
+			res := probe(ctx, w.Client, w.EngineURL, w.Model, name)
+			release()
+			outcomes[i] = w.settle(i, res)
 			dirty = true
 			if w.Note != nil {
 				w.Note(Label(outcomes))
 			}
+		}
+		if taken {
+			// A request or the benchmark has the engine. Finish the round
+			// once it is free. Probes that already ran are not repeated.
+			if !sleep(ctx, busyWait) {
+				return
+			}
+			continue
 		}
 		if dirty {
 			if err := w.publish(ctx, seen, outcomes); err != nil {
@@ -131,6 +153,18 @@ func (w *Watcher) Loop(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// claim reserves the engine for one probe. A round can last minutes, so this
+// runs before every probe, not once per round.
+func (w *Watcher) claim() (release func(), ok bool) {
+	if w.Idle != nil && !w.Idle() {
+		return nil, false
+	}
+	if w.Claim == nil {
+		return func() {}, true
+	}
+	return w.Claim()
 }
 
 // settle turns one probe result into the stored outcome. A 200 that failed the

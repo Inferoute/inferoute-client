@@ -11,6 +11,12 @@ import (
 
 const poll = 5 * time.Second
 
+// drainWait is how long a benchmark waits, with the gate closed, for requests
+// and capability probes that were already running. It is longer than the LLM
+// forward timeout (at least 330s), so a non-streaming request always ends
+// first. A longer stream defers the benchmark to a later check.
+var drainWait = 6 * time.Minute
+
 // Watcher measures once the engine is ready, then stays quiet until the
 // engine drops or someone asks for another run.
 type Watcher struct {
@@ -24,6 +30,7 @@ type Watcher struct {
 	Note        func(string)
 	Gate        func(closed bool)
 	GPUBusy     func() bool
+	Inflight    func() int32
 	Preemptions func(ctx context.Context) int64
 	Record      func(Result)
 	client      *http.Client
@@ -73,20 +80,26 @@ func (w *Watcher) step(ctx context.Context) {
 }
 
 func (w *Watcher) measure(ctx context.Context, fp string) {
-	if w.GPUBusy != nil && w.GPUBusy() {
-		logger.Warn("benchmark starting while the GPU looks busy; the result may be low")
-	}
 	if w.Gate != nil {
 		w.Gate(true)
-	}
-	if w.Note != nil {
-		w.Note("benchmarking (1/" + itoa(len(Levels)) + ")")
 	}
 	defer func() {
 		if w.Gate != nil {
 			w.Gate(false)
 		}
 	}()
+	// The gate stops new requests. Requests already running and capability
+	// probes still hold slots, so wait for them before measuring.
+	if !w.waitIdle(ctx) {
+		if ctx.Err() == nil {
+			logger.Warn("benchmark deferred: requests still in flight", zap.Duration("waited", drainWait))
+		}
+		return
+	}
+	// Our own work has finished, so a busy GPU here is another program.
+	if w.GPUBusy != nil && w.GPUBusy() {
+		logger.Warn("benchmark starting while the GPU looks busy; the result may be low")
+	}
 
 	var levels []LevelResult
 	for i, n := range Levels {
@@ -148,6 +161,33 @@ func (w *Watcher) finish(res Result) {
 		w.Gate(false)
 	}
 	logger.Info("concurrency set", zap.Int("n", res.Concurrency))
+}
+
+// waitIdle is true once nothing holds a slot: no request admitted before the
+// gate closed, and no capability probe. It is false after drainWait.
+func (w *Watcher) waitIdle(ctx context.Context) bool {
+	if w.Inflight == nil || w.Inflight() <= 0 {
+		return true
+	}
+	if w.Note != nil {
+		w.Note("waiting for requests to finish")
+	}
+	deadline := time.Now().Add(drainWait)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-tick.C:
+			if w.Inflight() <= 0 {
+				return true
+			}
+			if time.Now().After(deadline) {
+				return false
+			}
+		}
+	}
 }
 
 func (w *Watcher) fallback() int {
