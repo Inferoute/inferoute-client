@@ -17,6 +17,17 @@ echo "Version: $VERSION"
 echo "Commit:  $COMMIT"
 echo "Date:    $DATE"
 
+# On macOS the GPU power/temperature reader is C (cgo), which needs Apple's
+# compiler. Without it Go silently drops those readings, so fail loudly.
+if [ "$(uname -s)" = "Darwin" ]; then
+    if ! xcrun --find clang >/dev/null 2>&1; then
+        echo "Error: Xcode Command Line Tools not found. Install them with: xcode-select --install" >&2
+        exit 1
+    fi
+    export CGO_ENABLED=1
+    echo "macOS:   building with GPU power/temperature support (cgo)"
+fi
+
 # Build the binary with version information
 go build -ldflags "-X 'github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Version=$VERSION' -X 'github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Commit=$COMMIT' -X 'github.com/sentnl/inferoute-node/inferoute-client/pkg/version.Date=$DATE'" -o inferoute-client ./cmd
 

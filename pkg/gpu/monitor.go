@@ -34,6 +34,8 @@ type Monitor struct {
 	cachedAt  time.Time
 	cacheTTL  time.Duration
 	queryFn   func() (*GPUInfo, error) // tests; nil uses nvidia-smi / system_profiler
+
+	macName string // system_profiler is slow and the chip never changes
 }
 
 // GPUInfo represents information about the GPU
@@ -48,6 +50,10 @@ type GPUInfo struct {
 	MemoryUsed    int64   `json:"memory_used"`
 	MemoryFree    int64   `json:"memory_free"`
 	IsBusy        bool    `json:"is_busy"`
+	// Zero means the platform did not report it.
+	TemperatureC float64 `json:"temperature_c,omitempty"`
+	PowerDrawW   float64 `json:"power_draw_w,omitempty"`
+	PowerLimitW  float64 `json:"power_limit_w,omitempty"`
 }
 
 // NvidiaSMI represents the XML output of nvidia-smi
@@ -66,6 +72,49 @@ type GPU struct {
 	UUID          string      `xml:"uuid"`
 	FBMemoryUsage MemoryUsage `xml:"fb_memory_usage"`
 	Utilization   Utilization `xml:"utilization"`
+	Temperature   struct {
+		GPUTemp string `xml:"gpu_temp"`
+	} `xml:"temperature"`
+	// Drivers before ~R530 use power_readings; newer ones gpu_power_readings.
+	PowerReadings    PowerReadings `xml:"power_readings"`
+	GPUPowerReadings PowerReadings `xml:"gpu_power_readings"`
+}
+
+// PowerReadings covers the field names used across driver versions.
+type PowerReadings struct {
+	PowerDraw         string `xml:"power_draw"`
+	InstantPowerDraw  string `xml:"instant_power_draw"`
+	AveragePowerDraw  string `xml:"average_power_draw"`
+	CurrentPowerLimit string `xml:"current_power_limit"`
+	PowerLimit        string `xml:"power_limit"`
+}
+
+// power returns draw and limit in watts, zero when not reported.
+func (g GPU) power() (draw, limit float64) {
+	for _, r := range []PowerReadings{g.GPUPowerReadings, g.PowerReadings} {
+		if draw == 0 {
+			draw = firstUnitValue(r.InstantPowerDraw, r.PowerDraw, r.AveragePowerDraw)
+		}
+		if limit == 0 {
+			limit = firstUnitValue(r.CurrentPowerLimit, r.PowerLimit)
+		}
+	}
+	return draw, limit
+}
+
+// firstUnitValue parses the first positive value like "120.50 W" or "45 C";
+// "N/A" and blanks are skipped.
+func firstUnitValue(values ...string) float64 {
+	for _, v := range values {
+		f := strings.Fields(v)
+		if len(f) == 0 {
+			continue
+		}
+		if n, err := strconv.ParseFloat(f[0], 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 // MemoryUsage represents memory usage information
@@ -207,6 +256,7 @@ func (m *Monitor) getNvidiaGPUInfo() (*GPUInfo, error) {
 
 	// Determine if GPU is busy (utilization > 20%)
 	isBusy := utilization > 20.0
+	powerDraw, powerLimit := gpu.power()
 
 	gpuInfo := &GPUInfo{
 		ProductName:   gpu.ProductName,
@@ -219,6 +269,9 @@ func (m *Monitor) getNvidiaGPUInfo() (*GPUInfo, error) {
 		MemoryUsed:    memUsed,
 		MemoryFree:    memFree,
 		IsBusy:        isBusy,
+		TemperatureC:  firstUnitValue(gpu.Temperature.GPUTemp),
+		PowerDrawW:    powerDraw,
+		PowerLimitW:   powerLimit,
 	}
 
 	logger.Debug("GPU information retrieved successfully",
@@ -236,11 +289,58 @@ func (m *Monitor) getMacGPUInfo() (*GPUInfo, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), nvidiaSMITimeout)
 	defer cancel()
+
+	name := m.macName
+	if name == "" {
+		got, err := macProductName(ctx)
+		if err != nil {
+			return nil, err
+		}
+		name = got
+		m.macName = got
+	}
+
+	stats := queryMacStats(ctx)
+	powerW, tempC := macSensors()
+	const mib = 1 << 20
+	used := stats.UsedBytes / mib
+	total := stats.TotalBytes / mib
+	free := total - used
+	if free < 0 {
+		free = 0
+	}
+
+	gpuInfo := &GPUInfo{
+		ProductName:   name,
+		DriverVersion: "macOS Native",
+		CUDAVersion:   "N/A",
+		GPUCount:      1,
+		UUID:          "mac-gpu",
+		Utilization:   stats.Utilization,
+		MemoryTotal:   total,
+		MemoryUsed:    used,
+		MemoryFree:    free,
+		IsBusy:        stats.Utilization > 20.0,
+		TemperatureC:  tempC,
+		PowerDrawW:    powerW,
+	}
+
+	logger.Debug("macOS GPU information retrieved successfully",
+		zap.String("product_name", gpuInfo.ProductName),
+		zap.Float64("utilization", gpuInfo.Utilization),
+		zap.Int64("memory_used_mib", gpuInfo.MemoryUsed),
+		zap.Int64("memory_total_mib", gpuInfo.MemoryTotal))
+
+	return gpuInfo, nil
+}
+
+// macProductName returns the chip name (with core count) from system_profiler.
+func macProductName(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "system_profiler", "SPDisplaysDataType")
 	output, err := cmd.Output()
 	if err != nil {
 		logger.Error("Failed to run system_profiler", zap.Error(err))
-		return nil, fmt.Errorf("failed to run system_profiler: %w", err)
+		return "", fmt.Errorf("failed to run system_profiler: %w", err)
 	}
 
 	// Parse the output
@@ -286,41 +386,15 @@ func (m *Monitor) getMacGPUInfo() (*GPUInfo, error) {
 		productName = "Unknown macOS GPU"
 	}
 
-	// For macOS, we'll set some default values for fields we can't get
-	gpuInfo := &GPUInfo{
-		ProductName:   productName,
-		DriverVersion: "macOS Native",
-		CUDAVersion:   "N/A",
-		GPUCount:      1,
-		UUID:          "mac-gpu",
-		Utilization:   0.0,
-		MemoryTotal:   0,
-		MemoryUsed:    0,
-		MemoryFree:    0,
-		IsBusy:        false, // Always false for macOS as requested
-	}
-
-	// If we found core count, add it to the product name
 	if coreCount > 0 {
-		gpuInfo.ProductName = fmt.Sprintf("%s (%d cores)", productName, coreCount)
+		return fmt.Sprintf("%s (%d cores)", productName, coreCount), nil
 	}
-
-	logger.Debug("macOS GPU information retrieved successfully",
-		zap.String("product_name", gpuInfo.ProductName),
-		zap.Bool("is_busy", gpuInfo.IsBusy))
-
-	return gpuInfo, nil
+	return productName, nil
 }
 
 // IsBusy returns true if the GPU is busy
 func (m *Monitor) IsBusy() (bool, error) {
 	logger.Debug("Checking if GPU is busy")
-
-	// For macOS, always return false as requested
-	if m.isMacOS {
-		logger.Debug("macOS GPU busy status", zap.Bool("is_busy", false))
-		return false, nil
-	}
 
 	info, err := m.GetGPUInfo()
 	if err != nil {
