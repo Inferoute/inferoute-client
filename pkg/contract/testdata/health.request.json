@@ -18,11 +18,14 @@
     "cuda_version": "12.4",
     "gpu_count": 1,
     "uuid": "GPU-example",
-    "utilization": 0,
+    "utilization": 37.5,
     "memory_total": 24576,
     "memory_used": 1024,
     "memory_free": 23552,
-    "is_busy": false
+    "is_busy": false,
+    "temperature_c": 64.5,
+    "power_draw_w": 312.4,
+    "power_limit_w": 450
   },
   "provider_type": "vllm"
 }
