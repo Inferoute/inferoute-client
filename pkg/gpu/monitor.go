@@ -278,7 +278,10 @@ func (m *Monitor) getNvidiaGPUInfo() (*GPUInfo, error) {
 		zap.String("product_name", gpuInfo.ProductName),
 		zap.String("driver_version", gpuInfo.DriverVersion),
 		zap.Float64("utilization", gpuInfo.Utilization),
-		zap.Bool("is_busy", gpuInfo.IsBusy))
+		zap.Bool("is_busy", gpuInfo.IsBusy),
+		zap.Float64("temperature_c", gpuInfo.TemperatureC),
+		zap.Float64("power_draw_w", gpuInfo.PowerDrawW),
+		zap.Float64("power_limit_w", gpuInfo.PowerLimitW))
 
 	return gpuInfo, nil
 }
@@ -329,7 +332,9 @@ func (m *Monitor) getMacGPUInfo() (*GPUInfo, error) {
 		zap.String("product_name", gpuInfo.ProductName),
 		zap.Float64("utilization", gpuInfo.Utilization),
 		zap.Int64("memory_used_mib", gpuInfo.MemoryUsed),
-		zap.Int64("memory_total_mib", gpuInfo.MemoryTotal))
+		zap.Int64("memory_total_mib", gpuInfo.MemoryTotal),
+		zap.Float64("temperature_c", gpuInfo.TemperatureC),
+		zap.Float64("power_draw_w", gpuInfo.PowerDrawW))
 
 	return gpuInfo, nil
 }
