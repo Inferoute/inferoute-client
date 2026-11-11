@@ -1,14 +1,10 @@
 # Changelog
 
-## Unreleased
+## [0.42.0] - 2026-11-11
 
-### Changed
+First release.
 
-- The terminal and dashboard no longer print error logs. Failures go to `error.log`. Recent Requests lists inference requests only.
-
-## [0.42] - 2026-10-11
-
-### Removed
-
-- Ollama and FreeToken. Setup, install scripts, and the client run vLLM, vLLM Metal, or llama.cpp.
-
+- Reports GPU temperature and power draw on NVIDIA and Apple Silicon, and GPU memory and utilization on macOS.
+- macOS binaries are built natively.
+- Errors go to `error.log` instead of the terminal and dashboard.
+- Runs vLLM, vLLM Metal, or llama.cpp.
