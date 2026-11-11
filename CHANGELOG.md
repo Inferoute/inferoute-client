@@ -6,7 +6,7 @@
 
 - The terminal and dashboard no longer print error logs. Failures go to `error.log`. Recent Requests lists inference requests only.
 
-## [1.2.0] - 2026-10-11
+## [0.42] - 2026-10-11
 
 ### Removed
 
