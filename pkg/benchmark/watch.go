@@ -14,7 +14,9 @@ const poll = 5 * time.Second
 // drainWait is how long a benchmark waits, with the gate closed, for requests
 // and capability probes that were already running. It is longer than the LLM
 // forward timeout (at least 330s), so a non-streaming request always ends
-// first. A longer stream defers the benchmark to a later check.
+// first. A longer stream defers the benchmark until that stream is gone.
+// Retrying on the next poll re-closes the gate while the stream is still
+// running, admits another one in the gap, and keeps inference rejected.
 var drainWait = 6 * time.Minute
 
 // Watcher measures once the engine is ready, then stays quiet until the
@@ -35,6 +37,9 @@ type Watcher struct {
 	Record      func(Result)
 	client      *http.Client
 	applied     bool
+	// drainPaused is set when a drain times out. The gate stays open until
+	// inflight hits zero so a long stream cannot pin the node shut.
+	drainPaused bool
 }
 
 // Loop polls. Explicit config and llama.cpp never get here: the caller skips them.
@@ -59,6 +64,7 @@ func (w *Watcher) Loop(ctx context.Context) {
 func (w *Watcher) step(ctx context.Context) {
 	if consumeForce(w.ConfigPath) {
 		w.applied = false
+		w.drainPaused = false
 	}
 	ready := w.Ready != nil && w.Ready()
 	if !ready {
@@ -80,6 +86,13 @@ func (w *Watcher) step(ctx context.Context) {
 }
 
 func (w *Watcher) measure(ctx context.Context, fp string) {
+	// The poll is 5s. A stream that outlasted drainWait is still holding a
+	// slot, and closing the gate again lets a new long stream in during the
+	// gap. Leave the gate open until this one finishes.
+	if w.drainPaused && w.Inflight != nil && w.Inflight() > 0 {
+		return
+	}
+	w.drainPaused = false
 	if w.Gate != nil {
 		w.Gate(true)
 	}
@@ -93,6 +106,7 @@ func (w *Watcher) measure(ctx context.Context, fp string) {
 	if !w.waitIdle(ctx) {
 		if ctx.Err() == nil {
 			logger.Warn("benchmark deferred: requests still in flight", zap.Duration("waited", drainWait))
+			w.drainPaused = true
 		}
 		return
 	}
@@ -148,6 +162,7 @@ func (w *Watcher) measure(ctx context.Context, fp string) {
 
 func (w *Watcher) finish(res Result) {
 	w.applied = true
+	w.drainPaused = false
 	if w.Apply != nil {
 		w.Apply(res.Concurrency)
 	}
