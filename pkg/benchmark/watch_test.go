@@ -117,4 +117,94 @@ func TestMeasureSkipsWhenInflightNeverDrains(t *testing.T) {
 	if applied || w.applied {
 		t.Fatal("must not apply or cache a run that never started")
 	}
+	if !w.drainPaused {
+		t.Fatal("a timed-out drain must wait for the in-flight request to finish")
+	}
+}
+
+// A stream longer than drainWait used to be retried on the next poll. The
+// gate opened for 5s, a new stream took the slot, and the node stayed shut.
+func TestTimedOutDrainWaitsForIdleBeforeClosingAgain(t *testing.T) {
+	old := drainWait
+	drainWait = 30 * time.Millisecond
+	t.Cleanup(func() { drainWait = old })
+
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.Error(w, "fail", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	var inflight atomic.Int32
+	inflight.Store(1)
+	var closes atomic.Int32
+	w := &Watcher{
+		ConfigPath:  filepath.Join(t.TempDir(), "config.yaml"),
+		EngineURL:   srv.URL,
+		Model:       "m",
+		Ready:       func() bool { return true },
+		Fingerprint: func() string { return "fp" },
+		client:      srv.Client(),
+		Gate: func(closed bool) {
+			if closed {
+				closes.Add(1)
+			}
+		},
+		Inflight: func() int32 { return inflight.Load() },
+		Apply:    func(int) {},
+	}
+
+	w.step(context.Background())
+	if closes.Load() != 1 {
+		t.Fatalf("closes = %d, want 1", closes.Load())
+	}
+	if requests.Load() != 0 {
+		t.Fatal("benchmark hit the engine while a request was in flight")
+	}
+
+	w.step(context.Background())
+	if closes.Load() != 1 {
+		t.Fatalf("retried the drain while the request was still in flight, closes=%d", closes.Load())
+	}
+
+	inflight.Store(0)
+	w.step(context.Background())
+	if closes.Load() != 2 {
+		t.Fatalf("closes after the request finished = %d, want 2", closes.Load())
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("engine requests = %d, want 1 once the engine was idle", requests.Load())
+	}
+}
+
+func TestForceBenchmarkDrainsWhilePaused(t *testing.T) {
+	old := drainWait
+	drainWait = 30 * time.Millisecond
+	t.Cleanup(func() { drainWait = old })
+
+	var closes atomic.Int32
+	w := &Watcher{
+		ConfigPath:  filepath.Join(t.TempDir(), "config.yaml"),
+		Ready:       func() bool { return true },
+		Fingerprint: func() string { return "fp" },
+		Gate: func(closed bool) {
+			if closed {
+				closes.Add(1)
+			}
+		},
+		Inflight: func() int32 { return 1 },
+	}
+	w.step(context.Background())
+	w.step(context.Background())
+	if closes.Load() != 1 {
+		t.Fatalf("closes before force = %d, want 1", closes.Load())
+	}
+	if err := Clear(w.ConfigPath); err != nil {
+		t.Fatal(err)
+	}
+	w.step(context.Background())
+	if closes.Load() != 2 {
+		t.Fatalf("closes after force = %d, want a new drain", closes.Load())
+	}
 }
