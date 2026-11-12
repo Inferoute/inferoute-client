@@ -6,6 +6,8 @@
 #   $env:PROVIDER_API_KEY="your-key"; irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/windows-install.ps1 | iex
 #
 # Optional env: PROVIDER_API_KEY, PROVIDER_TYPE, INFEROUTE_SKIP_SETUP=1
+# With INFEROUTE_SKIP_SETUP=1 (no wizard): PROVIDER_API_KEY and PROVIDER_MODEL
+# are required; LLM_URL and SERVER_PORT are optional.
 
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -14,11 +16,6 @@ function Write-Info([string]$Message) { Write-Host $Message -ForegroundColor Cya
 function Write-Ok([string]$Message) { Write-Host $Message -ForegroundColor Green }
 function Write-Warn([string]$Message) { Write-Host $Message -ForegroundColor Yellow }
 function Write-Err([string]$Message) { Write-Host $Message -ForegroundColor Red }
-
-function Write-Utf8File([string]$Path, [string]$Content) {
-    $utf8 = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($Path, $Content, $utf8)
-}
 
 function Add-UserPath([string]$Dir) {
     $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
@@ -143,21 +140,20 @@ if ($SkipSetup) {
         Write-Err "PROVIDER_API_KEY is required when INFEROUTE_SKIP_SETUP=1"
         exit 1
     }
-    Write-Info "Downloading config template..."
-    $ExampleUrl = "https://raw.githubusercontent.com/inferoute/inferoute-client/main/config.yaml.example"
-    try {
-        Invoke-WebRequest -Uri $ExampleUrl -OutFile $ConfigPath -UseBasicParsing
-    } catch {
-        Write-Err "Failed to download config.yaml.example: $_"
+    # Setup checks the model against the approved catalog and writes the config.
+    $setupArgs = @("setup", "--yes", "--no-start", "--config", $ConfigPath,
+        "--api-key", $ProviderApiKey, "--engine", $Engine,
+        "--llm-url", $LlmUrl, "--port", $ServerPort)
+    $ProviderModel = $env:PROVIDER_MODEL
+    if (-not [string]::IsNullOrWhiteSpace($ProviderModel)) {
+        $setupArgs += @("--model", $ProviderModel)
+    }
+    & $exe @setupArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "Setup failed. Set PROVIDER_MODEL to an approved model that your engine serves."
+        Write-Err "List the models this machine can serve: inferoute-client compatibility --provider-type llama_cpp"
         exit 1
     }
-    $content = [System.IO.File]::ReadAllText($ConfigPath)
-    $content = [regex]::Replace($content, '(?m)^(\s*port:\s*).*$', "`${1}$ServerPort")
-    $content = [regex]::Replace($content, '(?m)^(\s*api_key:\s*).*$', "`${1}`"$ProviderApiKey`"")
-    $content = [regex]::Replace($content, '(?m)^(\s*provider_type:\s*).*$', '${1}"llama_cpp"')
-    $content = [regex]::Replace($content, '(?m)^(\s*)# engine:.*$', "`${1}engine: `"$Engine`"")
-    $content = [regex]::Replace($content, '(?m)^(\s*llm_url:\s*).*$', "`${1}`"$LlmUrl`"")
-    Write-Utf8File $ConfigPath $content
     Write-Ok "Configuration written."
 } else {
     $setupArgs = @("setup", "--config", $ConfigPath)

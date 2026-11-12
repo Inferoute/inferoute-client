@@ -28,6 +28,9 @@ Flags:
   --yes                  Non-interactive: require --engine, --model, --api-key
   --install              Install the engine if it is missing (--yes does not install)
   --no-start             Do not start the engine after writing config
+  --llm-url string       URL of an engine you run yourself. Setup does not
+                         install or start an engine, and auto_start stays off
+  --port int             Port for the client's local API (default: 8080)
   --help                 Show this help
 
 Env:
@@ -46,6 +49,9 @@ type Options struct {
 	Yes            bool
 	Install        bool
 	NoStart        bool
+	// LLMURL is an engine the user runs. Setup leaves it alone.
+	LLMURL string
+	Port   int
 }
 
 // Run parses args and runs the wizard.
@@ -64,6 +70,8 @@ func Run(args []string) error {
 	fs.BoolVar(&opts.Yes, "yes", false, "Non-interactive")
 	fs.BoolVar(&opts.Install, "install", false, "Install the engine if missing")
 	fs.BoolVar(&opts.NoStart, "no-start", false, "Do not start the engine")
+	fs.StringVar(&opts.LLMURL, "llm-url", "", "URL of an engine you run yourself")
+	fs.IntVar(&opts.Port, "port", 0, "Port for the client's local API")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, helpText)
 	}

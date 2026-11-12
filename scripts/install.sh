@@ -8,22 +8,6 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Check required environment variables
-check_env_var() {
-    local var_name="$1"
-    local var_value="$2"
-    local default_value="$3"
-    
-    if [ -z "$var_value" ] && [ -z "$default_value" ]; then
-        echo -e "${RED}Error: Required environment variable $var_name is not set${NC}"
-        echo "Please run the script with required environment variables:"
-        echo "curl ... | NGROK_AUTHTOKEN=\"your-token\" PROVIDER_API_KEY=\"your-key\" bash"
-        exit 1
-    fi
-    
-    echo "${var_value:-$default_value}"
-}
-
 # Create config directory
 CONFIG_DIR="$HOME/.config/inferoute"
 LOG_DIR="$HOME/.local/state/inferoute/log"
@@ -190,27 +174,29 @@ fi
 echo -e "\n${BLUE}=== Configuration Setup ===${NC}"
 
 if [ "${INFEROUTE_SKIP_SETUP:-0}" = "1" ]; then
-    echo -e "${YELLOW}INFEROUTE_SKIP_SETUP=1 — writing config from environment (no wizard).${NC}"
-    curl -fsSL -o "$CONFIG_DIR/config.yaml" https://raw.githubusercontent.com/Inferoute/inferoute-client/main/config.yaml.example
-    PROVIDER_API_KEY="${PROVIDER_API_KEY:-}"
-    PROVIDER_TYPE="${PROVIDER_TYPE:-vllm}"
-    DEFAULT_LLM_URL="http://127.0.0.1:8000"
-    LLM_URL=$(check_env_var "LLM_URL" "$LLM_URL" "$DEFAULT_LLM_URL")
-    SERVER_PORT=$(check_env_var "SERVER_PORT" "$SERVER_PORT" "8080")
-    if [ -z "$PROVIDER_API_KEY" ]; then
+    echo -e "${YELLOW}INFEROUTE_SKIP_SETUP=1 — configuring from environment (no wizard).${NC}"
+    if [ -z "${PROVIDER_API_KEY:-}" ]; then
         echo -e "${RED}Error: PROVIDER_API_KEY is required when INFEROUTE_SKIP_SETUP=1${NC}"
         exit 1
     fi
-    if [ "$(uname)" = "Darwin" ]; then
-        sed -i '' "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
-        sed -i '' "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
-        sed -i '' "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
-        sed -i '' "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
-    else
-        sed -i "s|port: .*|port: $SERVER_PORT|" "$CONFIG_DIR/config.yaml"
-        sed -i "s|api_key: .*|api_key: \"$PROVIDER_API_KEY\"|" "$CONFIG_DIR/config.yaml"
-        sed -i "s|provider_type: .*|provider_type: \"$PROVIDER_TYPE\"|" "$CONFIG_DIR/config.yaml"
-        sed -i "s|llm_url: .*|llm_url: \"$LLM_URL\"|" "$CONFIG_DIR/config.yaml"
+    PROVIDER_TYPE="${PROVIDER_TYPE:-vllm}"
+    if [ -z "${LLM_URL:-}" ]; then
+        case "$PROVIDER_TYPE" in
+            llama_cpp) LLM_URL="http://127.0.0.1:8081" ;;
+            *)         LLM_URL="http://127.0.0.1:8000" ;;
+        esac
+    fi
+    SETUP_ARGS=(setup --yes --no-start --config "$CONFIG_DIR/config.yaml"
+                --api-key "$PROVIDER_API_KEY" --engine "$PROVIDER_TYPE"
+                --llm-url "$LLM_URL" --port "${SERVER_PORT:-8080}")
+    if [ -n "${PROVIDER_MODEL:-}" ]; then
+        SETUP_ARGS+=(--model "$PROVIDER_MODEL")
+    fi
+    # Setup checks the model against the approved catalog and writes the config.
+    if ! inferoute-client "${SETUP_ARGS[@]}" </dev/null; then
+        echo -e "${RED}Setup failed.${NC} Set PROVIDER_MODEL to an approved model that your engine serves."
+        echo -e "List the models this machine can serve: ${YELLOW}inferoute-client compatibility --provider-type $PROVIDER_TYPE${NC}"
+        exit 1
     fi
     echo -e "${GREEN}Configuration file written.${NC}"
 else
@@ -221,7 +207,9 @@ else
     if [ -n "$PROVIDER_TYPE" ]; then
         SETUP_ARGS+=(--engine "$PROVIDER_TYPE")
     fi
-    if [ -r /dev/tty ]; then
+    # [ -r /dev/tty ] is true even with no controlling terminal (Docker, cron);
+    # only opening it tells.
+    if (: </dev/tty) 2>/dev/null; then
         echo -e "${BLUE}Starting setup wizard...${NC}"
         inferoute-client "${SETUP_ARGS[@]}" </dev/tty
     else

@@ -52,6 +52,14 @@ func Execute(opts Options, io Streams) error {
 
 	platformURL := config.ResolvePlatformURL(opts.CatalogURL, cfg.Provider.URL)
 	cfg.Provider.URL = platformURL
+	if opts.Port > 0 {
+		cfg.Server.Port = opts.Port
+	}
+	// An engine the user runs is theirs to install and start.
+	external := strings.TrimSpace(opts.LLMURL) != ""
+	if external {
+		opts.NoStart = true
+	}
 
 	inferscale.WithWait = func(msg string, fn func() error) error {
 		return SpinWhile(io.Out, msg, fn)
@@ -107,7 +115,7 @@ func Execute(opts Options, io Streams) error {
 	if plan.Role == "worker" && kind == engine.KindVLLM && pinned == "" && !cfg.EnrolledWorker() {
 		return fmt.Errorf("this cluster has no vLLM version yet. Run setup on the master first")
 	}
-	if detected.Found && pinned != "" {
+	if detected.Found && pinned != "" && !(external && plan.Role != "worker") {
 		have := engine.InstalledVersion(detected.Bin)
 		if have != "" && have != pinned {
 			reinstall := opts.Yes || plan.Role == "worker"
@@ -137,7 +145,9 @@ func Execute(opts Options, io Streams) error {
 			}
 		}
 	}
-	if !detected.Found {
+	if !detected.Found && external && plan.Role != "worker" {
+		autoStart = false
+	} else if !detected.Found {
 		doInstall := opts.Install || (plan.Role == "worker")
 		if !doInstall && !opts.Yes {
 			q := fmt.Sprintf("%s is not installed. Install it now?", engine.Label(kind))
@@ -190,7 +200,10 @@ func Execute(opts Options, io Streams) error {
 	cfg.Provider.Engine = string(kind)
 	cfg.Provider.ProviderType = engine.PlatformType(kind)
 	cfg.Provider.LLMURL = engine.DefaultURL(kind)
-	cfg.Provider.AutoStart = autoStart && detected.Found && plan.Role != "master" && plan.Role != "worker"
+	if external {
+		cfg.Provider.LLMURL = strings.TrimSpace(opts.LLMURL)
+	}
+	cfg.Provider.AutoStart = autoStart && !external && detected.Found && plan.Role != "master" && plan.Role != "worker"
 
 	hfRepo := engine.HFRepo(entry)
 	applyServeOpts(cfg, entry, hfRepo)

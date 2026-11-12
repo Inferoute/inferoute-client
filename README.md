@@ -58,19 +58,26 @@ irm https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/wi
 Additional information: see the [Windows install documentation](https://docs.inferoute.com/introduction/setup-windows).
 
 
-## 💫 Skip the wizard
+## 💫 Install without the wizard
 
-If you already have a supported inference client running, you can skip the wizard entirely.
+For scripts, CI and Docker, where nobody is there to answer prompts. You run the inference engine yourself and tell the installer which model it serves.
 
 ```bash
 export INFEROUTE_SKIP_SETUP=1
 export PROVIDER_API_KEY="your-provider-api-key"
-export PROVIDER_TYPE="vllm"
+export PROVIDER_TYPE="vllm"                       # vllm, vllm-metal or llama_cpp
+export PROVIDER_MODEL="Qwen/Qwen2.5-7B-Instruct"  # the model your engine serves
 export LLM_URL="http://127.0.0.1:8000"
 export SERVER_PORT="8080"
 
 curl -fsSL https://raw.githubusercontent.com/inferoute/inferoute-client/main/scripts/install.sh | bash
 ```
+
+`PROVIDER_MODEL` is required. It must be an [approved model](https://docs.inferoute.com/provider-client/approved-models) for your engine, and your engine must serve it under that exact name. The install stops with an error if it is not. To list the models this machine can serve, run `inferoute-client compatibility`.
+
+With a multi-node cluster key or a join code, leave `PROVIDER_MODEL` unset. The cluster's model is used.
+
+The client does not install or start the engine in this mode.
 
 [Override default parameters](https://docs.inferoute.com/provider-client/configuration#overriding-defaults)
 
@@ -111,12 +118,15 @@ If the inference engine runs on the Docker host, bind it to `0.0.0.0` so the con
 
 The client listens on `127.0.0.1` inside the container. The Cloudflare tunnel does **not** need a published port. To open the local dashboard from the host, set `server.host` to `0.0.0.0` in the container config and publish the port (for example `-p 127.0.0.1:8080:8080`).
 
+The container always [installs without the wizard](#-install-without-the-wizard), so `PROVIDER_MODEL` is required.
+
 ### Docker Quick Start
 ```bash
 docker run -d \
   --name inferoute-client \
   -e PROVIDER_API_KEY="your-key" \
   -e PROVIDER_TYPE="vllm" \
+  -e PROVIDER_MODEL="Qwen/Qwen2.5-7B-Instruct" \
   -e LLM_URL="http://host.docker.internal:8000" \
   inferoute/inferoute-client:latest
 ```
@@ -130,6 +140,7 @@ services:
     environment:
       - PROVIDER_API_KEY=your-key
       - PROVIDER_TYPE=vllm
+      - PROVIDER_MODEL=Qwen/Qwen2.5-7B-Instruct
       - LLM_URL=http://host.docker.internal:8000
     restart: unless-stopped
 ```
@@ -140,6 +151,8 @@ docker build -t inferoute-client .
 docker run -d \
   --name inferoute-client \
   -e PROVIDER_API_KEY="your-key" \
+  -e PROVIDER_MODEL="Qwen/Qwen2.5-7B-Instruct" \
+  -e LLM_URL="http://host.docker.internal:8000" \
   inferoute-client
 ```
 

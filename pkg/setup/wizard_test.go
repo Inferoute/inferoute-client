@@ -215,6 +215,60 @@ func TestExecuteYesWritesConfig(t *testing.T) {
 	}
 }
 
+// An engine the user runs: setup records its URL and never installs or starts one.
+func TestExecuteYesExternalEngine(t *testing.T) {
+	for _, found := range []bool{true, false} {
+		t.Run(fmt.Sprintf("found=%v", found), func(t *testing.T) {
+			singlePlan(t)
+			detectEngine = func(kind engine.Kind) engine.Detected {
+				if found {
+					return engine.Detected{Kind: kind, Found: true, Bin: "/opt/vllm/bin/vllm"}
+				}
+				return engine.Detected{Kind: kind}
+			}
+			installEngine = func(context.Context, engine.Kind, string, io.Writer) error {
+				t.Error("setup installed an engine")
+				return nil
+			}
+			cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+			var out, errBuf bytes.Buffer
+			err := Execute(Options{
+				ConfigPath:     cfgPath,
+				Engine:         "vllm",
+				Model:          "Qwen/Qwen3-0.6B",
+				APIKey:         "k",
+				OfflineCatalog: filepath.Join("testdata", "catalog.json"),
+				Yes:            true,
+				Install:        true,
+				LLMURL:         "http://host.docker.internal:8000",
+				Port:           9090,
+			}, Streams{In: strings.NewReader(""), Out: &out, Err: &errBuf})
+			if err != nil {
+				t.Fatalf("Execute: %v\n%s\n%s", err, out.String(), errBuf.String())
+			}
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Provider.LLMURL != "http://host.docker.internal:8000" {
+				t.Errorf("llm_url = %q", cfg.Provider.LLMURL)
+			}
+			if cfg.Server.Port != 9090 {
+				t.Errorf("port = %d", cfg.Server.Port)
+			}
+			if cfg.Provider.Model != "Qwen/Qwen3-0.6B" {
+				t.Errorf("model = %q", cfg.Provider.Model)
+			}
+			if cfg.Provider.AutoStart {
+				t.Error("auto_start is on")
+			}
+			if strings.Contains(out.String(), "Skipping install") {
+				t.Errorf("printed an install hint:\n%s", out.String())
+			}
+		})
+	}
+}
+
 func TestExecuteYesVLLM(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
