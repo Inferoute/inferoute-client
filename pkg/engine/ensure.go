@@ -96,6 +96,7 @@ func SpecFromConfig(cfg *config.Config) (Spec, error) {
 		RopeType:           cfg.Provider.RopeType,
 		RopeBaseContextLen: cfg.Provider.RopeBaseContextLen,
 		GGUFFile:           cfg.Provider.GGUFFile,
+		Task:               cfg.Provider.Task,
 	})
 	if len(cfg.Provider.EngineArgs) > 0 {
 		spec.Args = append([]string(nil), cfg.Provider.EngineArgs...)

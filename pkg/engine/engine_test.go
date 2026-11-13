@@ -125,6 +125,38 @@ func TestServeSpecWithOpts(t *testing.T) {
 	if strings.Contains(strings.Join(plain.Args, " "), "--jinja") {
 		t.Fatalf("llama.cpp without a parser must not pass --jinja: %v", plain.Args)
 	}
+	if strings.Contains(strings.Join(plain.Args, " "), "--embeddings") {
+		t.Fatalf("chat model must not pass --embeddings: %v", plain.Args)
+	}
+}
+
+func TestServeSpecEmbedding(t *testing.T) {
+	t.Parallel()
+
+	llama := ServeSpec(KindLlamaCpp, "llama-server", "baai/bge-m3", "gpustack/bge-m3-GGUF", ServeOpts{
+		GGUFFile: "bge-m3-Q8_0.gguf",
+		Task:     "embedding",
+	})
+	if !hasArg(llama.Args, "--embeddings") {
+		t.Fatalf("llama.cpp embedding model missing --embeddings: %v", llama.Args)
+	}
+	vllm := ServeSpec(KindVLLM, "vllm", "baai/bge-m3", "BAAI/bge-m3", ServeOpts{Task: "embedding"})
+	if hasArg(vllm.Args, "--embeddings") {
+		t.Fatalf("vLLM must not get llama.cpp --embeddings: %v", vllm.Args)
+	}
+
+	cfg := &config.Config{}
+	cfg.Provider.Engine = "llama_cpp"
+	cfg.Provider.Model = "baai/bge-m3"
+	cfg.Provider.GGUFFile = "bge-m3-Q8_0.gguf"
+	cfg.Provider.Task = "embedding"
+	spec, err := SpecFromConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasArg(spec.Args, "--embeddings") {
+		t.Fatalf("spec from config missing --embeddings: %v", spec.Args)
+	}
 }
 
 func TestHFRepo(t *testing.T) {

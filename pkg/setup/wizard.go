@@ -535,6 +535,7 @@ func applyServeOpts(cfg *config.Config, entry verify.CatalogEntry, hfRepo string
 	cfg.Provider.MaxModelLen = opts.MaxModelLen
 	cfg.Provider.RopeType = opts.RopeType
 	cfg.Provider.RopeBaseContextLen = opts.RopeBaseContextLen
+	cfg.Provider.Task = opts.Task
 	if hfRepo != "" && hfRepo != entry.Alias {
 		cfg.Provider.HFRepo = hfRepo
 	} else {

@@ -36,6 +36,8 @@ type CatalogEntry struct {
 	RecommendedConcurrency *int32   `json:"recommended_concurrency,omitempty"`
 	Engines                []string `json:"engines,omitempty"`
 	GGUFFile               *string  `json:"gguf_file,omitempty"`
+	// Task is chat or embedding. Empty means chat.
+	Task string `json:"task,omitempty"`
 }
 
 // catalogResponse is the public list from GET /api/models/approved-builds.

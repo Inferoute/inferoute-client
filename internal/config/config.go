@@ -67,6 +67,8 @@ type Config struct {
 		HFRepo string `yaml:"hf_repo,omitempty"`
 		// GGUFFile is the HuggingFace filename llama.cpp serves.
 		GGUFFile string `yaml:"gguf_file,omitempty"`
+		// Task is chat or embedding, from the catalog. Empty means chat.
+		Task string `yaml:"task,omitempty"`
 		// ClusterMode is single, master, or worker. Empty means single.
 		ClusterMode string `yaml:"cluster_mode,omitempty"`
 		// NodeToken is the worker (or master) credential for tailnet routes.
@@ -134,6 +136,7 @@ func (c *Config) normalize() {
 	c.Provider.RopeType = strings.TrimSpace(c.Provider.RopeType)
 	c.Provider.HFRepo = strings.TrimSpace(c.Provider.HFRepo)
 	c.Provider.GGUFFile = strings.TrimSpace(c.Provider.GGUFFile)
+	c.Provider.Task = strings.ToLower(strings.TrimSpace(c.Provider.Task))
 	if c.Provider.Engine == "" {
 		c.Provider.Engine = "vllm"
 	}

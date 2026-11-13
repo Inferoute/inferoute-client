@@ -288,6 +288,7 @@ func refreshClusterEngine(ctx context.Context, cfg *config.Config) error {
 		RopeType:           cfg.Provider.RopeType,
 		RopeBaseContextLen: cfg.Provider.RopeBaseContextLen,
 		GGUFFile:           cfg.Provider.GGUFFile,
+		Task:               cfg.Provider.Task,
 	})
 	next := inferscale.Apply(spec, remote)
 	cfg.Provider.EngineArgs = next.Args

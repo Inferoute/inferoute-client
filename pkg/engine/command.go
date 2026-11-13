@@ -25,6 +25,8 @@ type ServeOpts struct {
 	RopeType           string
 	RopeBaseContextLen int64
 	GGUFFile           string
+	// Task is chat or embedding. llama.cpp needs --embeddings to serve /v1/embeddings.
+	Task string
 }
 
 // ServeOptsFromCatalog maps public catalog fields onto ServeOpts.
@@ -45,6 +47,7 @@ func ServeOptsFromCatalog(entry verify.CatalogEntry) ServeOpts {
 	if entry.GGUFFile != nil {
 		opts.GGUFFile = strings.TrimSpace(*entry.GGUFFile)
 	}
+	opts.Task = strings.TrimSpace(entry.Task)
 	return opts
 }
 
@@ -114,8 +117,18 @@ func ServeSpec(kind Kind, bin, modelAlias, hfRepo string, opts ServeOpts) Spec {
 		if strings.TrimSpace(opts.ToolCallParser) != "" {
 			spec.Args = append(spec.Args, "--jinja")
 		}
+		// vLLM detects embedding models itself; llama-server answers 501 on
+		// /v1/embeddings unless started with --embeddings.
+		if IsEmbedding(opts.Task) {
+			spec.Args = append(spec.Args, "--embeddings")
+		}
 	}
 	return spec
+}
+
+// IsEmbedding reports whether a catalog task is an embedding model.
+func IsEmbedding(task string) bool {
+	return strings.EqualFold(strings.TrimSpace(task), "embedding")
 }
 
 func vllmServeFlags(opts ServeOpts) []string {
