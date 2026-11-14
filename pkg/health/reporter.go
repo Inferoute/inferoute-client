@@ -48,6 +48,10 @@ type HealthReport struct {
 	GPU          *gpu.GPUInfo      `json:"gpu"`
 	ProviderType string            `json:"provider_type"`
 	Benchmark    *BenchmarkSummary `json:"benchmark,omitempty"`
+	// Engine is the configured kind: vllm, vllm-metal or llama_cpp.
+	Engine string `json:"engine,omitempty"`
+	// EngineVersion is what the running engine reports, e.g. 0.33.0 or b11770.
+	EngineVersion string `json:"engine_version,omitempty"`
 }
 
 // BenchmarkSummary is the last concurrency measurement, stored by the node.
@@ -253,8 +257,28 @@ func (r *Reporter) GetHealthReport(ctx context.Context) (*HealthReport, error) {
 		ProviderType: r.config.Provider.ProviderType,
 		Benchmark:    bench,
 	}
+	report.Engine, report.EngineVersion = r.runningEngine(ctx)
 
 	return report, nil
+}
+
+// engineVersioner is the engine client's version lookup (llm.VLLMClient).
+type engineVersioner interface {
+	EngineVersion(ctx context.Context, llamaServer bool) string
+}
+
+// runningEngine is the configured engine kind and the release the running engine
+// reports. The engine has just answered ListModels, so this is one more local call.
+// A failed lookup leaves the version empty; it never holds up or fails the report.
+func (r *Reporter) runningEngine(ctx context.Context) (kind, version string) {
+	k, ok := engine.ParseKind(r.config.Provider.Engine)
+	if !ok {
+		return "", ""
+	}
+	if v, ok := r.llmClient.(engineVersioner); ok {
+		version = v.EngineVersion(ctx, k == engine.KindLlamaCpp)
+	}
+	return string(k), version
 }
 
 func (r *Reporter) gpuInfo() *gpu.GPUInfo {

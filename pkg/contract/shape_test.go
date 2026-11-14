@@ -33,7 +33,9 @@ func TestRequestShapes(t *testing.T) {
 				// Fractional utilization and the sensor readings must bind on the node.
 				Utilization: 37.5, TemperatureC: 64.5, PowerDrawW: 312.4, PowerLimitW: 450,
 			},
-			ProviderType: "vllm",
+			ProviderType:  "vllm",
+			Engine:        "vllm",
+			EngineVersion: "0.33.0",
 		}},
 		{"get-prices.request.json", struct {
 			Models []string `json:"models"`

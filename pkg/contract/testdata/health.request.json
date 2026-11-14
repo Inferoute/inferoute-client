@@ -27,5 +27,7 @@
     "power_draw_w": 312.4,
     "power_limit_w": 450
   },
-  "provider_type": "vllm"
+  "provider_type": "vllm",
+  "engine": "vllm",
+  "engine_version": "0.33.0"
 }

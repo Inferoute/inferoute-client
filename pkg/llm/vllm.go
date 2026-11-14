@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sentnl/inferoute-node/inferoute-client/pkg/logger"
@@ -155,6 +157,50 @@ func (c *VLLMClient) ForwardRequest(ctx context.Context, path string, body []byt
 		return nil, fmt.Errorf("forward: %w", wrapRequestErr(err))
 	}
 	return resp, nil
+}
+
+// engineVersionTimeout bounds the version lookup so it never holds up a health report.
+const engineVersionTimeout = 3 * time.Second
+
+// EngineVersion asks the running engine for its release.
+// vLLM and vLLM Metal: GET /version, {"version":"0.33.0"}.
+// llama-server: GET /props, "build_info":"b11770-39da130fc", returned as "b11770".
+// Returns "" when the engine does not answer in time or says something unexpected.
+func (c *VLLMClient) EngineVersion(ctx context.Context, llamaServer bool) string {
+	ctx, cancel := context.WithTimeout(ctx, engineVersionTimeout)
+	defer cancel()
+	path := "/version"
+	if llamaServer {
+		path = "/props"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var body struct {
+		Version   string `json:"version"`
+		BuildInfo string `json:"build_info"`
+	}
+	// /props also carries the chat template and settings; 1 MiB is plenty.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return ""
+	}
+	if llamaServer {
+		build, _, _ := strings.Cut(strings.TrimSpace(body.BuildInfo), "-")
+		if build == "unknown" {
+			return ""
+		}
+		return build
+	}
+	return strings.TrimSpace(body.Version)
 }
 
 // LlamaServerContext reads n_ctx from llama-server GET /props.
